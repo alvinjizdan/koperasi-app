@@ -1,0 +1,87 @@
+# ============================================================
+# SECRET & ENVIRONMENT — jangan pernah masuk repository
+# ============================================================
+.env
+.env.backup
+.env.production
+# Semua varian .env KECUALI contoh tanpa secret
+.env.*
+!.env.example
+
+# ============================================================
+# DEPENDENCY
+# ============================================================
+/node_modules
+/vendor
+
+# ============================================================
+# BUILD & CACHE LARAVEL
+# ============================================================
+/public/build
+/public/hot
+/public/storage
+/public/fonts-manifest.dev.json
+/storage/*.key
+/storage/pail
+.phpunit.result.cache
+/.phpunit.cache
+# Cache bawaan Laravel (dibuat ulang otomatis)
+/bootstrap/cache/*.php
+
+# ============================================================
+# LOG
+# ============================================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ============================================================
+# BACKUP DATABASE & ARSITEK DATA LOKAL — tidak boleh ikut commit
+# (hash password pengguna ada di dalamnya; lihat docs/BACKUP-RESTORE.md)
+# ============================================================
+*.dump
+*.sql
+*.sql.gz
+*.sqlite
+*.sqlite-journal
+/backups
+
+# ============================================================
+# IDE & EDITOR
+# ============================================================
+/.idea
+/.vscode
+/.zed
+/.nova
+/.cursor
+/.codex
+/.fleet
+/.history
+.phpactor.json
+_ide_helper.php
+*.swp
+
+# ============================================================
+# TOOLING AGENT LOKAL (metadata mesin ini, bukan bagian aplikasi)
+# ============================================================
+/.freebuff
+/.agents
+
+# ============================================================
+# PACKAGE REGISTRY AUTH (bila kelak diisi token)
+# ============================================================
+/auth.json
+
+# ============================================================
+# OS
+# ============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================================
+# LAIN-LAIN (legacy)
+# ============================================================
+Homestead.json
+Homestead.yaml
