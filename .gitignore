@@ -68,6 +68,10 @@ _ide_helper.php
 /.freebuff
 /.agents
 
+# Instruksi tooling agent di root proyek
+/AGENTS.md
+/CLAUDE.md
+
 # ============================================================
 # PACKAGE REGISTRY AUTH (bila kelak diisi token)
 # ============================================================
