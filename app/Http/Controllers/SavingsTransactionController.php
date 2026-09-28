@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\DepositRequest;
+use App\Http\Requests\ReverseSavingsTransactionRequest;
 use App\Http\Requests\WithdrawRequest;
 use App\Models\SavingsAccount;
 use App\Models\SavingsTransaction;
@@ -98,5 +99,25 @@ class SavingsTransactionController extends Controller
         return Inertia::render('Simpanan/Transaksi/Show', [
             'transaction' => $savingsTransaction,
         ]);
+    }
+
+    /**
+     * Koreksi transaksi melalui reversal teraudit (Ticket 15, A.7/A.8).
+     */
+    public function reverse(ReverseSavingsTransactionRequest $request, SavingsTransaction $savingsTransaction): RedirectResponse
+    {
+        try {
+            $reversal = $this->service->reverse(
+                $savingsTransaction,
+                (int) auth()->id(),
+                (string) $request->validated('reason'),
+            );
+        } catch (ValidationException $e) {
+            return redirect()->back()->withErrors($e->errors());
+        }
+
+        return redirect()
+            ->route('simpanan-rekening.show', $reversal->savings_account_id)
+            ->with('success', 'Reversal berhasil dicatat. Nomor transaksi: '.$reversal->transaction_number);
     }
 }

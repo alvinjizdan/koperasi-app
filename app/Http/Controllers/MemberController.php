@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreMemberRequest;
 use App\Http\Requests\UpdateMemberRequest;
+use App\Models\InstallmentSchedule;
 use App\Models\Member;
 use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
@@ -88,8 +89,32 @@ class MemberController extends Controller
      */
     public function show(Member $member): Response
     {
+        // Ticket 17 BUG-02: ringkasan finansial dihitung dari sumber kebenaran
+        // modul masing-masing (bukan angka statis) dan mengikuti definisi yang
+        // sama dengan laporan: saldo simpanan dari savings_accounts.balance,
+        // sisa kewajiban pinjaman aktif dari total_owed (pokok+bunga+denda).
+        $member->load(['savingsAccounts:id,member_id,balance']);
+
+        $activeLoanIds = $member->loans()
+            ->whereIn('status', ['ACTIVE', 'DISBURSED'])
+            ->pluck('id');
+
+        $activeLoansOutstanding = round((float) InstallmentSchedule::query()
+            ->whereIn('loan_id', $activeLoanIds)
+            ->selectRaw('COALESCE(SUM(
+                principal_amount - paid_amount
+                + interest_amount - interest_paid
+                + penalty_accrued - penalty_paid
+            ), 0) as owed')->value('owed'), 2);
+
         return Inertia::render('Anggota/Show', [
             'member' => $member,
+            'financial_summary' => [
+                'total_savings_balance' => round((float) $member->savingsAccounts->sum('balance'), 2),
+                'savings_account_count' => $member->savingsAccounts->count(),
+                'active_loans_outstanding' => $activeLoansOutstanding,
+                'active_loan_count' => $activeLoanIds->count(),
+            ],
             'flash' => [
                 'success' => session('success'),
                 'error' => session('error'),

@@ -41,6 +41,7 @@ return [
                 'create' => 'Membuka rekening & mengelola produk',
                 'deposit' => 'Mencatat setoran simpanan',
                 'withdraw' => 'Mencatat penarikan simpanan',
+                'reverse' => 'Membatalkan transaksi simpanan melalui reversal',
             ],
         ],
 
@@ -60,6 +61,7 @@ return [
             'actions' => [
                 'view' => 'Melihat jadwal & pembayaran angsuran',
                 'record_payment' => 'Mencatat pembayaran angsuran',
+                'reverse' => 'Membatalkan pembayaran angsuran melalui reversal',
             ],
         ],
 
@@ -127,6 +129,20 @@ return [
                 'view' => 'Melihat hasil rekonsiliasi & temuan',
                 'run' => 'Menjalankan proses rekonsiliasi',
                 'resolve' => 'Menindaklanjuti temuan rekonsiliasi',
+            ],
+        ],
+
+        'accounting' => [
+            'label' => 'Akuntansi',
+            'actions' => [
+                'view' => 'Melihat daftar perkiraan (COA)',
+                'accounts.manage' => 'Mengelola daftar perkiraan (COA)',
+                'journals.view' => 'Melihat jurnal umum',
+                'journals.create' => 'Membuat & mengubah jurnal DRAFT',
+                'journals.post' => 'Memposting jurnal ke buku besar',
+                'journals.reverse' => 'Mereversi jurnal yang sudah diposting',
+                'ledger.view' => 'Melihat buku besar',
+                'reports.view' => 'Melihat laporan keuangan (neraca saldo, neraca, laba rugi)',
             ],
         ],
     ],

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\ReverseInstallmentPaymentRequest;
 use App\Http\Requests\StoreInstallmentPaymentRequest;
 use App\Models\InstallmentPayment;
 use App\Models\Loan;
@@ -65,6 +66,13 @@ class InstallmentController extends Controller
     {
         $loan->load(['member', 'disbursement', 'schedules', 'payments.operator']);
         $this->paymentService->updateScheduleStatuses($loan);
+
+        // Ticket 24 (C.2): endpoint GET TIDAK memicu akrual denda — pembacaan
+        // jadwal bebas efek samping finansial (refresh/navigasi tidak mengubah
+        // kewajiban). Akrual hanya melalui jalur eksplisit:
+        // `php artisan penalties:accrue` (lihat app/Console/Commands).
+        // updateScheduleStatuses() di atas hanya merapikan label status
+        // UPCOMING/DUE/OVERDUE berdasarkan tanggal — bukan mutasi finansial.
 
         return Inertia::render('Angsuran/Schedule', [
             'loan' => $loan,
@@ -130,10 +138,26 @@ class InstallmentController extends Controller
      */
     public function showPayment(InstallmentPayment $payment): Response
     {
-        $payment->load(['loan.member', 'schedule', 'operator']);
+        $payment->load(['loan.member', 'schedule', 'operator', 'reversedOriginal', 'reversals']);
 
         return Inertia::render('Angsuran/ShowPayment', [
             'payment' => $payment,
         ]);
+    }
+
+    /**
+     * Reversal pembayaran angsuran (Ticket 21).
+     */
+    public function reversePayment(ReverseInstallmentPaymentRequest $request, InstallmentPayment $payment): RedirectResponse
+    {
+        try {
+            $reversal = $this->paymentService->reverse($payment, (int) auth()->id(), $request->validated('reason'));
+        } catch (ValidationException $e) {
+            return redirect()->back()->withErrors($e->errors())->withInput();
+        }
+
+        return redirect()
+            ->route('angsuran.payment.show', $reversal->id)
+            ->with('success', 'Reversal pembayaran berhasil diproses. Nomor transaksi: '.$reversal->payment_number);
     }
 }

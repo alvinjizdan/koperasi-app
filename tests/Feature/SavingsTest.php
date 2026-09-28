@@ -31,6 +31,7 @@ class SavingsTest extends TestCase
                 'code' => 'SIM-001',
                 'name' => 'Simpanan Sukarela',
                 'description' => 'Simpanan biasa tanpa jangka waktu',
+                'category' => 'voluntary',
                 'is_active' => true,
             ]);
 

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreSavingProductRequest;
 use App\Http\Requests\UpdateSavingProductRequest;
 use App\Models\SavingProduct;
+use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -51,6 +52,15 @@ class SavingProductController extends Controller
     {
         $product = SavingProduct::create($request->validated());
 
+        AuditLogger::log(
+            'savings.product.created',
+            SavingProduct::class,
+            $product->id,
+            $product->code.' - '.$product->name,
+            'Produk simpanan baru dibuat.',
+            ['category' => $product->category, 'is_active' => $product->is_active]
+        );
+
         return redirect()
             ->route('simpanan-produk.index')
             ->with('success', 'Produk simpanan '.$product->name.' berhasil ditambahkan.');
@@ -73,26 +83,47 @@ class SavingProductController extends Controller
     {
         $savingProduct->update($request->validated());
 
+        // Referensi historis aman: transaksi/rekening merujuk ID produk;
+        // perubahan tidak bersifat retroaktif terhadap nominal transaksi.
+        AuditLogger::logChanges(
+            $savingProduct,
+            'savings.product.updated',
+            ['code', 'name', 'category', 'description', 'is_active'],
+            'Produk simpanan diperbarui.'
+        );
+
         return redirect()
             ->route('simpanan-produk.index')
             ->with('success', 'Produk simpanan '.$savingProduct->name.' berhasil diperbarui.');
     }
 
     /**
-     * Nonaktifkan produk simpanan. Tidak diizinkan jika sudah ada rekening terikat.
+     * Nonaktifkan produk simpanan (Ticket 20).
+     *
+     * Produk DENGAN rekening terikat TETAP BISA dinonaktifkan: rekening dan
+     * histori lama tetap dapat dilihat, namun transaksi baru pada rekening
+     * produk tersebut ditolak (divalidasi di SavingsTransactionService).
+     * Penghapusan produk tidak tersedia agar referensi historis tetap utuh.
      */
     public function deactivate(SavingProduct $savingProduct): RedirectResponse
     {
-        if ($savingProduct->hasAccounts()) {
-            return redirect()
-                ->back()
-                ->with('error', 'Produk tidak dapat dinonaktifkan karena sudah ada rekening simpanan yang menggunakan produk ini.');
+        if (! $savingProduct->is_active) {
+            return redirect()->back()->with('error', 'Produk sudah berstatus nonaktif.');
         }
 
         $savingProduct->update(['is_active' => false]);
 
+        AuditLogger::log(
+            'savings.product.deactivated',
+            SavingProduct::class,
+            $savingProduct->id,
+            $savingProduct->code.' - '.$savingProduct->name,
+            sprintf('Produk simpanan dinonaktifkan (%d rekening terikat). Transaksi baru pada rekening produk ini ditolak.', $savingProduct->savingsAccounts()->count()),
+            ['linked_accounts' => $savingProduct->savingsAccounts()->count()]
+        );
+
         return redirect()
             ->back()
-            ->with('success', 'Produk simpanan '.$savingProduct->name.' berhasil dinonaktifkan.');
+            ->with('success', 'Produk simpanan '.$savingProduct->name.' dinonaktifkan. Rekening lama tetap dapat dilihat; transaksi baru ditolak.');
     }
 }

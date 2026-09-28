@@ -10,12 +10,16 @@
  */
 
 use App\Models\CashierSession;
+use App\Models\InstallmentSchedule;
 use App\Models\Loan;
 use App\Models\SavingsAccount;
+use App\Models\SavingsTransaction;
 use App\Services\CashierService;
 use App\Services\InstallmentPaymentService;
 use App\Services\LoanService;
+use App\Services\Penalty\PenaltyCalculator;
 use App\Services\SavingsTransactionService;
+use App\Support\DbTransaction;
 use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -127,6 +131,41 @@ try {
             );
 
             return ['payment_id' => $payment->id];
+        })(),
+
+        'savings_reverse' => (function () use ($params) {
+            $reversal = app(SavingsTransactionService::class)->reverse(
+                SavingsTransaction::findOrFail($params['transaction_id']),
+                (int) $params['user_id'],
+                'Uji konkurensi reversal',
+            );
+
+            return ['reversal_id' => $reversal->id];
+        })(),
+
+        'penalty_accrue' => (function () use ($params) {
+            // Konfigurasi denda dikirim via payload karena worker adalah proses
+            // terpisah dengan config default masing-masing.
+            config([
+                'business-rules.penalty.method' => $params['penalty_method'] ?? 'none',
+                'business-rules.penalty.amount_per_day' => $params['amount_per_day'] ?? 0,
+                'business-rules.penalty.grace_days' => $params['grace_days'] ?? 0,
+            ]);
+
+            // Akrual denda wajib lock baris jadwal (SELECT ... FOR UPDATE)
+            // sebelum baca-hitung-tulis, agar dua proses untuk periode sama
+            // tidak menggandakan denda. Ini pola yang wajib dipakai integrasi
+            // produksi saat denda diaktifkan (D-02).
+            return DbTransaction::run(function () use ($params) {
+                $schedule = InstallmentSchedule::lockForUpdate()->findOrFail($params['schedule_id']);
+                $result = app(PenaltyCalculator::class)->accrueForSchedule($schedule);
+
+                $schedule->penalty_accrued = (float) $schedule->penalty_accrued + $result['accrued'];
+                $schedule->penalty_accrued_through = $result['through'];
+                $schedule->save();
+
+                return ['accrued' => $result['accrued']];
+            });
         })(),
 
         'close_session' => (function () use ($params) {

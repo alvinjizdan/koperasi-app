@@ -2,13 +2,36 @@
 
 namespace Tests\Feature;
 
+use App\Models\Permission;
+use App\Models\Role;
 use App\Models\User;
+use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class DashboardTest extends TestCase
 {
     use RefreshDatabase;
+
+    private User $userWithPermission;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->seed(PermissionSeeder::class);
+
+        $this->userWithPermission = User::factory()->create();
+        $role = Role::query()->create([
+            'name' => 'custom_pengaturan_'.uniqid(),
+            'display_name' => 'Custom',
+            'is_system' => false,
+        ]);
+        $role->permissions()->attach(
+            Permission::query()->where('name', 'pengaturan.view')->pluck('id')
+        );
+        $this->userWithPermission->roles()->attach($role->id);
+    }
 
     public function test_unauthenticated_users_are_redirected_to_login(): void
     {
@@ -39,14 +62,15 @@ class DashboardTest extends TestCase
 
     public function test_authenticated_users_can_view_module_placeholders(): void
     {
+        // Ticket 17 BUG-01: halaman pengaturan kini memerlukan permission
+        // pengaturan.view; pengguna tanpa permission ditolak di backend.
         $user = User::factory()->create();
+        $this->actingAs($user)->get('/pengaturan')->assertForbidden();
 
-        // Modul Kasir dan Laporan tidak lagi berupa placeholder karena sudah diimplementasikan.
-        // Modul Pengaturan juga sudah diimplementasikan melalui SettingsController.
         $modules = ['pengaturan'];
 
         foreach ($modules as $module) {
-            $response = $this->actingAs($user)->get('/'.$module);
+            $response = $this->actingAs($this->userWithPermission)->get('/'.$module);
 
             $response->assertStatus(200);
             $response->assertInertia(fn ($page) => $page

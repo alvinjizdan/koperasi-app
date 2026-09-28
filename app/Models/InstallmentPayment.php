@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class InstallmentPayment extends Model
 {
@@ -22,6 +23,8 @@ class InstallmentPayment extends Model
         'notes',
         'status',
         'idempotency_key',
+        'reversal_of_id',
+        'entry_type',
     ];
 
     protected $casts = [
@@ -51,5 +54,23 @@ class InstallmentPayment extends Model
     public function operator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'processed_by');
+    }
+
+    /** Pembayaran asal yang direversi oleh pembayaran ini (Ticket 21). */
+    public function reversedOriginal(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'reversal_of_id');
+    }
+
+    /** Pembayaran penyesuaian yang mereversi pembayaran ini (Ticket 21). */
+    public function reversals(): HasMany
+    {
+        return $this->hasMany(self::class, 'reversal_of_id');
+    }
+
+    /** Pembayaran efektif finansial = COMPLETED (asal belum direversi). */
+    public function isEffective(): bool
+    {
+        return $this->status === 'COMPLETED';
     }
 }

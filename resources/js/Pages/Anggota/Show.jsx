@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
+import { formatRupiah, formatDateTime } from '@/utils/format';
 import {
     User,
     ArrowLeft,
@@ -19,9 +20,18 @@ import {
     Clock,
 } from 'lucide-react';
 
-export default function Show({ member, flash }) {
+export default function Show({ member, financialSummary, flash }) {
     const [isDeactivating, setIsDeactivating] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+    // Ticket 17 BUG-02: ringkasan finansial dari backend; fallback aman bila
+    // tidak tersedia (mis. share lama).
+    const summary = financialSummary ?? {
+        total_savings_balance: 0,
+        savings_account_count: 0,
+        active_loans_outstanding: 0,
+        active_loan_count: 0,
+    };
 
     const handleDeactivate = () => {
         setIsDeactivating(true);
@@ -202,37 +212,43 @@ export default function Show({ member, flash }) {
                                     <span>Total Saldo Simpanan</span>
                                 </div>
                                 <p className="mt-2 text-lg font-bold text-slate-900">
-                                    Rp 0
+                                    {formatRupiah(summary.total_savings_balance)}
                                 </p>
                                 <span className="text-[11px] text-slate-400">
-                                    Modul simpanan belum diaktifkan
+                                    {summary.savings_account_count > 0
+                                        ? `${summary.savings_account_count} rekening simpanan`
+                                        : 'Belum ada rekening simpanan'}
                                 </span>
                             </div>
 
                             <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
                                 <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
                                     <Landmark className="h-4 w-4 text-emerald-600" />
-                                    <span>Total Pinjaman Aktif</span>
+                                    <span>Sisa Kewajiban Pinjaman Aktif</span>
                                 </div>
                                 <p className="mt-2 text-lg font-bold text-slate-900">
-                                    Rp 0
+                                    {formatRupiah(summary.active_loans_outstanding)}
                                 </p>
                                 <span className="text-[11px] text-slate-400">
-                                    Modul pinjaman belum diaktifkan
+                                    {summary.active_loan_count > 0
+                                        ? `${summary.active_loan_count} pinjaman aktif`
+                                        : 'Tidak ada pinjaman aktif'}
                                 </span>
                             </div>
                         </div>
 
-                        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
-                            <Receipt className="h-8 w-8 text-slate-400 mx-auto mb-2" />
-                            <p className="text-xs sm:text-sm font-semibold text-slate-800">
-                                Belum Ada Riwayat Transaksi Finansial
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
-                                Anggota belum memiliki mutasi setoran simpanan
-                                maupun pengajuan pinjaman aktif dalam sistem.
-                            </p>
-                        </div>
+                        {summary.savings_account_count === 0 && summary.active_loan_count === 0 && (
+                            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
+                                <Receipt className="h-8 w-8 text-slate-400 mx-auto mb-2" />
+                                <p className="text-xs sm:text-sm font-semibold text-slate-800">
+                                    Belum Ada Riwayat Transaksi Finansial
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
+                                    Anggota belum memiliki rekening simpanan
+                                    maupun pinjaman aktif dalam sistem.
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -259,7 +275,7 @@ export default function Show({ member, flash }) {
                                 </dt>
                                 <dd className="mt-0.5 font-medium text-slate-900 flex items-center gap-1.5">
                                     <Clock className="h-3.5 w-3.5 text-slate-400" />
-                                    <span>{member.created_at || '-'}</span>
+                                    <span>{formatDateTime(member.created_at)}</span>
                                 </dd>
                             </div>
 
@@ -269,7 +285,7 @@ export default function Show({ member, flash }) {
                                 </dt>
                                 <dd className="mt-0.5 font-medium text-slate-900 flex items-center gap-1.5">
                                     <Clock className="h-3.5 w-3.5 text-slate-400" />
-                                    <span>{member.updated_at || '-'}</span>
+                                    <span>{formatDateTime(member.updated_at)}</span>
                                 </dd>
                             </div>
 

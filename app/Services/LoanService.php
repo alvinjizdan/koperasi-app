@@ -7,13 +7,14 @@ use App\Models\InstallmentSchedule;
 use App\Models\Loan;
 use App\Models\LoanDisbursement;
 use App\Models\Member;
+use App\Services\Interest\InterestCalculator;
 use App\Support\DbTransaction;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
 class LoanService
 {
-    public function __construct(private CashierService $cashierService) {}
+    public function __construct(private CashierService $cashierService, private InterestCalculator $interestCalculator) {}
 
     /**
      * Pencatatan/Pengajuan Pinjaman Baru.
@@ -164,6 +165,17 @@ class LoanService
             $firstDueDate = $data['first_due_date'] ?? Carbon::parse($disbursementDate)->addMonth()->format('Y-m-d');
             $disbursementAmount = (float) $lockedLoan->amount;
 
+            // Snapshot aturan bunga saat pencairan (C.4/C.5): nilai dari
+            // pemanggil (bila ada) atau konfigurasi berlaku saat ini. Kolom
+            // snapshot pinjaman baru terisi di sini; perubahan config sesudah
+            // pencairan tidak mengubah pinjaman yang sudah berjalan.
+            $interestMethod = $data['interest_method'] ?? config('business-rules.loan.default_interest_method');
+            $interestRate = (float) ($data['interest_rate_annual'] ?? config('business-rules.loan.default_annual_rate'));
+
+            $this->interestCalculator->validateConfiguration($interestMethod, $interestRate);
+
+            $interestSchedule = $this->interestCalculator->buildSchedule($interestMethod, $interestRate, $disbursementAmount, (int) $lockedLoan->tenor_months);
+
             $disbursement = LoanDisbursement::create([
                 'disbursement_number' => LoanDisbursement::generateDisbursementNumber(),
                 'loan_id' => $lockedLoan->id,
@@ -179,29 +191,35 @@ class LoanService
                 'disbursed_at' => $disbursementDate,
                 'disbursed_by' => $userId,
                 'first_due_date' => $firstDueDate,
+                'interest_method' => $interestSchedule['method'],
+                'interest_rate_annual' => $interestSchedule['annual_rate'],
             ]);
 
-            // Buat Jadwal Angsuran
+            // Buat Jadwal Angsuran (C.3): pokok dibagi rata; bunga dari
+            // InterestCalculator sesuai metode snapshot.
             $tenor = (int) $lockedLoan->tenor_months;
             $monthlyPrincipal = round($disbursementAmount / $tenor, 2);
+            $decimals = (int) config('business-rules.loan.rounding_decimals', 2);
 
             for ($i = 1; $i <= $tenor; $i++) {
                 $dueDate = Carbon::parse($firstDueDate)->addMonths($i - 1)->format('Y-m-d');
 
                 // Untuk angsuran terakhir, sesuaikan selisih pembulatan
                 $principal = ($i === $tenor)
-                    ? round($disbursementAmount - ($monthlyPrincipal * ($tenor - 1)), 2)
+                    ? round($disbursementAmount - ($monthlyPrincipal * ($tenor - 1)), $decimals)
                     : $monthlyPrincipal;
+
+                $interest = round($interestSchedule['schedule'][$i - 1], $decimals);
 
                 InstallmentSchedule::create([
                     'loan_id' => $lockedLoan->id,
                     'installment_number' => $i,
                     'due_date' => $dueDate,
                     'principal_amount' => $principal,
-                    'interest_amount' => 0,
-                    'total_amount' => $principal,
+                    'interest_amount' => $interest,
+                    'total_amount' => round($principal + $interest, $decimals),
                     'paid_amount' => 0,
-                    'remaining_amount' => $principal,
+                    'remaining_amount' => round($principal + $interest, $decimals),
                     'status' => 'UPCOMING',
                 ]);
             }

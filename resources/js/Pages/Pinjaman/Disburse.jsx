@@ -49,6 +49,9 @@ export default function Disburse({ loan, today_date, default_first_due_date }) {
                             <p className="text-xs text-slate-500">Nominal Disetujui</p>
                             <p className="text-lg font-bold tabular-nums text-slate-900">{formatRupiah(loan.amount)}</p>
                             <p className="text-xs text-slate-500">Tenor: {loan.tenor_months} Bulan</p>
+                            <p className="text-xs text-slate-500">
+                                Bunga: {loan.interest_method === 'none' ? 'Tanpa bunga' : `${loan.interest_method} ${Number(loan.interest_rate_annual)}% / tahun`} (default provisional)
+                            </p>
                         </div>
                     </div>
                 </div>

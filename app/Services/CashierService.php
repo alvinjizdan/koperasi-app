@@ -379,6 +379,17 @@ class CashierService
                 ]);
             }
 
+            // Re-check idempotensi setelah lock (Ticket 16): request berulang
+            // yang datang bersamaan tetap mengembalikan transaksi pertama
+            // tanpa dampak ganda, bukan gagal pada unique constraint.
+            if (! empty($data['idempotency_key'])) {
+                $existing = CashTransaction::where('idempotency_key', $data['idempotency_key'])->first();
+
+                if ($existing !== null) {
+                    return $existing;
+                }
+            }
+
             $amount = round((float) $data['amount'], 2);
 
             if ($amount <= 0) {

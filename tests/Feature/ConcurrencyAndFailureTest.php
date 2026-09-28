@@ -411,6 +411,177 @@ class ConcurrencyAndFailureTest extends TestCase
         $this->assertSame(0, $session->transactions()->count());
     }
 
+    // =====================================================================
+    // Ticket 16 — skenario konkurensi & idempotensi tambahan (bagian 8).
+    // =====================================================================
+
+    /**
+     * Skenario 8.2: dua pembayaran angsuran PARALEL dengan idempotency key
+     * yang sama menghasilkan tepat satu pembayaran dan satu dampak kas.
+     */
+    public function test_parallel_installment_payments_with_same_idempotency_key_create_single_payment(): void
+    {
+        $loan = Loan::factory()->approved()->create(['amount' => 1_200_000, 'tenor_months' => 4]);
+        app(LoanService::class)->disburse($loan, [
+            'disbursement_date' => now()->format('Y-m-d'),
+            'first_due_date' => now()->addMonth()->format('Y-m-d'),
+            'method' => 'TRANSFER',
+        ], $this->operator->id);
+
+        $key = 'pay-race-'.uniqid();
+
+        $results = $this->harness->runParallel([
+            ['task' => 'installment_pay', 'params' => ['loan_id' => $loan->id, 'amount' => 300_000, 'user_id' => $this->operator->id, 'idempotency_key' => $key]],
+            ['task' => 'installment_pay', 'params' => ['loan_id' => $loan->id, 'amount' => 300_000, 'user_id' => $this->operator->id, 'idempotency_key' => $key]],
+        ]);
+
+        $this->assertSame(1, DB::table('installment_payments')->where('idempotency_key', $key)->count());
+
+        $loan->refresh();
+        $this->assertSame(300_000.0, (float) $loan->payments()->where('status', 'COMPLETED')->sum('amount'));
+        $this->assertSame(300_000.0, round((float) $loan->schedules()->sum('paid_amount'), 2));
+    }
+
+    /**
+     * Skenario 8.3: dua pembayaran BERBEDA yang berjalan PARALEL bersama-sama
+     * melunasi pinjaman. Alokasi tidak boleh menimpa satu sama lain dan
+     * kewajiban akhir harus nol (tidak over-allocasi maupun sisa).
+     */
+    public function test_parallel_payments_settling_the_same_loan_stay_consistent(): void
+    {
+        $loan = Loan::factory()->approved()->create(['amount' => 1_200_000, 'tenor_months' => 4]);
+        app(LoanService::class)->disburse($loan, [
+            'disbursement_date' => now()->format('Y-m-d'),
+            'first_due_date' => now()->addMonth()->format('Y-m-d'),
+            'method' => 'TRANSFER',
+            'interest_method' => 'flat',
+            'interest_rate_annual' => 12.0,
+        ], $this->operator->id);
+
+        $loan->refresh();
+        $totalOwed = $loan->total_owed; // pokok 1.200.000 + bunga flat 12% = 1.488.000
+
+        $firstAmount = round($totalOwed / 2, 2);
+        $secondAmount = round($totalOwed - $firstAmount, 2);
+
+        $results = $this->harness->runParallel([
+            ['task' => 'installment_pay', 'params' => ['loan_id' => $loan->id, 'amount' => $firstAmount, 'user_id' => $this->operator->id]],
+            ['task' => 'installment_pay', 'params' => ['loan_id' => $loan->id, 'amount' => $secondAmount, 'user_id' => $this->operator->id]],
+        ]);
+
+        $results->assertAllOk();
+
+        $loan->refresh();
+
+        // Seluruh kewajiban teralokasi, tidak ada sisa maupun kelebihan.
+        $this->assertSame(0.0, $loan->total_owed);
+        $this->assertSame('PAID_OFF', $loan->status);
+        $this->assertSame($totalOwed, round((float) $loan->payments()->where('status', 'COMPLETED')->sum('amount'), 2));
+        $this->assertSame($totalOwed, round((float) $loan->schedules()->sum('paid_amount')
+            + (float) $loan->schedules()->sum('interest_paid'), 2));
+    }
+
+    /**
+     * Skenario 8.4: dua reversal PARALEL terhadap transaksi simpanan yang
+     * sama — hanya satu yang boleh berhasil; saldo akhir = posisi sebelum
+     * transaksi asal, dan tepat satu baris reversal yang terhubung.
+     */
+    public function test_parallel_reversals_of_same_transaction_create_single_reversal(): void
+    {
+        $account = SavingsAccount::factory()->create(['balance' => 0]);
+        $service = app(SavingsTransactionService::class);
+
+        $original = $service->deposit($account, [
+            'amount' => 150_000,
+            'transaction_date' => now()->format('Y-m-d'),
+            'processed_by' => $this->operator->id,
+        ]);
+
+        $results = $this->harness->runParallel([
+            ['task' => 'savings_reverse', 'params' => ['transaction_id' => $original->id, 'user_id' => $this->operator->id]],
+            ['task' => 'savings_reverse', 'params' => ['transaction_id' => $original->id, 'user_id' => $this->operator->id]],
+        ]);
+
+        $successCount = $results->whereOk()->count();
+
+        // Tepat satu reversal berhasil; yang lain ditolak validasi.
+        $this->assertSame(1, $successCount, 'Hanya satu reversal konkuren yang boleh berhasil.');
+        $this->assertSame(1, DB::table('savings_transactions')->where('reversal_of_id', $original->id)->count());
+
+        $account->refresh();
+        $this->assertSame(0.0, (float) $account->balance, 'Saldo akhir harus kembali ke posisi sebelum transaksi asal.');
+
+        $original->refresh();
+        $this->assertSame('completed', $original->status);
+        $this->assertSame(150_000.0, (float) $original->amount);
+    }
+
+    /**
+     * Skenario 8.5: dua akrual denda PARALEL untuk periode yang sama tidak
+     * menggandakan denda — kewajiban denda akhir = satu kali akumulasi penuh.
+     */
+    public function test_parallel_penalty_accrual_for_same_period_does_not_double_count(): void
+    {
+        $loan = Loan::factory()->approved()->create(['amount' => 4_000_000, 'tenor_months' => 4]);
+        app(LoanService::class)->disburse($loan, [
+            'disbursement_date' => now()->format('Y-m-d'),
+            'first_due_date' => now()->addMonth()->format('Y-m-d'),
+            'method' => 'TRANSFER',
+        ], $this->operator->id);
+
+        $schedule = $loan->schedules()->first();
+        $schedule->update(['status' => 'OVERDUE', 'due_date' => now()->subDays(30)->format('Y-m-d')]);
+
+        // Konfigurasi denda dikirim via payload worker (proses terpisah).
+        $penaltyConfig = [
+            'penalty_method' => 'per_day',
+            'amount_per_day' => 1_000,
+            'grace_days' => 0,
+        ];
+
+        $results = $this->harness->runParallel([
+            ['task' => 'penalty_accrue', 'params' => ['schedule_id' => $schedule->id] + $penaltyConfig],
+            ['task' => 'penalty_accrue', 'params' => ['schedule_id' => $schedule->id] + $penaltyConfig],
+        ]);
+
+        $results->assertAllOk();
+
+        $schedule->refresh();
+
+        // Carbon 3 mengembalikan selisih bertanda; ambil nilai absolut.
+        $daysLate = abs(now()->startOfDay()->diffInDays($schedule->due_date->startOfDay()));
+
+        // Denda akhir tepat satu kali akumulasi, bukan dua kali (proteksi
+        // double-count via penalty_accrued_through harus berlaku konkuren).
+        // Perhitungan hari inklusif: jatuh tempo s.d. hari referensi.
+        $this->assertSame(round(1_000.0 * ($daysLate + 1), 2), round((float) $schedule->penalty_accrued, 2));
+        $this->assertSame(now()->format('Y-m-d'), optional($schedule->penalty_accrued_through)->format('Y-m-d'));
+    }
+
+    /**
+     * Skenario 8.7: dua transaksi kas PARALEL dengan idempotency key sama —
+     * tepat satu transaksi kas tercipta tanpa dampak ganda pada saldo sesi.
+     */
+    public function test_parallel_cash_transactions_with_same_idempotency_key_create_single_transaction(): void
+    {
+        $session = CashierSession::factory()->withOpeningBalance(500_000)->create([
+            'opened_by' => $this->operator->id,
+        ]);
+
+        $key = 'cash-race-'.uniqid();
+
+        $results = $this->harness->runParallel([
+            ['task' => 'cash_expense', 'params' => ['session_id' => $session->id, 'amount' => 100_000, 'user_id' => $this->operator->id, 'idempotency_key' => $key]],
+            ['task' => 'cash_expense', 'params' => ['session_id' => $session->id, 'amount' => 100_000, 'user_id' => $this->operator->id, 'idempotency_key' => $key]],
+        ]);
+
+        $this->assertSame(1, DB::table('cash_transactions')->where('idempotency_key', $key)->count());
+
+        $session->refresh();
+        $posted = (float) $session->transactions()->where('status', CashTransaction::STATUS_POSTED)->sum('amount');
+        $this->assertSame(100_000.0, $posted);
+    }
+
     private function postgresAvailable(): bool
     {
         try {

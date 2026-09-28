@@ -340,7 +340,15 @@ class UserManagementTest extends TestCase
     /** 11b. Halaman pengaturan menampilkan nilai tersimpan */
     public function test_settings_page_shows_saved_values(): void
     {
+        // Ticket 17 BUG-01: halaman pengaturan juga memerlukan pengaturan.view.
         $settingsUser = $this->userWithPermission('pengaturan.update');
+        $viewRole = Role::query()->create([
+            'name' => 'custom_view_'.uniqid(),
+            'display_name' => 'Custom View',
+            'is_system' => false,
+        ]);
+        $viewRole->permissions()->attach(Permission::query()->where('name', 'pengaturan.view')->value('id'));
+        $settingsUser->roles()->attach($viewRole->id);
 
         $this->actingAs($settingsUser)->put(route('pengaturan.profile.update'), [
             'coop_name' => 'KSP Ubah Nama',

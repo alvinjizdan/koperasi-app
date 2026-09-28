@@ -52,7 +52,33 @@ class SavingsTransactionService
 
         return DbTransaction::run(function () use ($account, $type, $data) {
             // Lock rekening untuk mencegah race condition saldo.
-            $lockedAccount = SavingsAccount::lockForUpdate()->findOrFail($account->id);
+            $lockedAccount = SavingsAccount::with(['savingProduct', 'member'])
+                ->lockForUpdate()
+                ->findOrFail($account->id);
+
+            // Kelayakan transaksi (A.6 / SAV-08): hanya akun aktif dan anggota
+            // yang memenuhi status kelayakan (default: anggota harus aktif;
+            // dapat dikonfigurasi di config/business-rules.php).
+            if ($lockedAccount->status !== 'active') {
+                throw ValidationException::withMessages([
+                    'account' => ['Rekening simpanan tidak aktif dan tidak dapat bertransaksi.'],
+                ]);
+            }
+
+            // Ticket 20: produk simpanan nonaktif tidak dapat digunakan untuk
+            // transaksi baru. Rekening & histori lama tetap dapat dilihat.
+            if ($lockedAccount->savingProduct !== null && ! $lockedAccount->savingProduct->is_active) {
+                throw ValidationException::withMessages([
+                    'account' => ['Produk simpanan rekening ini sudah dinonaktifkan; transaksi baru tidak dapat diproses.'],
+                ]);
+            }
+
+            $allowInactive = (bool) config('business-rules.savings.allow_transactions_for_inactive_member', false);
+            if (! $allowInactive && $lockedAccount->member && $lockedAccount->member->status !== 'active') {
+                throw ValidationException::withMessages([
+                    'member' => ['Anggota berstatus nonaktif; transaksi simpanan dinonaktifkan. Hubungi administrator koperasi.'],
+                ]);
+            }
 
             // Re-check idempotensi setelah lock: request berulang yang datang
             // bersamaan tetap mengembalikan transaksi pertama tanpa dampak ganda.
@@ -65,6 +91,13 @@ class SavingsTransactionService
             }
 
             $amount = (float) $data['amount'];
+
+            $minAmount = (float) config('business-rules.savings.min_transaction_amount', 0.01);
+            if ($amount < $minAmount) {
+                throw ValidationException::withMessages([
+                    'amount' => ['Nominal transaksi minimal Rp '.number_format($minAmount, 2, ',', '.')],
+                ]);
+            }
 
             if ($type === 'withdrawal') {
                 if ((float) $lockedAccount->balance < $amount) {
@@ -130,6 +163,96 @@ class SavingsTransactionService
             );
 
             return $transaction;
+        });
+    }
+
+    /**
+     * Koreksi transaksi simpanan melalui reversal teraudit (A.7/A.8).
+     *
+     * Transaksi sukses tidak boleh diubah/dihapus langsung; reversal membuat
+     * transaksi penyesuaian baru yang mereferensikan transaksi asal, dengan
+     * dampak saldo dan kas yang berlawanan.
+     */
+    public function reverse(SavingsTransaction $transaction, int $userId, string $reason): SavingsTransaction
+    {
+        // Ticket 16: seluruh pemeriksaan state dievaluasi DI DALAM transaksi
+        // database setelah baris transaksi dikunci, sehingga dua reversal
+        // konkuren terhadap transaksi yang sama tidak dapat lolos bersamaan
+        // (proteksi double-reversal benar-benar atomik, bukan hanya check-then-act).
+        return DbTransaction::run(function () use ($transaction, $userId, $reason) {
+            $lockedTransaction = SavingsTransaction::lockForUpdate()->findOrFail($transaction->id);
+
+            if ($lockedTransaction->status !== 'completed') {
+                throw ValidationException::withMessages([
+                    'transaction' => ['Hanya transaksi berstatus completed yang dapat direversi.'],
+                ]);
+            }
+
+            if ($lockedTransaction->entry_type === 'reversal') {
+                throw ValidationException::withMessages([
+                    'transaction' => ['Transaksi penyesuaian (reversal) tidak dapat direversi kembali.'],
+                ]);
+            }
+
+            if ($lockedTransaction->reversals()->where('status', 'completed')->exists()) {
+                throw ValidationException::withMessages([
+                    'transaction' => ['Transaksi ini sudah pernah direversi.'],
+                ]);
+            }
+
+            $lockedAccount = SavingsAccount::with(['savingProduct', 'member'])
+                ->lockForUpdate()
+                ->findOrFail($lockedTransaction->savings_account_id);
+
+            // Ticket 20: kelayakan reversal dievaluasi terhadap status rekening
+            // & anggota SAAT INI (bukan status saat transaksi asal dibuat).
+            // Catatan: produk nonaktif TIDAK memblokir reversal — koreksi atas
+            // transaksi masa lalu tetap harus dimungkinkan.
+            if ($lockedAccount->status !== 'active') {
+                throw ValidationException::withMessages([
+                    'transaction' => ['Rekening simpanan tidak aktif; reversal tidak dapat diproses.'],
+                ]);
+            }
+
+            $allowInactive = (bool) config('business-rules.savings.allow_transactions_for_inactive_member', false);
+            if (! $allowInactive && $lockedAccount->member && $lockedAccount->member->status !== 'active') {
+                throw ValidationException::withMessages([
+                    'transaction' => ['Anggota berstatus nonaktif; reversal tidak dapat diproses.'],
+                ]);
+            }
+
+            $reversalType = $lockedTransaction->type === 'deposit' ? 'withdrawal' : 'deposit';
+
+            // Reversal menyalin aturan transaksi normal (saldo & kas berlawanan).
+            $reversal = $this->record($lockedAccount, $reversalType, [
+                'amount' => $lockedTransaction->amount,
+                'transaction_date' => now()->format('Y-m-d'),
+                'description' => 'Reversal '.$transaction->transaction_number.': '.$reason,
+                'idempotency_key' => null,
+                'processed_by' => $userId,
+            ]);
+
+            $reversal->forceFill([
+                'reversal_of_id' => $transaction->id,
+                'entry_type' => 'reversal',
+            ])->save();
+
+            AuditLogger::log(
+                'savings.transaction.reversed',
+                SavingsTransaction::class,
+                $reversal->id,
+                $reversal->transaction_number,
+                sprintf('Reversal transaksi %s oleh pengguna #%d. Alasan: %s', $lockedTransaction->transaction_number, $userId, $reason),
+                [
+                    'original_transaction' => $lockedTransaction->transaction_number,
+                    'reversal_transaction' => $reversal->transaction_number,
+                    'amount' => (float) $lockedTransaction->amount,
+                    'reason' => $reason,
+                    'processed_by' => $userId,
+                ],
+            );
+
+            return $reversal;
         });
     }
 

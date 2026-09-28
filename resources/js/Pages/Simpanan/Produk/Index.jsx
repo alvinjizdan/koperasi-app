@@ -131,6 +131,7 @@ export default function Index({ products, filters, flash }) {
                                 <tr>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Kode</th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Nama Produk</th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Kategori</th>
                                     <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Deskripsi</th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Aksi</th>
@@ -144,6 +145,11 @@ export default function Index({ products, filters, flash }) {
                                         </td>
                                         <td className="px-4 py-3 text-sm font-medium text-slate-900">
                                             {product.name}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
+                                                {{ principal: 'Simpanan Pokok', mandatory: 'Simpanan Wajib', voluntary: 'Simpanan Sukarela' }[product.category] ?? product.category}
+                                            </span>
                                         </td>
                                         <td className="hidden md:table-cell px-4 py-3 text-sm text-slate-500 max-w-xs truncate">
                                             {product.description || <span className="text-slate-300">-</span>}
@@ -219,7 +225,7 @@ export default function Index({ products, filters, flash }) {
                 onConfirm={confirmDeactivate}
                 isProcessing={isDeactivating}
                 title="Nonaktifkan Produk"
-                message={`Produk "${deactivateProduct?.name}" akan dinonaktifkan. Produk yang sudah memiliki rekening tidak dapat dinonaktifkan.`}
+                message={`Produk "${deactivateProduct?.name}" akan dinonaktifkan. Rekening lama tetap dapat dilihat, namun transaksi baru pada rekening produk ini akan ditolak.`}
                 confirmText="Nonaktifkan"
             />
         </AdminLayout>

@@ -25,12 +25,27 @@ class SavingsTransaction extends Model
         'processed_by',
         'status',
         'idempotency_key',
+        'reversal_of_id',
+        'entry_type',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'transaction_date' => 'date',
     ];
+
+    /**
+     * Transaksi asal bila baris ini merupakan reversal/penyesuaian (A.8).
+     */
+    public function reversalOf()
+    {
+        return $this->belongsTo(self::class, 'reversal_of_id');
+    }
+
+    public function reversals()
+    {
+        return $this->hasMany(self::class, 'reversal_of_id');
+    }
 
     public function savingsAccount(): BelongsTo
     {

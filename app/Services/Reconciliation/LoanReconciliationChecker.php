@@ -2,15 +2,25 @@
 
 namespace App\Services\Reconciliation;
 
+use App\Models\InstallmentAllocation;
 use App\Models\Loan;
 use App\Models\LoanDisbursement;
 
 /**
- * Pemeriksaan konsistensi pinjaman, pencairan, jadwal, dan pembayaran angsuran.
+ * Pemeriksaan konsistensi pinjaman, pencairan, jadwal, pembayaran, dan alokasi
+ * angsuran (Ticket 17).
  *
- * Bunga saat ini selalu 0 pada pembuatan jadwal (flat, tanpa rumus bunga
- * terdefinisi), sehingga sisa kewajiban dihitung sebagai total jadwal dikurangi
- * pembayaran sah. Pemeriksaan bunga ditandai terbatas.
+ * Sejak Ticket 15, jadwal memiliki komponen pokok, bunga, dan denda; snapshot
+ * metode/rate bunga tersimpan di loans. Pemeriksaan mengikuti model tersebut:
+ * - total POKOK jadwal = nominal pencairan (bunga & denda bukan bagian pokok);
+ * - seluruh komponen jadwal tidak negatif;
+ * - setiap pembayaran COMPLETED memiliki rincian alokasi komponen;
+ * - terbayar per komponen tidak melebihi kewajiban komponen;
+ * - status PAID_OFF konsisten dengan sisa kewajiban total_owed.
+ *
+ * Catatan semantik kolom: remaining_amount = sisa pokok+bunga (kompatibilitas
+ * laporan lama, TIDAK termasuk denda); sumber kebenaran kewajiban total adalah
+ * perhitungan komponen (principal+interest+penalty belum dibayar).
  *
  * Read-only: tidak pernah mengubah data pinjaman.
  */
@@ -98,19 +108,44 @@ class LoanReconciliationChecker
                             );
                         }
 
-                        // Jadwal harus konsisten: total jadwal = nominal pencairan.
+                        // Jadwal harus konsisten (Ticket 17): total POKOK jadwal =
+                        // nominal pencairan; bunga/denda dilaporkan terpisah.
+                        $schedulePrincipal = round((float) $schedules->sum('principal_amount'), 2);
+                        $scheduleInterest = round((float) $schedules->sum('interest_amount'), 2);
                         $scheduleTotal = round((float) $schedules->sum('total_amount'), 2);
 
-                        if ($schedules->isNotEmpty() && round($scheduleTotal - $disbursedAmount, 2) !== 0.0) {
+                        if ($schedules->isNotEmpty() && round($schedulePrincipal - $disbursedAmount, 2) !== 0.0) {
                             $findings[] = $this->finding(
                                 loan: $loan,
                                 type: 'BALANCE_MISMATCH',
                                 expected: $disbursedAmount,
-                                actual: $scheduleTotal,
-                                variance: round($scheduleTotal - $disbursedAmount, 2),
-                                description: sprintf('Total jadwal angsuran pinjaman %s (Rp %s) tidak sama dengan nominal pencairan (Rp %s).', $loan->loan_number, number_format($scheduleTotal, 2, ',', '.'), number_format($disbursedAmount, 2, ',', '.')),
-                                meta: ['schedule_count' => $schedules->count()],
+                                actual: $schedulePrincipal,
+                                variance: round($schedulePrincipal - $disbursedAmount, 2),
+                                description: sprintf('Total pokok jadwal angsuran pinjaman %s (Rp %s) tidak sama dengan nominal pencairan (Rp %s).', $loan->loan_number, number_format($schedulePrincipal, 2, ',', '.'), number_format($disbursedAmount, 2, ',', '.')),
+                                meta: ['schedule_count' => $schedules->count(), 'total_interest' => $scheduleInterest, 'schedule_total' => $scheduleTotal],
                             );
+                        }
+
+                        // Komponen kewajiban tidak boleh negatif.
+                        foreach ($schedules as $schedule) {
+                            foreach ([
+                                'principal_amount' => (float) $schedule->principal_amount,
+                                'interest_amount' => (float) $schedule->interest_amount,
+                                'penalty_accrued' => (float) $schedule->penalty_accrued,
+                                'total_amount' => (float) $schedule->total_amount,
+                            ] as $field => $value) {
+                                if ($value < -0.009) {
+                                    $findings[] = $this->finding(
+                                        loan: $loan,
+                                        type: 'BALANCE_MISMATCH',
+                                        expected: 0.0,
+                                        actual: $value,
+                                        variance: $value,
+                                        description: sprintf('Angsuran ke-%d pinjaman %s memiliki komponen %s negatif (Rp %s).', $schedule->installment_number, $loan->loan_number, $field, number_format($value, 2, ',', '.')),
+                                        meta: ['installment_number' => $schedule->installment_number, 'field' => $field],
+                                    );
+                                }
+                            }
                         }
 
                         // Jadwal kosong padahal sudah dicairkan.
@@ -144,49 +179,87 @@ class LoanReconciliationChecker
                         }
                     }
 
-                    // Nominal pembayaran tidak boleh melebihi total kewajiban (sisa kewajiban negatif).
+                    // Total pembayaran tidak boleh melebihi total kewajiban terjadwal
+                    // termasuk denda terakrual (Ticket 17; sebelumnya hanya pokok+bunga).
                     $totalScheduled = round((float) $schedules->sum('total_amount'), 2);
+                    $totalScheduledWithPenalty = round($totalScheduled + (float) $schedules->sum('penalty_accrued'), 2);
                     $totalPaid = round((float) $completedPayments->sum('amount'), 2);
                     $paymentsChecked += $completedPayments->count();
 
-                    if ($disbursement !== null && $totalScheduled > 0 && round($totalPaid - $totalScheduled, 2) > 0.0) {
+                    if ($disbursement !== null && $totalScheduled > 0 && round($totalPaid - $totalScheduledWithPenalty, 2) > 0.0) {
                         $findings[] = $this->finding(
                             loan: $loan,
                             type: 'UNALLOCATED_PAYMENT',
-                            expected: $totalScheduled,
+                            expected: $totalScheduledWithPenalty,
                             actual: $totalPaid,
-                            variance: round($totalPaid - $totalScheduled, 2),
-                            description: sprintf('Total pembayaran sah pinjaman %s (Rp %s) melebihi total kewajiban terjadwal (Rp %s).', $loan->loan_number, number_format($totalPaid, 2, ',', '.'), number_format($totalScheduled, 2, ',', '.')),
+                            variance: round($totalPaid - $totalScheduledWithPenalty, 2),
+                            description: sprintf('Total pembayaran sah pinjaman %s (Rp %s) melebihi total kewajiban terjadwal termasuk denda (Rp %s).', $loan->loan_number, number_format($totalPaid, 2, ',', '.'), number_format($totalScheduledWithPenalty, 2, ',', '.')),
                             meta: ['payment_count' => $completedPayments->count()],
                         );
                     }
 
-                    // Pembayaran COMPLETED tanpa alokasi jadwal (installment_schedule_id kosong).
+                    // Rekonsiliasi alokasi komponen (Ticket 17): setiap pembayaran
+                    // COMPLETED harus memiliki rincian alokasi di installment_allocations
+                    // (installment_schedule_id hanya penanda angsuran utama).
+                    $paymentIds = $completedPayments->pluck('id');
+                    $allocationsByPayment = $paymentIds->isNotEmpty()
+                        ? InstallmentAllocation::query()
+                            ->whereIn('installment_payment_id', $paymentIds)
+                            ->get()
+                            ->groupBy('installment_payment_id')
+                        : collect();
+
                     foreach ($completedPayments as $payment) {
-                        if ($payment->installment_schedule_id === null) {
+                        if (! $allocationsByPayment->has($payment->id)) {
                             $findings[] = $this->finding(
                                 loan: $loan,
                                 type: 'UNALLOCATED_PAYMENT',
-                                expected: null,
-                                actual: null,
-                                variance: null,
-                                description: sprintf('Pembayaran %s belum memiliki alokasi jadwal angsuran.', $payment->payment_number),
+                                expected: round((float) $payment->amount, 2),
+                                actual: 0.0,
+                                variance: round((float) $payment->amount, 2),
+                                description: sprintf('Pembayaran %s (Rp %s) tidak memiliki rincian alokasi komponen.', $payment->payment_number, number_format((float) $payment->amount, 2, ',', '.')),
                                 meta: ['payment_number' => $payment->payment_number, 'amount' => round((float) $payment->amount, 2)],
                             );
                         }
                     }
 
-                    // Status lunas harus sesuai seluruh kewajiban yang sah.
-                    if ($loan->status === 'PAID_OFF' && $disbursement !== null && $totalScheduled > 0) {
-                        if (round($totalScheduled - $totalPaid, 2) > 0.01) {
+                    // Terbayar per komponen jadwal tidak boleh melebihi kewajiban komponen.
+                    foreach ($schedules as $schedule) {
+                        foreach ([
+                            'principal' => round((float) $schedule->principal_amount - (float) $schedule->paid_amount, 2),
+                            'interest' => round((float) $schedule->interest_amount - (float) ($schedule->interest_paid ?? 0), 2),
+                            'penalty' => round((float) $schedule->penalty_accrued - (float) ($schedule->penalty_paid ?? 0), 2),
+                        ] as $component => $remainingOwed) {
+                            if ($remainingOwed < -0.009) {
+                                $findings[] = $this->finding(
+                                    loan: $loan,
+                                    type: 'BALANCE_MISMATCH',
+                                    expected: 0.0,
+                                    actual: $remainingOwed,
+                                    variance: $remainingOwed,
+                                    description: sprintf('Angsuran ke-%d pinjaman %s: terbayar komponen %s melebihi kewajibannya (kelebihan Rp %s).', $schedule->installment_number, $loan->loan_number, $component, number_format(abs($remainingOwed), 2, ',', '.')),
+                                    meta: ['installment_number' => $schedule->installment_number, 'component' => $component],
+                                );
+                            }
+                        }
+                    }
+
+                    // Status lunas harus sesuai sisa kewajiban seluruh komponen
+                    // (pokok+bunga+denda belum dibayar) sesuai definisi total_owed.
+                    if ($loan->status === 'PAID_OFF' && $disbursement !== null && $schedules->isNotEmpty()) {
+                        $remainingOwed = round((float) $schedules->sum(fn ($schedule) => max(0.0, (float) $schedule->principal_amount - (float) $schedule->paid_amount)
+                            + max(0.0, (float) $schedule->interest_amount - (float) ($schedule->interest_paid ?? 0))
+                            + max(0.0, (float) $schedule->penalty_accrued - (float) ($schedule->penalty_paid ?? 0))), 2);
+
+                        if ($remainingOwed > 0.01) {
                             $findings[] = $this->finding(
                                 loan: $loan,
                                 type: 'INVALID_STATUS',
-                                expected: $totalScheduled,
-                                actual: $totalPaid,
-                                variance: round($totalPaid - $totalScheduled, 2),
-                                description: sprintf('Pinjaman %s berstatus PAID_OFF tetapi masih tersisa kewajiban Rp %s.', $loan->loan_number, number_format($totalScheduled - $totalPaid, 2, ',', '.')),
-                                meta: ['remaining' => round($totalScheduled - $totalPaid, 2)],
+                                expected: 0.0,
+                                actual: $remainingOwed,
+                                variance: $remainingOwed,
+                                description: sprintf('Pinjaman %s berstatus PAID_OFF tetapi masih tersisa kewajiban Rp %s.', $loan->loan_number, number_format($remainingOwed, 2, ',', '.')),
+                                meta: ['remaining' => $remainingOwed],
                             );
                         }
                     }
@@ -220,7 +293,7 @@ class LoanReconciliationChecker
                 'duplicate_disbursement_count' => count(array_filter($findings, fn ($f) => $f['finding_type'] === 'DUPLICATE_REFERENCE')),
                 'status_issue_count' => count(array_filter($findings, fn ($f) => $f['finding_type'] === 'INVALID_STATUS')),
                 'unallocated_payment_count' => count(array_filter($findings, fn ($f) => $f['finding_type'] === 'UNALLOCATED_PAYMENT')),
-                'note' => 'Pemeriksaan bunga dan denda terbatas: komponen kewajiban belum terdefinisi (interest_amount = 0).',
+                'note' => 'Pemeriksaan mengikuti model komponen Ticket 15: pokok, bunga, dan denda diperiksa terpisah.',
             ],
         ];
     }

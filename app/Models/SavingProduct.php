@@ -13,6 +13,7 @@ class SavingProduct extends Model
     protected $fillable = [
         'code',
         'name',
+        'category',
         'description',
         'is_active',
     ];
@@ -20,6 +21,30 @@ class SavingProduct extends Model
     protected $casts = [
         'is_active' => 'boolean',
     ];
+
+    /**
+     * Kategori produk: principal | mandatory | voluntary
+     * (daftar kategori: config/business-rules.php 'savings.product_categories').
+     */
+    public const CATEGORY_PRINCIPAL = 'principal';
+
+    public const CATEGORY_MANDATORY = 'mandatory';
+
+    public const CATEGORY_VOLUNTARY = 'voluntary';
+
+    /**
+     * Peta kategori dan labelnya (Ticket 20: sumber tunggal validasi + UI).
+     */
+    public const CATEGORIES = [
+        self::CATEGORY_PRINCIPAL => 'Simpanan Pokok',
+        self::CATEGORY_MANDATORY => 'Simpanan Wajib',
+        self::CATEGORY_VOLUNTARY => 'Simpanan Sukarela',
+    ];
+
+    public function categoryLabel(): string
+    {
+        return self::CATEGORIES[$this->category] ?? $this->category;
+    }
 
     /**
      * Scope: hanya produk aktif.

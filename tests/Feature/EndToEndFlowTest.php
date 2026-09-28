@@ -532,7 +532,8 @@ class EndToEndFlowTest extends TestCase
             'transaction_date' => now()->format('Y-m-d'),
         ])->assertForbidden();
 
-        // Buka/tutup sesi kasir kini memerlukan permission eksplisit.
+        // Buka/tutup sesi kasir memerlukan permission eksplisit (teller hanya
+        // punya kasir.view — Ticket 17 BUG-01: form dibuka juga terlindungi).
         $this->actingAs($teller)->get(route('kasir.sesi.create'))->assertForbidden();
         $this->actingAs($teller)->post(route('kasir.sesi.store'), [
             'operational_date' => now()->format('Y-m-d'),

@@ -9,8 +9,14 @@
 !.env.example
 
 # ============================================================
-# DEPENDENCY
+# DOKUMENTASI PROYEK — dikelola lokal, tidak ikut commit/push
+# (direktori tetap tersedia di disk lokal)
 # ============================================================
+/docs/
+
+# ============================================================
+# DEPENDENCY
+# ====================================================================
 /node_modules
 /vendor
 

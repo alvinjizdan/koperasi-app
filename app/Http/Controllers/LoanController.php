@@ -141,6 +141,10 @@ class LoanController extends Controller
      */
     public function disburseForm(Loan $loan): Response
     {
+        // Snapshot metode & suku bunga untuk ditampilkan (read-only) pada form
+        // pencairan; nilai berasal dari pinjaman atau default provisional.
+        $loan->interest_method = $loan->interest_method ?? config('business-rules.loan.default_interest_method');
+        $loan->interest_rate_annual = $loan->interest_rate_annual ?? config('business-rules.loan.default_annual_rate');
         if ($loan->status !== 'APPROVED') {
             abort(403, 'Pinjaman belum disetujui.');
         }

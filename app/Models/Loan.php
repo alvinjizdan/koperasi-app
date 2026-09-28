@@ -17,6 +17,8 @@ class Loan extends Model
         'member_id',
         'amount',
         'tenor_months',
+        'interest_method',
+        'interest_rate_annual',
         'submission_date',
         'status',
         'approved_at',
@@ -33,6 +35,7 @@ class Loan extends Model
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'interest_rate_annual' => 'decimal:4',
         'submission_date' => 'date',
         'approved_at' => 'date',
         'rejected_at' => 'date',
@@ -98,7 +101,7 @@ class Loan extends Model
     }
 
     /**
-     * Hitung sisa kewajiban pokok
+     * Hitung sisa kewajiban pokok (kompatibilitas laporan lama).
      */
     public function getRemainingBalanceAttribute(): float
     {
@@ -106,5 +109,20 @@ class Loan extends Model
         $totalPaid = $this->total_paid;
 
         return max(0.0, $disbursedAmount - $totalPaid);
+    }
+
+    /**
+     * Sisa kewajiban total (pokok + bunga + denda belum dibayar) sesuai
+     * jadwal — sumber kebenaran untuk pelunasan (Ticket 15, B.8).
+     */
+    public function getTotalOwedAttribute(): float
+    {
+        return round((float) InstallmentSchedule::query()
+            ->where('loan_id', $this->id)
+            ->selectRaw('COALESCE(SUM(
+                principal_amount - paid_amount
+                + interest_amount - interest_paid
+                + penalty_accrued - penalty_paid
+            ), 0) as owed')->value('owed'), 2);
     }
 }

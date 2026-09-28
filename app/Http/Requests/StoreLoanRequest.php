@@ -16,7 +16,12 @@ class StoreLoanRequest extends FormRequest
         return [
             'member_id' => ['required', 'integer', 'exists:members,id'],
             'amount' => ['required', 'numeric', 'min:10000'],
-            'tenor_months' => ['required', 'integer', 'min:1', 'max:120'],
+            'tenor_months' => [
+                'required',
+                'integer',
+                'min:'.(int) config('business-rules.loan.min_tenor_months', 1),
+                'max:'.(int) config('business-rules.loan.max_tenor_months', 120),
+            ],
             'submission_date' => ['required', 'date'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ];

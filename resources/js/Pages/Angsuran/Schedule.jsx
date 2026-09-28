@@ -167,8 +167,15 @@ export default function Schedule({ loan, summary, flash }) {
                                             <td className="px-4 py-3 text-sm text-slate-600">
                                                 {formatDate(pmt.payment_date)}
                                             </td>
-                                            <td className="px-4 py-3 text-right text-sm font-semibold tabular-nums text-emerald-700">
-                                                {formatRupiah(pmt.amount)}
+                                            <td className="px-4 py-3 text-right text-sm font-semibold tabular-nums">
+                                                <span className={pmt.status === 'REVERSED' || pmt.entry_type === 'reversal' ? 'text-red-700' : 'text-emerald-700'}>
+                                                    {formatRupiah(pmt.amount)}
+                                                </span>
+                                                {(pmt.status === 'REVERSED' || pmt.entry_type === 'reversal') && (
+                                                    <span className="ml-1.5 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-800">
+                                                        Reversal
+                                                    </span>
+                                                )}
                                             </td>
                                             <td className="hidden md:table-cell px-4 py-3 text-sm text-slate-600">
                                                 {pmt.operator?.name || '-'}

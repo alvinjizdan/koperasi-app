@@ -8,13 +8,16 @@ use App\Models\User;
 use App\Services\Reports\CashDailyReport;
 use App\Services\Reports\CashTransactionReport;
 use App\Services\Reports\InstallmentReport;
+use App\Services\Reports\LoanPositionReport;
 use App\Services\Reports\LoanReport;
 use App\Services\Reports\MemberReport;
 use App\Services\Reports\OverdueReport;
+use App\Services\Reports\ReportExporter;
 use App\Services\Reports\ReportPeriod;
 use App\Services\Reports\SavingsReport;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Laporan dasar koperasi.
@@ -188,6 +191,75 @@ class ReportController extends Controller
             'export_route' => 'laporan.export',
             'operational_timezone' => ReportPeriod::timezone(),
         ]);
+    }
+
+    /**
+     * Laporan Posisi Pinjaman per Tanggal (Ticket 26).
+     *
+     * Sumber data = snapshot tersimpan — read-only murni; tidak ada perhitungan
+     * ulang, tidak ada fallback ke saldo hari ini, tidak ada akrual penalti.
+     */
+    public function loanPositions(ReportFilterRequest $request): Response
+    {
+        $filters = $request->filters();
+        $report = new LoanPositionReport;
+
+        $asOfDate = $filters['as_of_date'] ?? ReportPeriod::todayDate();
+        $searchFilters = ['as_of_date' => $asOfDate, 'search' => $filters['search']];
+
+        $rows = $report->paginate($searchFilters, $request->perPage())->through(fn ($snapshot) => [
+            'id' => $snapshot->id,
+            'loan_id' => $snapshot->loan_id,
+            'as_of_date' => (string) $snapshot->as_of_date,
+            'captured_at' => $snapshot->created_at->toDateTimeString(),
+            'captured_after_as_of' => $snapshot->created_at->toDateString() > (string) $snapshot->as_of_date,
+            'verified_historical' => $snapshot->created_at->toDateString() <= (string) $snapshot->as_of_date,
+            'status' => $snapshot->status,
+            'outstanding_principal' => (float) $snapshot->outstanding_principal,
+            'outstanding_interest' => (float) $snapshot->outstanding_interest,
+            'outstanding_penalty' => (float) $snapshot->outstanding_penalty,
+            'total_owed' => (float) $snapshot->total_owed,
+            'total_paid' => $snapshot->total_paid !== null ? (float) $snapshot->total_paid : null,
+            'loan' => $snapshot->loan ? [
+                'id' => $snapshot->loan->id,
+                'loan_number' => $snapshot->loan->loan_number,
+                'member' => $snapshot->loan->member ? [
+                    'member_number' => $snapshot->loan->member->member_number,
+                    'full_name' => $snapshot->loan->member->full_name,
+                ] : null,
+            ] : null,
+        ]);
+
+        return Inertia::render('Laporan/PosisiPinjaman', [
+            'rows' => $rows,
+            'summary' => $report->summary($searchFilters),
+            'availability' => $report->availability($asOfDate),
+            'filters' => [
+                'search' => $filters['search'],
+                'as_of_date' => $asOfDate,
+            ],
+            'operational_timezone' => ReportPeriod::timezone(),
+        ]);
+    }
+
+    /**
+     * Ekspor CSV Posisi Pinjaman per Tanggal (Ticket 27).
+     *
+     * Sumber data & filter identik dengan laporan UI; streaming read-only dari
+     * snapshot tersimpan. Permission `laporan.export` terpisah di route —
+     * melihat laporan tidak otomatis memberi hak ekspor.
+     */
+    public function exportLoanPositions(ReportFilterRequest $request): StreamedResponse
+    {
+        $filters = $request->filters();
+        $asOfDate = $filters['as_of_date'] ?? ReportPeriod::todayDate();
+        $report = new LoanPositionReport;
+
+        return app(ReportExporter::class)->download(
+            sprintf('posisi-pinjaman-%s.csv', $asOfDate),
+            $report->csvHeaders(),
+            $report->stream(['as_of_date' => $asOfDate, 'search' => $filters['search']]),
+        );
     }
 
     /**
