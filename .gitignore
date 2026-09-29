@@ -95,3 +95,6 @@ desktop.ini
 # ============================================================
 Homestead.json
 Homestead.yaml
+
+# Vercel: salinan aset statis (build artifact, dihasilkan buildCommand)
+/public_dist

@@ -1,9 +1,9 @@
 {
     "$schema": "https://openapi.vercel.sh/vercel.json",
     "framework": null,
-    "buildCommand": "npm install --no-audit --no-fund && npm run build",
+    "buildCommand": "npm install --no-audit --no-fund && npm run build && mkdir -p public_dist && cp -r public/build public/favicon.ico public/robots.txt public_dist/",
     "installCommand": null,
-    "outputDirectory": "public",
+    "outputDirectory": "public_dist",
     "functions": {
         "api/index.php": {
             "runtime": "vercel-php@0.9.0",
