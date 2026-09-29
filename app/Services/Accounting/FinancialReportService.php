@@ -345,7 +345,7 @@ class FinancialReportService
             'source' => 'Jurnal POSTED saja; DRAFT tidak dihitung; jurnal REVERSED tetap terhitung bersama jurnal pembaliknya.',
             'limitations' => [
                 'COA yang dipakai masih TEMPLATE (bukan COA resmi koperasi).',
-                'Auto-posting transaksi bisnis belum aktif — jurnal hanya berasal dari input manual.',
+                'Auto-posting transaksi bisnis belum aktif, jurnal hanya berasal dari input manual.',
                 'Laporan ini bukan laporan keuangan resmi koperasi.',
             ],
         ];

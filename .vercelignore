@@ -1,0 +1,15 @@
+/vendor
+/node_modules
+/tests
+/docs
+/storage/logs/*.log
+/storage/framework/cache/data/*
+/storage/framework/sessions/*
+/storage/framework/views/*.php
+.env
+.env.backup
+.env.*.php
+!.env.example
+!.env.vercel.example
+.phpunit.result.cache
+.phpunit.cache

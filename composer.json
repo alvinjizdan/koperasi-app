@@ -53,6 +53,11 @@
             "@php artisan config:clear --ansi @no_additional_args",
             "@php artisan test"
         ],
+        "vercel": [
+            "@php artisan config:clear",
+            "@php -r \"file_exists('storage/framework/views') || mkdir('storage/framework/views', 0755, true);\"",
+            "@php artisan view:cache"
+        ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi"
