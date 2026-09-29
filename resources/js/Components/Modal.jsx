@@ -4,6 +4,7 @@ import {
     Transition,
     TransitionChild,
 } from '@headlessui/react';
+import { ScrollArea } from '@/Components/ui/scroll-area';
 
 export default function Modal({
     children,
@@ -56,7 +57,9 @@ export default function Modal({
                     <DialogPanel
                         className={`mb-6 transform overflow-hidden rounded-lg bg-white shadow-xl transition-all sm:mx-auto sm:w-full ${maxWidthClass}`}
                     >
-                        {children}
+                        <ScrollArea className="max-h-[calc(100vh-8rem)]">
+                            {children}
+                        </ScrollArea>
                     </DialogPanel>
                 </TransitionChild>
             </Dialog>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { History, Search, ExternalLink } from 'lucide-react';
 import { formatDateTime } from '@/utils/format';
 
@@ -52,6 +53,33 @@ const MODULE_OPTIONS = [
     { value: 'App\\Models\\CashTransaction', label: 'Transaksi Kas' },
     { value: 'App\\Models\\Reconciliation', label: 'Rekonsiliasi' },
 ];
+
+const ACTION_FILTER_OPTIONS = [{ value: 'all', label: 'Semua Tindakan' }];
+const ACTOR_FILTER_OPTIONS = [{ value: 'all', label: 'Semua Pengguna' }];
+
+function AuditOptionsCombobox({ options, value, onChange, ariaLabel }) {
+    const items = options.map((o) => o.value);
+    return (
+        <Combobox
+            items={items}
+            value={value}
+            onValueChange={(v) => onChange(v ?? 'all')}
+            itemToStringValue={(v) => options.find((o) => o.value === v)?.label ?? v}
+        >
+            <ComboboxInput aria-label={ariaLabel} />
+            <ComboboxContent>
+                <ComboboxEmpty>Tidak ada pilihan.</ComboboxEmpty>
+                <ComboboxList>
+                    {(v) => (
+                        <ComboboxItem key={v} value={v}>
+                            {options.find((o) => o.value === v)?.label}
+                        </ComboboxItem>
+                    )}
+                </ComboboxList>
+            </ComboboxContent>
+        </Combobox>
+    );
+}
 
 export default function AuditLog({ logs, actions, actors, filters }) {
     const [local, setLocal] = useState({
@@ -121,29 +149,30 @@ export default function AuditLog({ logs, actions, actors, filters }) {
                         </button>
                     </div>
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                        <select value={local.action} onChange={(e) => setFilter('action', e.target.value)} className={selectClass}>
-                            <option value="all">Semua Tindakan</option>
-                            {actions.map((name) => (
-                                <option key={name} value={name}>
-                                    {ACTION_LABELS[name] || name}
-                                </option>
-                            ))}
-                        </select>
-                        <select value={local.module} onChange={(e) => setFilter('module', e.target.value)} className={selectClass}>
-                            {MODULE_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                </option>
-                            ))}
-                        </select>
-                        <select value={local.actor} onChange={(e) => setFilter('actor', e.target.value)} className={selectClass}>
-                            <option value="all">Semua Pengguna</option>
-                            {actors.map((a) => (
-                                <option key={a.id} value={a.id}>
-                                    {a.name}
-                                </option>
-                            ))}
-                        </select>
+                        <AuditOptionsCombobox
+                            ariaLabel="Filter tindakan"
+                            value={local.action}
+                            onChange={(v) => setFilter('action', v)}
+                            options={[
+                                ...ACTION_FILTER_OPTIONS,
+                                ...actions.map((name) => ({ value: name, label: ACTION_LABELS[name] || name })),
+                            ]}
+                        />
+                        <AuditOptionsCombobox
+                            ariaLabel="Filter modul"
+                            value={local.module}
+                            onChange={(v) => setFilter('module', v)}
+                            options={MODULE_OPTIONS}
+                        />
+                        <AuditOptionsCombobox
+                            ariaLabel="Filter pengguna"
+                            value={local.actor}
+                            onChange={(v) => setFilter('actor', v)}
+                            options={[
+                                ...ACTOR_FILTER_OPTIONS,
+                                ...actors.map((a) => ({ value: String(a.id), label: a.name })),
+                            ]}
+                        />
                         <input
                             type="date"
                             value={local.date_from}

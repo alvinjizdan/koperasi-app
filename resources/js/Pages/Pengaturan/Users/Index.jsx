@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import {
     Users,
     UserPlus,
@@ -15,6 +17,13 @@ import {
     AlertCircle,
 } from 'lucide-react';
 import { formatDateTime } from '@/utils/format';
+
+const ROLE_FILTER_OPTIONS = [{ value: 'all', label: 'Semua Role' }];
+const USER_STATUS_OPTIONS = [
+    { value: 'all', label: 'Semua Status' },
+    { value: 'active', label: 'Aktif' },
+    { value: 'inactive', label: 'Nonaktif' },
+];
 
 export default function Index({ users, roles, filters, flash }) {
     const [search, setSearch] = useState(filters.search || '');
@@ -102,33 +111,50 @@ export default function Index({ users, roles, filters, flash }) {
                             className="w-full rounded-lg border border-slate-300 bg-slate-50/50 py-2 pl-9 pr-4 text-xs text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-900 sm:text-sm"
                         />
                     </div>
-                    <select
+                    <Combobox
+                        items={[...ROLE_FILTER_OPTIONS, ...roles.map((r) => ({ value: r.name, label: r.display_name }))].map((o) => o.value)}
                         value={role}
-                        onChange={(e) => {
-                            setRole(e.target.value);
-                            applyFilters({ role: e.target.value });
+                        onValueChange={(v) => {
+                            setRole(v ?? 'all');
+                            applyFilters({ role: v ?? 'all' });
                         }}
-                        className="rounded-lg border border-slate-300 bg-slate-50/50 px-3 py-2 text-xs font-medium text-slate-700 focus:border-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-900 sm:text-sm"
+                        itemToStringValue={(v) =>
+                            v === 'all' ? 'Semua Role' : roles.find((r) => r.name === v)?.display_name ?? v
+                        }
                     >
-                        <option value="all">Semua Role</option>
-                        {roles.map((r) => (
-                            <option key={r.id} value={r.name}>
-                                {r.display_name}
-                            </option>
-                        ))}
-                    </select>
-                    <select
+                        <ComboboxInput aria-label="Filter role" />
+                        <ComboboxContent>
+                            <ComboboxEmpty>Role tidak ditemukan.</ComboboxEmpty>
+                            <ComboboxList>
+                                {(v) => (
+                                    <ComboboxItem key={v} value={v}>
+                                        {v === 'all' ? 'Semua Role' : roles.find((r) => r.name === v)?.display_name}
+                                    </ComboboxItem>
+                                )}
+                            </ComboboxList>
+                        </ComboboxContent>
+                    </Combobox>
+                    <Combobox
+                        items={USER_STATUS_OPTIONS.map((o) => o.value)}
                         value={status}
-                        onChange={(e) => {
-                            setStatus(e.target.value);
-                            applyFilters({ status: e.target.value });
+                        onValueChange={(v) => {
+                            setStatus(v ?? 'all');
+                            applyFilters({ status: v ?? 'all' });
                         }}
-                        className="rounded-lg border border-slate-300 bg-slate-50/50 px-3 py-2 text-xs font-medium text-slate-700 focus:border-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-900 sm:text-sm"
+                        itemToStringValue={(v) => USER_STATUS_OPTIONS.find((o) => o.value === v)?.label ?? v}
                     >
-                        <option value="all">Semua Status</option>
-                        <option value="active">Aktif</option>
-                        <option value="inactive">Nonaktif</option>
-                    </select>
+                        <ComboboxInput aria-label="Filter status pengguna" />
+                        <ComboboxContent>
+                            <ComboboxEmpty>Tidak ada status.</ComboboxEmpty>
+                            <ComboboxList>
+                                {(v) => (
+                                    <ComboboxItem key={v} value={v}>
+                                        {USER_STATUS_OPTIONS.find((o) => o.value === v)?.label}
+                                    </ComboboxItem>
+                                )}
+                            </ComboboxList>
+                        </ComboboxContent>
+                    </Combobox>
                     <button
                         type="submit"
                         className="rounded-lg border border-slate-200 bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-slate-200 active:scale-95 sm:text-sm"
@@ -141,7 +167,8 @@ export default function Index({ users, roles, filters, flash }) {
             {/* Table */}
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
                 {users.data.length > 0 ? (
-                    <div className="overflow-x-auto">
+                    <ScrollArea>
+<ScrollBar orientation="horizontal" />
                         <table className="w-full text-left text-xs sm:text-sm">
                             <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                                 <tr>
@@ -226,7 +253,7 @@ export default function Index({ users, roles, filters, flash }) {
                                 ))}
                             </tbody>
                         </table>
-                    </div>
+                    </ScrollArea>
                 ) : (
                     <div className="p-8">
                         <EmptyState

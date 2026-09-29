@@ -4,6 +4,7 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
 import CashierSessionCard from '@/Components/Admin/CashierSessionCard';
 import { ArrowDownCircle, ChevronLeft, AlertCircle } from 'lucide-react';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { formatRupiah } from '@/utils/format';
 
 export default function Income({ today_date, categories, active_session }) {
@@ -66,22 +67,28 @@ export default function Income({ today_date, categories, active_session }) {
                                 <label htmlFor="category" className="block text-sm font-medium text-slate-700">
                                     Kategori Penerimaan <span className="text-rose-500">*</span>
                                 </label>
-                                <select
-                                    id="category"
+                                <Combobox
+                                    items={categories}
                                     value={data.category}
-                                    onChange={(e) => setData('category', e.target.value)}
-                                    className={`mt-1.5 block w-full rounded-lg border px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-1 ${
-                                        errors.category
-                                            ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500'
-                                            : 'border-slate-300 focus:border-slate-500 focus:ring-slate-500'
-                                    }`}
+                                    onValueChange={(v) => setData('category', v ?? '')}
                                 >
-                                    {categories.map((category) => (
-                                        <option key={category} value={category}>
-                                            {category}
-                                        </option>
-                                    ))}
-                                </select>
+                                    <ComboboxInput
+                                        id="category"
+                                        aria-label="Kategori penerimaan"
+                                        aria-invalid={!!errors.category}
+                                        className={errors.category ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500' : ''}
+                                    />
+                                    <ComboboxContent>
+                                        <ComboboxEmpty>Kategori tidak ditemukan.</ComboboxEmpty>
+                                        <ComboboxList>
+                                            {(category) => (
+                                                <ComboboxItem key={category} value={category}>
+                                                    {category}
+                                                </ComboboxItem>
+                                            )}
+                                        </ComboboxList>
+                                    </ComboboxContent>
+                                </Combobox>
                                 {errors.category && (
                                     <p className="mt-1 flex items-center gap-1 text-xs text-rose-600">
                                         <AlertCircle className="h-3 w-3" />

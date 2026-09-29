@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, toLabeledCollection } from '@/Components/ui/combobox';
 import { ArrowLeft, Save } from 'lucide-react';
 
 export default function Form({ categories, parents, account }) {
@@ -14,6 +15,15 @@ export default function Form({ categories, parents, account }) {
         description: account?.description ?? '',
     });
     const [processing, setProcessing] = useState(false);
+
+    const categoryCollection = React.useMemo(() => toLabeledCollection(categories), [categories]);
+    const parentOptions = React.useMemo(() => [
+        { value: '', label: '— Tanpa induk —' },
+        ...parents
+            .filter((parent) => !isEdit || parent.id !== account.id)
+            .map((parent) => ({ value: String(parent.id), label: `${parent.code} — ${parent.name}` })),
+    ], [parents, isEdit, account]);
+    const parentCollection = React.useMemo(() => toLabeledCollection(parentOptions), [parentOptions]);
 
     const submit = (event) => {
         event.preventDefault();
@@ -71,17 +81,24 @@ export default function Form({ categories, parents, account }) {
 
                     <div>
                         <label className="text-xs font-semibold text-slate-600" htmlFor="category">Kategori *</label>
-                        <select
-                            id="category"
+                        <Combobox
+                            items={categoryCollection}
                             value={values.category}
-                            onChange={(event) => setValues({ ...values, category: event.target.value })}
-                            className={inputClass}
+                            onValueChange={(v) => setValues({ ...values, category: v ?? '' })}
                             disabled={isEdit}
                         >
-                            {categories.map((category) => (
-                                <option key={category.value} value={category.value}>{category.label}</option>
-                            ))}
-                        </select>
+                            <ComboboxInput id="category" aria-label="Kategori akun" className={inputClass} />
+                            <ComboboxContent>
+                                <ComboboxEmpty>Kategori tidak ditemukan.</ComboboxEmpty>
+                                <ComboboxList>
+                                    {(category) => (
+                                        <ComboboxItem key={category.value} value={category.value} disabled={isEdit}>
+                                            {category.label}
+                                        </ComboboxItem>
+                                    )}
+                                </ComboboxList>
+                            </ComboboxContent>
+                        </Combobox>
                     </div>
 
                     <div>
@@ -93,21 +110,23 @@ export default function Form({ categories, parents, account }) {
 
                     <div>
                         <label className="text-xs font-semibold text-slate-600" htmlFor="parent_id">Akun Induk (opsional)</label>
-                        <select
-                            id="parent_id"
+                        <Combobox
+                            items={parentCollection}
                             value={values.parent_id}
-                            onChange={(event) => setValues({ ...values, parent_id: event.target.value })}
-                            className={inputClass}
+                            onValueChange={(v) => setValues({ ...values, parent_id: v ?? '' })}
                         >
-                            <option value="">— Tanpa induk —</option>
-                            {parents
-                                .filter((parent) => !isEdit || parent.id !== account.id)
-                                .map((parent) => (
-                                    <option key={parent.id} value={parent.id}>
-                                        {parent.code} — {parent.name}
-                                    </option>
-                                ))}
-                        </select>
+                            <ComboboxInput id="parent_id" aria-label="Akun induk" className={inputClass} />
+                            <ComboboxContent>
+                                <ComboboxEmpty>Akun tidak ditemukan.</ComboboxEmpty>
+                                <ComboboxList>
+                                    {(option) => (
+                                        <ComboboxItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </ComboboxItem>
+                                    )}
+                                </ComboboxList>
+                            </ComboboxContent>
+                        </Combobox>
                     </div>
 
                     <div className="sm:col-span-2">

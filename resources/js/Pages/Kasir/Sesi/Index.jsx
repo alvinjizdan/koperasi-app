@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
 import CashierSessionCard from '@/Components/Admin/CashierSessionCard';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import {
     ChevronLeft,
     ChevronRight,
@@ -13,6 +15,17 @@ import {
     PlusCircle,
 } from 'lucide-react';
 import { formatRupiah, formatDate, formatDateTime } from '@/utils/format';
+
+const SESSION_STATUS_OPTIONS = [
+    { value: 'all', label: 'Semua Status' },
+    { value: 'OPEN', label: 'Terbuka' },
+    { value: 'CLOSED', label: 'Ditutup' },
+];
+
+const OPERATOR_OPTIONS = (operators) => [
+    { value: '', label: 'Semua Operator' },
+    ...operators.map((o) => ({ value: String(o.id), label: o.name })),
+];
 
 function StatusBadge({ status }) {
     const isOpen = status === 'OPEN';
@@ -104,30 +117,45 @@ export default function Index({ sessions, operators, filters, active_session, fl
                     </div>
                     <div>
                         <label className="block text-xs font-medium text-slate-600">Operator</label>
-                        <select
+                        <Combobox
+                            items={OPERATOR_OPTIONS(operators)}
                             value={filterState.operator_id}
-                            onChange={(e) => setFilterState({ ...filterState, operator_id: e.target.value })}
-                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                            onValueChange={(v) => setFilterState({ ...filterState, operator_id: v ?? '' })}
+                            itemToStringValue={(v) => operators.find((o) => String(o.id) === String(v))?.name ?? 'Semua Operator'}
                         >
-                            <option value="">Semua Operator</option>
-                            {operators.map((operator) => (
-                                <option key={operator.id} value={operator.id}>
-                                    {operator.name}
-                                </option>
-                            ))}
-                        </select>
+                            <ComboboxInput aria-label="Filter operator" />
+                            <ComboboxContent>
+                                <ComboboxEmpty>Operator tidak ditemukan.</ComboboxEmpty>
+                                <ComboboxList>
+                                    {(option) => (
+                                        <ComboboxItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </ComboboxItem>
+                                    )}
+                                </ComboboxList>
+                            </ComboboxContent>
+                        </Combobox>
                     </div>
                     <div>
                         <label className="block text-xs font-medium text-slate-600">Status</label>
-                        <select
+                        <Combobox
+                            items={SESSION_STATUS_OPTIONS.map((o) => o.value)}
                             value={filterState.status}
-                            onChange={(e) => setFilterState({ ...filterState, status: e.target.value })}
-                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                            onValueChange={(v) => setFilterState({ ...filterState, status: v ?? 'all' })}
+                            itemToStringValue={(v) => SESSION_STATUS_OPTIONS.find((o) => o.value === v)?.label ?? v}
                         >
-                            <option value="all">Semua Status</option>
-                            <option value="OPEN">Terbuka</option>
-                            <option value="CLOSED">Ditutup</option>
-                        </select>
+                            <ComboboxInput aria-label="Filter status sesi" />
+                            <ComboboxContent>
+                                <ComboboxEmpty>Tidak ada status.</ComboboxEmpty>
+                                <ComboboxList>
+                                    {(v) => (
+                                        <ComboboxItem key={v} value={v}>
+                                            {SESSION_STATUS_OPTIONS.find((o) => o.value === v)?.label}
+                                        </ComboboxItem>
+                                    )}
+                                </ComboboxList>
+                            </ComboboxContent>
+                        </Combobox>
                     </div>
                     <div className="flex items-end gap-2">
                         <button
@@ -155,7 +183,8 @@ export default function Index({ sessions, operators, filters, active_session, fl
                     />
                 ) : (
                     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
-                        <div className="overflow-x-auto">
+                        <ScrollArea>
+<ScrollBar orientation="horizontal" />
                             <table className="min-w-full divide-y divide-slate-200">
                                 <thead className="bg-slate-50">
                                     <tr>
@@ -260,7 +289,7 @@ export default function Index({ sessions, operators, filters, active_session, fl
                                     ))}
                                 </tbody>
                             </table>
-                        </div>
+                        </ScrollArea>
 
                         {sessions.last_page > 1 && (
                             <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">

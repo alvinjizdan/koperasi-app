@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useForm } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, toLabeledCollection } from '@/Components/ui/combobox';
 import { BookOpen, ChevronLeft, AlertCircle } from 'lucide-react';
 
 const CATEGORIES = [
@@ -10,6 +11,7 @@ const CATEGORIES = [
 ];
 
 export default function Edit({ product }) {
+    const categoryCollection = React.useMemo(() => toLabeledCollection(CATEGORIES), []);
     const { data, setData, put, processing, errors } = useForm({
         code: product.code || '',
         name: product.name || '',
@@ -102,21 +104,29 @@ export default function Edit({ product }) {
                                 <label htmlFor="category" className="block text-sm font-medium text-slate-700">
                                     Kategori <span className="text-rose-500">*</span>
                                 </label>
-                                <select
-                                    id="category"
+                                <Combobox
+                                    items={categoryCollection}
                                     value={data.category}
-                                    onChange={(e) => setData('category', e.target.value)}
-                                    className={`mt-1.5 block w-full rounded-lg border px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-1 ${
-                                        errors.category
-                                            ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500'
-                                            : 'border-slate-300 focus:border-slate-500 focus:ring-slate-500'
-                                    }`}
-                                    required
+                                    onValueChange={(v) => setData('category', v ?? '')}
                                 >
-                                    {CATEGORIES.map((category) => (
-                                        <option key={category.value} value={category.value}>{category.label}</option>
-                                    ))}
-                                </select>
+                                    <ComboboxInput
+                                        id="category"
+                                        aria-label="Kategori produk"
+                                        aria-invalid={!!errors.category}
+                                        className={errors.category ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500' : ''}
+                                        required
+                                    />
+                                    <ComboboxContent>
+                                        <ComboboxEmpty>Kategori tidak ditemukan.</ComboboxEmpty>
+                                        <ComboboxList>
+                                            {(category) => (
+                                                <ComboboxItem key={category.value} value={category.value}>
+                                                    {category.label}
+                                                </ComboboxItem>
+                                            )}
+                                        </ComboboxList>
+                                    </ComboboxContent>
+                                </Combobox>
                                 {errors.category && (
                                     <p className="mt-1 flex items-center gap-1 text-xs text-rose-600">
                                         <AlertCircle className="h-3 w-3" />

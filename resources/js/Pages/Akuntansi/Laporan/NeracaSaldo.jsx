@@ -1,5 +1,6 @@
 import React from 'react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
 import { formatRupiah } from '@/utils/format';
 import { CheckCircle2, AlertCircle, Scale } from 'lucide-react';
@@ -51,7 +52,8 @@ export default function NeracaSaldo({ report, filters }) {
                     description="Belum ada jurnal POSTED pada periode yang dipilih. Posting jurnal terlebih dahulu dari halaman Jurnal Umum."
                 />
             ) : (
-                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
+                <ScrollArea className="rounded-xl border border-slate-200 bg-white shadow-xs">
+<ScrollBar orientation="horizontal" />
                     <table className="min-w-full divide-y divide-slate-200 text-xs sm:text-sm">
                         <thead className="bg-slate-50">
                             <tr>
@@ -85,7 +87,7 @@ export default function NeracaSaldo({ report, filters }) {
                             </tr>
                         </tbody>
                     </table>
-                </div>
+                </ScrollArea>
             )}
         </AdminLayout>
     );

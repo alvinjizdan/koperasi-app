@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useForm } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import PasswordInput from '@/Components/PasswordInput';
 import { UserPlus, ArrowLeft, Save, KeyRound } from 'lucide-react';
 
 export default function Create({ roles }) {
@@ -104,8 +105,7 @@ export default function Create({ roles }) {
                                 <label htmlFor="password" className="block text-xs font-semibold text-slate-900 sm:text-sm">
                                     Password <span className="text-rose-500">*</span>
                                 </label>
-                                <input
-                                    type="password"
+                                <PasswordInput
                                     id="password"
                                     value={data.password}
                                     onChange={(e) => setData('password', e.target.value)}
@@ -120,8 +120,7 @@ export default function Create({ roles }) {
                                 >
                                     Ulangi Password <span className="text-rose-500">*</span>
                                 </label>
-                                <input
-                                    type="password"
+                                <PasswordInput
                                     id="password_confirmation"
                                     value={data.password_confirmation}
                                     onChange={(e) => setData('password_confirmation', e.target.value)}

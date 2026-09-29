@@ -1,5 +1,6 @@
 import { Link } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import { ChevronLeft, FileSearch, ShieldCheck } from 'lucide-react';
 import { formatDateTime } from '@/utils/format';
 
@@ -97,7 +98,8 @@ export default function AuditLogDetail({ log }) {
                     <h3 className="text-sm font-semibold text-slate-900">Ringkasan Perubahan</h3>
                 </div>
                 {changes.length > 0 ? (
-                    <div className="overflow-x-auto p-6">
+                    <ScrollArea className="p-6">
+<ScrollBar orientation="horizontal" />
                         <table className="w-full text-left text-xs">
                             <thead className="text-slate-400">
                                 <tr>
@@ -124,7 +126,7 @@ export default function AuditLogDetail({ log }) {
                                 ))}
                             </tbody>
                         </table>
-                    </div>
+                    </ScrollArea>
                 ) : (
                     <div className="px-6 py-6 text-xs text-slate-500">
                         Peristiwa ini tidak memiliki ringkasan perubahan field (tindakan status atau metadata saja).

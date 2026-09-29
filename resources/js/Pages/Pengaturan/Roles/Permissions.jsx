@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import { ArrowLeft, ShieldCheck, Check, Minus } from 'lucide-react';
 
 export default function Permissions({ modules, roles }) {
@@ -28,7 +29,8 @@ export default function Permissions({ modules, roles }) {
             </div>
 
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
-                <div className="overflow-x-auto">
+                <ScrollArea>
+<ScrollBar orientation="horizontal" />
                     <table className="w-full text-left text-xs sm:text-sm">
                         <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                             <tr>
@@ -82,7 +84,7 @@ export default function Permissions({ modules, roles }) {
                             ))}
                         </tbody>
                     </table>
-                </div>
+                </ScrollArea>
             </div>
         </AdminLayout>
     );

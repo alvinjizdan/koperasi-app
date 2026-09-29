@@ -2,8 +2,14 @@ import React, { useState } from 'react';
 import { Link, useForm } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { ArrowUpCircle, ChevronLeft, AlertCircle } from 'lucide-react';
 import { formatRupiah } from '@/utils/format';
+
+const METHOD_OPTIONS = [
+    { value: 'CASH', label: 'Tunai (Kasir)' },
+    { value: 'TRANSFER', label: 'Transfer Bank' },
+];
 
 export default function Disburse({ loan, today_date, default_first_due_date }) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -138,15 +144,24 @@ export default function Disburse({ loan, today_date, default_first_due_date }) {
                                 <label htmlFor="method" className="block text-sm font-medium text-slate-700">
                                     Metode Pencairan <span className="text-rose-500">*</span>
                                 </label>
-                                <select
-                                    id="method"
+                                <Combobox
+                                    items={METHOD_OPTIONS.map((o) => o.value)}
                                     value={data.method}
-                                    onChange={(e) => setData('method', e.target.value)}
-                                    className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                                    onValueChange={(v) => setData('method', v ?? '')}
+                                    itemToStringValue={(v) => METHOD_OPTIONS.find((o) => o.value === v)?.label ?? v}
                                 >
-                                    <option value="CASH">Tunai (Kasir)</option>
-                                    <option value="TRANSFER">Transfer Bank</option>
-                                </select>
+                                    <ComboboxInput id="method" aria-label="Metode pencairan" />
+                                    <ComboboxContent>
+                                        <ComboboxEmpty>Metode tidak ditemukan.</ComboboxEmpty>
+                                        <ComboboxList>
+                                            {(v) => (
+                                                <ComboboxItem key={v} value={v}>
+                                                    {METHOD_OPTIONS.find((o) => o.value === v)?.label}
+                                                </ComboboxItem>
+                                            )}
+                                        </ComboboxList>
+                                    </ComboboxContent>
+                                </Combobox>
                             </div>
 
                             {/* Catatan */}

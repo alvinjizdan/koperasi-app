@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, router, useForm } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { Play, ListChecks } from 'lucide-react';
 import StatusBadge from '@/Components/Admin/StatusBadge';
 
@@ -9,6 +10,14 @@ const MODULE_OPTIONS = [
     { value: 'savings', label: 'Simpanan' },
     { value: 'loans', label: 'Pinjaman & Angsuran' },
     { value: 'cash', label: 'Kas' },
+];
+
+const RUN_STATUS_OPTIONS = [
+    { value: 'all', label: 'Semua Status' },
+    { value: 'PENDING', label: 'PENDING' },
+    { value: 'RUNNING', label: 'RUNNING' },
+    { value: 'COMPLETED', label: 'COMPLETED' },
+    { value: 'FAILED', label: 'FAILED' },
 ];
 
 export default function Runs({ runs, filters, can }) {
@@ -119,17 +128,24 @@ export default function Runs({ runs, filters, can }) {
             )}
 
             <div className="mb-4 flex items-center gap-3">
-                <select
+                <Combobox
+                    items={RUN_STATUS_OPTIONS.map((o) => o.value)}
                     value={status}
-                    onChange={(e) => applyStatus(e.target.value)}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900 sm:text-sm"
+                    onValueChange={(v) => applyStatus(v ?? 'all')}
+                    itemToStringValue={(v) => RUN_STATUS_OPTIONS.find((o) => o.value === v)?.label ?? v}
                 >
-                    <option value="all">Semua Status</option>
-                    <option value="PENDING">PENDING</option>
-                    <option value="RUNNING">RUNNING</option>
-                    <option value="COMPLETED">COMPLETED</option>
-                    <option value="FAILED">FAILED</option>
-                </select>
+                    <ComboboxInput aria-label="Filter status rekonsiliasi" />
+                    <ComboboxContent>
+                        <ComboboxEmpty>Tidak ada status.</ComboboxEmpty>
+                        <ComboboxList>
+                            {(v) => (
+                                <ComboboxItem key={v} value={v}>
+                                    {RUN_STATUS_OPTIONS.find((o) => o.value === v)?.label}
+                                </ComboboxItem>
+                            )}
+                        </ComboboxList>
+                    </ComboboxContent>
+                </Combobox>
             </div>
 
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">

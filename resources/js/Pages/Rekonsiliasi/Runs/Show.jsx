@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { ChevronLeft, ListChecks, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import StatusBadge from '@/Components/Admin/StatusBadge';
 
@@ -27,6 +28,14 @@ const FINDING_STATUS_STYLES = {
     RESOLVED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     ACCEPTED_WITH_REASON: 'bg-slate-100 text-slate-600 border-slate-200',
 };
+
+const FINDING_STATUS_OPTIONS = [
+    { value: 'all', label: 'Semua Status Temuan' },
+    { value: 'OPEN', label: 'OPEN' },
+    { value: 'UNDER_REVIEW', label: 'UNDER_REVIEW' },
+    { value: 'RESOLVED', label: 'RESOLVED' },
+    { value: 'ACCEPTED_WITH_REASON', label: 'ACCEPTED_WITH_REASON' },
+];
 
 export default function Show({ run, findings, filters, can }) {
     const [status, setStatus] = useState(filters.status || 'all');
@@ -109,17 +118,24 @@ export default function Show({ run, findings, filters, can }) {
 
             {/* Filter status temuan */}
             <div className="mb-4 flex items-center gap-3">
-                <select
+                <Combobox
+                    items={FINDING_STATUS_OPTIONS.map((o) => o.value)}
                     value={status}
-                    onChange={(e) => applyStatus(e.target.value)}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:border-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900 sm:text-sm"
+                    onValueChange={(v) => applyStatus(v ?? 'all')}
+                    itemToStringValue={(v) => FINDING_STATUS_OPTIONS.find((o) => o.value === v)?.label ?? v}
                 >
-                    <option value="all">Semua Status Temuan</option>
-                    <option value="OPEN">OPEN</option>
-                    <option value="UNDER_REVIEW">UNDER_REVIEW</option>
-                    <option value="RESOLVED">RESOLVED</option>
-                    <option value="ACCEPTED_WITH_REASON">ACCEPTED_WITH_REASON</option>
-                </select>
+                    <ComboboxInput aria-label="Filter status temuan" />
+                    <ComboboxContent>
+                        <ComboboxEmpty>Tidak ada status.</ComboboxEmpty>
+                        <ComboboxList>
+                            {(v) => (
+                                <ComboboxItem key={v} value={v}>
+                                    {FINDING_STATUS_OPTIONS.find((o) => o.value === v)?.label}
+                                </ComboboxItem>
+                            )}
+                        </ComboboxList>
+                    </ComboboxContent>
+                </Combobox>
             </div>
 
             {/* Daftar temuan */}

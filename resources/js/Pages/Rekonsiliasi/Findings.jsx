@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { Search, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 const TYPE_LABELS = {
@@ -25,6 +26,61 @@ const PRIORITY_STYLES = {
     MEDIUM: 'bg-amber-50 text-amber-700 border-amber-200',
     LOW: 'bg-slate-100 text-slate-600 border-slate-200',
 };
+
+function OptionsCombobox({ options, value, onChange, ariaLabel }) {
+    const items = options.map((o) => o.value);
+    return (
+        <Combobox
+            items={items}
+            value={value}
+            onValueChange={(v) => onChange(v ?? 'all')}
+            itemToStringValue={(v) => options.find((o) => o.value === v)?.label ?? v}
+        >
+            <ComboboxInput aria-label={ariaLabel} />
+            <ComboboxContent>
+                <ComboboxEmpty>Tidak ada pilihan.</ComboboxEmpty>
+                <ComboboxList>
+                    {(v) => (
+                        <ComboboxItem key={v} value={v}>
+                            {options.find((o) => o.value === v)?.label}
+                        </ComboboxItem>
+                    )}
+                </ComboboxList>
+            </ComboboxContent>
+        </Combobox>
+    );
+}
+
+const STATUS_FILTER_OPTIONS = [
+    { value: 'all', label: 'Semua Status' },
+    { value: 'OPEN', label: 'OPEN' },
+    { value: 'UNDER_REVIEW', label: 'UNDER_REVIEW' },
+    { value: 'RESOLVED', label: 'RESOLVED' },
+    { value: 'ACCEPTED_WITH_REASON', label: 'ACCEPTED_WITH_REASON' },
+];
+const MODULE_FILTER_OPTIONS = [
+    { value: 'all', label: 'Semua Modul' },
+    { value: 'savings', label: 'Simpanan' },
+    { value: 'loans', label: 'Pinjaman' },
+    { value: 'cash', label: 'Kas' },
+];
+const PRIORITY_FILTER_OPTIONS = [
+    { value: 'all', label: 'Semua Prioritas' },
+    { value: 'HIGH', label: 'HIGH' },
+    { value: 'MEDIUM', label: 'MEDIUM' },
+    { value: 'LOW', label: 'LOW' },
+];
+const StatusCombobox = (props) => <OptionsCombobox ariaLabel="Filter status" options={STATUS_FILTER_OPTIONS} {...props} />;
+const ModuleCombobox = (props) => <OptionsCombobox ariaLabel="Filter modul" options={MODULE_FILTER_OPTIONS} {...props} />;
+const PriorityCombobox = (props) => <OptionsCombobox ariaLabel="Filter prioritas" options={PRIORITY_FILTER_OPTIONS} {...props} />;
+const TypeCombobox = ({ value, onChange }) => (
+    <OptionsCombobox
+        ariaLabel="Filter jenis temuan"
+        value={value}
+        onChange={onChange}
+        options={[{ value: 'all', label: 'Semua Jenis' }, ...Object.entries(TYPE_LABELS).map(([v, label]) => ({ value: v, label }))]}
+    />
+);
 
 const FINDING_STATUS_STYLES = {
     OPEN: 'bg-red-50 text-red-700 border-red-200',
@@ -66,33 +122,10 @@ export default function Findings({ findings, filters }) {
 
             {/* Filter */}
             <div className="mb-6 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs sm:flex-row sm:flex-wrap">
-                <select value={local.status} onChange={(e) => setFilter('status', e.target.value)} className={selectClass}>
-                    <option value="all">Semua Status</option>
-                    <option value="OPEN">OPEN</option>
-                    <option value="UNDER_REVIEW">UNDER_REVIEW</option>
-                    <option value="RESOLVED">RESOLVED</option>
-                    <option value="ACCEPTED_WITH_REASON">ACCEPTED_WITH_REASON</option>
-                </select>
-                <select value={local.module} onChange={(e) => setFilter('module', e.target.value)} className={selectClass}>
-                    <option value="all">Semua Modul</option>
-                    <option value="savings">Simpanan</option>
-                    <option value="loans">Pinjaman</option>
-                    <option value="cash">Kas</option>
-                </select>
-                <select value={local.finding_type} onChange={(e) => setFilter('finding_type', e.target.value)} className={selectClass}>
-                    <option value="all">Semua Jenis</option>
-                    {Object.entries(TYPE_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>
-                            {label}
-                        </option>
-                    ))}
-                </select>
-                <select value={local.priority} onChange={(e) => setFilter('priority', e.target.value)} className={selectClass}>
-                    <option value="all">Semua Prioritas</option>
-                    <option value="HIGH">HIGH</option>
-                    <option value="MEDIUM">MEDIUM</option>
-                    <option value="LOW">LOW</option>
-                </select>
+                <StatusCombobox value={local.status} onChange={(v) => setFilter('status', v)} />
+                <ModuleCombobox value={local.module} onChange={(v) => setFilter('module', v)} />
+                <TypeCombobox value={local.finding_type} onChange={(v) => setFilter('finding_type', v)} />
+                <PriorityCombobox value={local.priority} onChange={(v) => setFilter('priority', v)} />
             </div>
 
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">

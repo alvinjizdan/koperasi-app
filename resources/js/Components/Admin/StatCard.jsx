@@ -16,7 +16,7 @@ export default function StatCard({
     badge = null,
 }) {
     return (
-        <div className="flex h-full flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-xs transition-shadow hover:shadow-md">
+        <div className="flex h-full flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
             <div className="flex items-start justify-between gap-3">
                 <div>
                     <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</p>

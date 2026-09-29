@@ -1,12 +1,13 @@
-import React from 'react';
-import { Link } from '@inertiajs/react';
-import EmptyState from '@/Components/Admin/EmptyState';
-import { ChevronLeft, ChevronRight, Table2 } from 'lucide-react';
+import React from "react";
+import { Link } from "@inertiajs/react";
+import EmptyState from "@/Components/Admin/EmptyState";
+import { ScrollArea, ScrollBar } from "@/Components/ui/scroll-area";
+import { ChevronLeft, ChevronRight, Table2 } from "lucide-react";
 
 const ALIGNMENTS = {
-    left: 'text-left',
-    right: 'text-right',
-    center: 'text-center',
+    left: "text-left",
+    right: "text-right",
+    center: "text-center",
 };
 
 /**
@@ -18,19 +19,24 @@ export default function ReportTable({
     columns,
     rows,
     emptyIcon: EmptyIcon = Table2,
-    emptyTitle = 'Tidak ada data',
-    emptyDescription = 'Ubah filter untuk melihat data lainnya.',
+    emptyTitle = "Tidak ada data",
+    emptyDescription = "Ubah filter untuk melihat data lainnya.",
     pagination = null,
 }) {
     if (!rows || rows.length === 0) {
         return (
-            <EmptyState icon={EmptyIcon} title={emptyTitle} description={emptyDescription} />
+            <EmptyState
+                icon={EmptyIcon}
+                title={emptyTitle}
+                description={emptyDescription}
+            />
         );
     }
 
     return (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
-            <div className="overflow-x-auto">
+            <ScrollArea className="w-full">
+                <ScrollBar orientation="horizontal" />
                 <table className="min-w-full divide-y divide-slate-200">
                     <thead className="bg-slate-50">
                         <tr>
@@ -39,7 +45,7 @@ export default function ReportTable({
                                     key={column.key}
                                     scope="col"
                                     className={`whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500 ${
-                                        ALIGNMENTS[column.align || 'left']
+                                        ALIGNMENTS[column.align || "left"]
                                     }`}
                                 >
                                     {column.label}
@@ -49,27 +55,33 @@ export default function ReportTable({
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                         {rows.map((row, index) => (
-                            <tr key={row.id ?? index} className="transition-colors hover:bg-slate-50">
+                            <tr
+                                key={row.id ?? index}
+                                className="transition-colors hover:bg-slate-50"
+                            >
                                 {columns.map((column) => (
                                     <td
                                         key={column.key}
                                         className={`px-4 py-3 text-sm ${
-                                            ALIGNMENTS[column.align || 'left']
-                                        } ${column.className || 'text-slate-700'}`}
+                                            ALIGNMENTS[column.align || "left"]
+                                        } ${column.className || "text-slate-700"}`}
                                     >
-                                        {column.render ? column.render(row) : (row[column.key] ?? '-')}
+                                        {column.render
+                                            ? column.render(row)
+                                            : (row[column.key] ?? "-")}
                                     </td>
                                 ))}
                             </tr>
                         ))}
                     </tbody>
                 </table>
-            </div>
+            </ScrollArea>
 
             {pagination && pagination.last_page > 1 && (
                 <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
                     <p className="text-sm text-slate-500">
-                        Menampilkan {pagination.from}–{pagination.to} dari {pagination.total} baris
+                        Menampilkan {pagination.from}–{pagination.to} dari{" "}
+                        {pagination.total} baris
                     </p>
                     <div className="flex gap-1">
                         {pagination.prev_page_url && (

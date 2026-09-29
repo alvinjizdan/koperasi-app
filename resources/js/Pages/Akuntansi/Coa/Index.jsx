@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
 import { BookOpen, PlusCircle, Pencil, Ban } from 'lucide-react';
 
@@ -31,7 +32,8 @@ export default function Index({ accounts, categories }) {
                     description="Daftar perkiraan masih kosong. Tambahkan akun pertama atau jalankan ChartOfAccountSeeder."
                 />
             ) : (
-                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
+                <ScrollArea className="rounded-xl border border-slate-200 bg-white shadow-xs">
+<ScrollBar orientation="horizontal" />
                     <table className="min-w-full divide-y divide-slate-200 text-xs sm:text-sm">
                         <thead className="bg-slate-50">
                             <tr>
@@ -98,7 +100,7 @@ export default function Index({ accounts, categories }) {
                             ))}
                         </tbody>
                     </table>
-                </div>
+                </ScrollArea>
             )}
         </AdminLayout>
     );

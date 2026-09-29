@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
 import { NotebookPen, PlusCircle } from 'lucide-react';
 
@@ -37,7 +38,8 @@ export default function Index({ entries }) {
                     description="Buat jurnal DRAFT pertama, lengkapi baris debit/kredit yang seimbang, lalu posting ke buku besar."
                 />
             ) : (
-                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
+                <ScrollArea className="rounded-xl border border-slate-200 bg-white shadow-xs">
+<ScrollBar orientation="horizontal" />
                     <table className="min-w-full divide-y divide-slate-200 text-xs sm:text-sm">
                         <thead className="bg-slate-50">
                             <tr>
@@ -76,7 +78,7 @@ export default function Index({ entries }) {
                             ))}
                         </tbody>
                     </table>
-                </div>
+                </ScrollArea>
             )}
         </AdminLayout>
     );

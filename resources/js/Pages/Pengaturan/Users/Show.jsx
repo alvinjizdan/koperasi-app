@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, router, useForm } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
+import PasswordInput from '@/Components/PasswordInput';
 import {
     ArrowLeft,
     Ban,
@@ -293,8 +294,7 @@ export default function Show({ user, allRoles, flash }) {
                                 <label htmlFor="password" className="block text-xs font-semibold text-slate-900 sm:text-sm">
                                     Password Baru <span className="text-rose-500">*</span>
                                 </label>
-                                <input
-                                    type="password"
+                                <PasswordInput
                                     id="password"
                                     value={resetForm.data.password}
                                     onChange={(e) => resetForm.setData('password', e.target.value)}
@@ -311,8 +311,7 @@ export default function Show({ user, allRoles, flash }) {
                                 >
                                     Ulangi Password <span className="text-rose-500">*</span>
                                 </label>
-                                <input
-                                    type="password"
+                                <PasswordInput
                                     id="password_confirmation"
                                     value={resetForm.data.password_confirmation}
                                     onChange={(e) => resetForm.setData('password_confirmation', e.target.value)}

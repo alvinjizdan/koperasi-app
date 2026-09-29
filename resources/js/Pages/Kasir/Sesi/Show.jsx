@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
 import StatCard from '@/Components/Admin/StatCard';
 import {
@@ -189,7 +190,8 @@ export default function Show({ session, totals, transactions, active_session, fl
                         </div>
                     ) : (
                         <>
-                            <div className="overflow-x-auto">
+                            <ScrollArea>
+<ScrollBar orientation="horizontal" />
                                 <table className="min-w-full divide-y divide-slate-200">
                                     <thead className="bg-slate-50">
                                         <tr>
@@ -267,7 +269,7 @@ export default function Show({ session, totals, transactions, active_session, fl
                                         ))}
                                     </tbody>
                                 </table>
-                            </div>
+                            </ScrollArea>
 
                             {transactions.last_page > 1 && (
                                 <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">

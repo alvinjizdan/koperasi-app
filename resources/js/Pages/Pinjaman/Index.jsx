@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import {
     Landmark,
     Plus,
@@ -14,6 +15,15 @@ import {
 } from 'lucide-react';
 import { formatRupiah, formatDate } from '@/utils/format';
 
+const LOAN_STATUS_OPTIONS = [
+    { value: 'all', label: 'Semua Status' },
+    { value: 'PENDING', label: 'Menunggu Persetujuan' },
+    { value: 'APPROVED', label: 'Disetujui' },
+    { value: 'ACTIVE', label: 'Aktif / Berjalan' },
+    { value: 'REJECTED', label: 'Ditolak' },
+    { value: 'PAID_OFF', label: 'Lunas' },
+];
+
 export default function Index({ loans, filters, flash }) {
     const [search, setSearch] = useState(filters.search || '');
     const [status, setStatus] = useState(filters.status || 'all');
@@ -23,8 +33,8 @@ export default function Index({ loans, filters, flash }) {
         router.get(route('pinjaman.index'), { search, status }, { preserveState: true, replace: true });
     };
 
-    const handleStatusChange = (e) => {
-        const newStatus = e.target.value;
+    const handleStatusChange = (newStatus) => {
+        if (newStatus == null) newStatus = 'all';
         setStatus(newStatus);
         router.get(route('pinjaman.index'), { search, status: newStatus }, { preserveState: true, replace: true });
     };
@@ -99,18 +109,24 @@ export default function Index({ loans, filters, flash }) {
                             Cari
                         </button>
                     </form>
-                    <select
+                    <Combobox
+                        items={LOAN_STATUS_OPTIONS.map((o) => o.value)}
                         value={status}
-                        onChange={handleStatusChange}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                        onValueChange={handleStatusChange}
+                        itemToStringValue={(v) => LOAN_STATUS_OPTIONS.find((o) => o.value === v)?.label ?? v}
                     >
-                        <option value="all">Semua Status</option>
-                        <option value="PENDING">Menunggu Persetujuan</option>
-                        <option value="APPROVED">Disetujui</option>
-                        <option value="ACTIVE">Aktif / Berjalan</option>
-                        <option value="REJECTED">Ditolak</option>
-                        <option value="PAID_OFF">Lunas</option>
-                    </select>
+                        <ComboboxInput aria-label="Filter status pinjaman" />
+                        <ComboboxContent>
+                            <ComboboxEmpty>Tidak ada status.</ComboboxEmpty>
+                            <ComboboxList>
+                                {(v) => (
+                                    <ComboboxItem key={v} value={v}>
+                                        {LOAN_STATUS_OPTIONS.find((o) => o.value === v)?.label}
+                                    </ComboboxItem>
+                                )}
+                            </ComboboxList>
+                        </ComboboxContent>
+                    </Combobox>
                 </div>
 
                 {loans.data.length === 0 ? (

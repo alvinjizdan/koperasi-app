@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import {
     PiggyBank,
     ChevronLeft,
@@ -15,6 +16,12 @@ import {
     Receipt,
 } from 'lucide-react';
 import { formatRupiah, formatDate, formatDateTime } from '@/utils/format';
+
+const TYPE_OPTIONS = [
+    { value: 'all', label: 'Semua Jenis' },
+    { value: 'deposit', label: 'Setoran' },
+    { value: 'withdrawal', label: 'Penarikan' },
+];
 
 export default function Show({ account, transactions, filters, flash }) {
     const [dateFrom, setDateFrom] = useState(filters.date_from || '');
@@ -31,8 +38,8 @@ export default function Show({ account, transactions, filters, flash }) {
         );
     };
 
-    const handleTypeChange = (e) => {
-        const newType = e.target.value;
+    const handleTypeChange = (newType) => {
+        if (newType == null) newType = 'all';
         setType(newType);
         router.get(
             route('simpanan-rekening.show', account.id),
@@ -148,15 +155,24 @@ export default function Show({ account, transactions, filters, flash }) {
                                 className="rounded-lg border border-slate-300 bg-white py-1.5 pl-3 pr-3 text-sm text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
                             />
                         </div>
-                        <select
+                        <Combobox
+                            items={TYPE_OPTIONS.map((o) => o.value)}
                             value={type}
-                            onChange={handleTypeChange}
-                            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                            onValueChange={handleTypeChange}
+                            itemToStringValue={(v) => TYPE_OPTIONS.find((o) => o.value === v)?.label ?? v}
                         >
-                            <option value="all">Semua Jenis</option>
-                            <option value="deposit">Setoran</option>
-                            <option value="withdrawal">Penarikan</option>
-                        </select>
+                            <ComboboxInput aria-label="Filter jenis transaksi" />
+                            <ComboboxContent>
+                                <ComboboxEmpty>Tidak ada jenis.</ComboboxEmpty>
+                                <ComboboxList>
+                                    {(v) => (
+                                        <ComboboxItem key={v} value={v}>
+                                            {TYPE_OPTIONS.find((o) => o.value === v)?.label}
+                                        </ComboboxItem>
+                                    )}
+                                </ComboboxList>
+                            </ComboboxContent>
+                        </Combobox>
                         <input
                             type="date"
                             value={dateFrom}

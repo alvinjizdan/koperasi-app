@@ -1,8 +1,23 @@
 import React from 'react';
 import { Link, useForm } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { Landmark, ChevronLeft, AlertCircle } from 'lucide-react';
 import { formatRupiah } from '@/utils/format';
+
+const MEMBER_OPTIONS = (members) => [
+    { value: '', label: 'Pilih anggota...' },
+    ...members.map((m) => ({ value: String(m.id), label: `${m.full_name} (${m.member_number})` })),
+];
+
+const TENOR_OPTIONS = [
+    { value: '3', label: '3 Bulan' },
+    { value: '6', label: '6 Bulan' },
+    { value: '12', label: '12 Bulan (1 Tahun)' },
+    { value: '18', label: '18 Bulan' },
+    { value: '24', label: '24 Bulan (2 Tahun)' },
+    { value: '36', label: '36 Bulan (3 Tahun)' },
+];
 
 export default function Create({ members, today_date }) {
     const { data, setData, post, processing, errors } = useForm({
@@ -56,23 +71,33 @@ export default function Create({ members, today_date }) {
                                         Tidak ada anggota aktif. Daftarkan anggota terlebih dahulu.
                                     </div>
                                 ) : (
-                                    <select
-                                        id="member_id"
+                                    <Combobox
+                                        items={MEMBER_OPTIONS(members)}
                                         value={data.member_id}
-                                        onChange={(e) => setData('member_id', e.target.value)}
-                                        className={`mt-1.5 block w-full rounded-lg border px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-1 ${
-                                            errors.member_id
-                                                ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500'
-                                                : 'border-slate-300 focus:border-slate-500 focus:ring-slate-500'
-                                        }`}
+                                        onValueChange={(v) => setData('member_id', v ?? '')}
+                                        itemToStringValue={(v) =>
+                                            members.find((m) => String(m.id) === String(v))
+                                                ? `${members.find((m) => String(m.id) === String(v)).full_name} (${members.find((m) => String(m.id) === String(v)).member_number})`
+                                                : 'Pilih anggota...'
+                                        }
                                     >
-                                        <option value="">Pilih anggota...</option>
-                                        {members.map((m) => (
-                                            <option key={m.id} value={m.id}>
-                                                {m.full_name} ({m.member_number})
-                                            </option>
-                                        ))}
-                                    </select>
+                                        <ComboboxInput
+                                            id="member_id"
+                                            aria-label="Anggota pemohon"
+                                            aria-invalid={!!errors.member_id}
+                                            className={errors.member_id ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500' : ''}
+                                        />
+                                        <ComboboxContent>
+                                            <ComboboxEmpty>Anggota tidak ditemukan.</ComboboxEmpty>
+                                            <ComboboxList>
+                                                {(option) => (
+                                                    <ComboboxItem key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </ComboboxItem>
+                                                )}
+                                            </ComboboxList>
+                                        </ComboboxContent>
+                                    </Combobox>
                                 )}
                                 {errors.member_id && (
                                     <p className="mt-1 flex items-center gap-1 text-xs text-rose-600">
@@ -124,23 +149,29 @@ export default function Create({ members, today_date }) {
                                 <label htmlFor="tenor_months" className="block text-sm font-medium text-slate-700">
                                     Tenor (Bulan) <span className="text-rose-500">*</span>
                                 </label>
-                                <select
-                                    id="tenor_months"
+                                <Combobox
+                                    items={TENOR_OPTIONS.map((o) => o.value)}
                                     value={data.tenor_months}
-                                    onChange={(e) => setData('tenor_months', e.target.value)}
-                                    className={`mt-1.5 block w-full rounded-lg border px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-1 ${
-                                        errors.tenor_months
-                                            ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500'
-                                            : 'border-slate-300 focus:border-slate-500 focus:ring-slate-500'
-                                    }`}
+                                    onValueChange={(v) => setData('tenor_months', v ?? '')}
+                                    itemToStringValue={(v) => TENOR_OPTIONS.find((o) => o.value === v)?.label ?? v}
                                 >
-                                    <option value="3">3 Bulan</option>
-                                    <option value="6">6 Bulan</option>
-                                    <option value="12">12 Bulan (1 Tahun)</option>
-                                    <option value="18">18 Bulan</option>
-                                    <option value="24">24 Bulan (2 Tahun)</option>
-                                    <option value="36">36 Bulan (3 Tahun)</option>
-                                </select>
+                                    <ComboboxInput
+                                        id="tenor_months"
+                                        aria-label="Tenor bulan"
+                                        aria-invalid={!!errors.tenor_months}
+                                        className={errors.tenor_months ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500' : ''}
+                                    />
+                                    <ComboboxContent>
+                                        <ComboboxEmpty>Tenor tidak ditemukan.</ComboboxEmpty>
+                                        <ComboboxList>
+                                            {(v) => (
+                                                <ComboboxItem key={v} value={v}>
+                                                    {TENOR_OPTIONS.find((o) => o.value === v)?.label}
+                                                </ComboboxItem>
+                                            )}
+                                        </ComboboxList>
+                                    </ComboboxContent>
+                                </Combobox>
                                 {errors.tenor_months && (
                                     <p className="mt-1 flex items-center gap-1 text-xs text-rose-600">
                                         <AlertCircle className="h-3 w-3" />

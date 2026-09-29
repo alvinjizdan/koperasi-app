@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { router } from '@inertiajs/react';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { Download, Filter, RotateCcw } from 'lucide-react';
 
 export const PERIOD_OPTIONS = [
@@ -86,6 +87,29 @@ export default function ReportFilters({
     const inputClass =
         'mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500';
 
+    const labelOf = (options, v) => options.find((o) => String(o.value) === String(v))?.label ?? String(v);
+
+    const OptionsCombobox = ({ name, options, ariaLabel }) => (
+        <Combobox
+            items={options.map((o) => String(o.value))}
+            value={value(name)}
+            onValueChange={(v) => set(name, v ?? 'all')}
+            itemToStringValue={(v) => labelOf(options, v)}
+        >
+            <ComboboxInput aria-label={ariaLabel} className={inputClass} />
+            <ComboboxContent>
+                <ComboboxEmpty>Pilihan tidak ditemukan.</ComboboxEmpty>
+                <ComboboxList>
+                    {(v) => (
+                        <ComboboxItem key={v} value={v}>
+                            {labelOf(options, v)}
+                        </ComboboxItem>
+                    )}
+                </ComboboxList>
+            </ComboboxContent>
+        </Combobox>
+    );
+
     return (
         <form
             onSubmit={handleSubmit}
@@ -94,17 +118,7 @@ export default function ReportFilters({
             {showPeriod && (
                 <div>
                     <label className="block text-xs font-medium text-slate-600">Periode</label>
-                    <select
-                        value={value('period')}
-                        onChange={(event) => set('period', event.target.value)}
-                        className={inputClass}
-                    >
-                        {PERIOD_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                                {option.label}
-                            </option>
-                        ))}
-                    </select>
+                    <OptionsCombobox name="period" options={PERIOD_OPTIONS} ariaLabel="Periode" />
                 </div>
             )}
 
@@ -135,17 +149,7 @@ export default function ReportFilters({
                 <div key={field.name}>
                     <label className="block text-xs font-medium text-slate-600">{field.label}</label>
                     {field.type === 'select' ? (
-                        <select
-                            value={value(field.name)}
-                            onChange={(event) => set(field.name, event.target.value)}
-                            className={inputClass}
-                        >
-                            {(field.options || []).map((option) => (
-                                <option key={option.value} value={option.value}>
-                                    {option.label}
-                                </option>
-                            ))}
-                        </select>
+                        <OptionsCombobox name={field.name} options={field.options || []} ariaLabel={field.label} />
                     ) : (
                         <input
                             type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}

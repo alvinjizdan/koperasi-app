@@ -2,8 +2,8 @@ import React from 'react';
 import { Inbox } from 'lucide-react';
 
 export default function EmptyState({
-    title = 'Belum Ada Data Available',
-    description = 'Data transaksi dan aktivitas terbaru akan tampil otomatis setelah modul bisnis diaktifkan.',
+    title = 'Belum ada data',
+    description = 'Data akan tampil di sini setelah mulai diisi.',
     icon: Icon = Inbox,
     action = null,
 }) {

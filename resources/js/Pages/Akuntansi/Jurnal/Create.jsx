@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { ArrowLeft, Plus, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 
 const emptyLine = () => ({ account_id: '', description: '', debit: '', credit: '' });
@@ -50,6 +51,12 @@ export default function Create({ accounts }) {
     };
 
     const inputClass = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20';
+
+    const accountOptions = React.useMemo(() => [
+        { value: '', label: '— Pilih akun —' },
+        ...accounts.map((a) => ({ value: String(a.id), label: `${a.code} — ${a.name} (${a.normal_balance})` })),
+    ], [accounts]);
+    const labelForAccount = (id) => accountOptions.find((o) => o.value === String(id))?.label ?? String(id);
 
     return (
         <AdminLayout title="Buat Jurnal" pageTitle="Akuntansi — Jurnal Umum">
@@ -106,19 +113,24 @@ export default function Create({ accounts }) {
                             <div key={index} className="grid grid-cols-12 gap-2 items-start rounded-lg border border-slate-100 bg-slate-50/60 p-3">
                                 <div className="col-span-12 sm:col-span-4">
                                     <label className="text-[11px] font-semibold text-slate-500">Akun {index + 1} *</label>
-                                    <select
+                                    <Combobox
+                                        items={accountOptions.map((o) => o.value)}
                                         value={line.account_id}
-                                        onChange={(event) => setLine(index, 'account_id', event.target.value)}
-                                        className={inputClass}
-                                        required
+                                        onValueChange={(v) => setLine(index, 'account_id', v ?? '')}
+                                        itemToStringValue={labelForAccount}
                                     >
-                                        <option value="">— Pilih akun —</option>
-                                        {accounts.map((account) => (
-                                            <option key={account.id} value={account.id}>
-                                                {account.code} — {account.name} ({account.normal_balance})
-                                            </option>
-                                        ))}
-                                    </select>
+                                        <ComboboxInput aria-label={`Akun ${index + 1}`} className={inputClass} required />
+                                        <ComboboxContent>
+                                            <ComboboxEmpty>Akun tidak ditemukan.</ComboboxEmpty>
+                                            <ComboboxList>
+                                                {(v) => (
+                                                    <ComboboxItem key={v} value={v}>
+                                                        {labelForAccount(v)}
+                                                    </ComboboxItem>
+                                                )}
+                                            </ComboboxList>
+                                        </ComboboxContent>
+                                    </Combobox>
                                 </div>
                                 <div className="col-span-6 sm:col-span-3">
                                     <label className="text-[11px] font-semibold text-slate-500">Debit (Rp)</label>

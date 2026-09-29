@@ -1,5 +1,6 @@
 import React from 'react';
 import { useForm } from '@inertiajs/react';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { Save, CheckCircle2, AlertCircle } from 'lucide-react';
 
 /**
@@ -44,18 +45,24 @@ export default function SettingsForm({ settings, definitions, updateRoute, group
                 )}
 
                 {definition.type === 'select' && (
-                    <select
-                        id={key}
+                    <Combobox
+                        items={Object.keys(definition.options || {})}
                         value={value}
-                        onChange={(e) => setData(key, e.target.value)}
-                        className={baseClass}
+                        onValueChange={(v) => setData(key, v ?? '')}
+                        itemToStringValue={(v) => definition.options?.[v] ?? v}
                     >
-                        {Object.entries(definition.options || {}).map(([optionValue, label]) => (
-                            <option key={optionValue} value={optionValue}>
-                                {label}
-                            </option>
-                        ))}
-                    </select>
+                        <ComboboxInput id={key} aria-label={definition.label} className={baseClass} />
+                        <ComboboxContent>
+                            <ComboboxEmpty>Pilihan tidak ditemukan.</ComboboxEmpty>
+                            <ComboboxList>
+                                {(optionValue) => (
+                                    <ComboboxItem key={optionValue} value={optionValue}>
+                                        {definition.options[optionValue]}
+                                    </ComboboxItem>
+                                )}
+                            </ComboboxList>
+                        </ComboboxContent>
+                    </Combobox>
                 )}
 
                 {(definition.type === 'text' || definition.type === 'email') && (

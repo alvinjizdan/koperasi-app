@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, router, usePage } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import { formatRupiah } from '@/utils/format';
 import { ArrowLeft, CheckCircle2, AlertCircle, Undo2, X } from 'lucide-react';
 
@@ -92,7 +93,8 @@ export default function Show({ entry }) {
                 </dl>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
+            <ScrollArea className="rounded-xl border border-slate-200 bg-white shadow-xs">
+<ScrollBar orientation="horizontal" />
                 <table className="min-w-full divide-y divide-slate-200 text-xs sm:text-sm">
                     <thead className="bg-slate-50">
                         <tr>
@@ -120,7 +122,7 @@ export default function Show({ entry }) {
                         </tr>
                     </tbody>
                 </table>
-            </div>
+            </ScrollArea>
 
             <div className={`mt-4 inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-xs font-semibold ${entry.is_balanced ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
                 {entry.is_balanced ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}

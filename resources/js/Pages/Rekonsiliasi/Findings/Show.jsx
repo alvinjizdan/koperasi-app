@@ -1,6 +1,7 @@
 import { Link, useForm } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { ChevronLeft, ClipboardList, History } from 'lucide-react';
 
 const TYPE_LABELS = {
@@ -167,18 +168,24 @@ export default function Show({ finding, followUps, can }) {
                             <label className="mt-4 block text-xs font-semibold text-slate-700" htmlFor="to_status">
                                 Status Baru
                             </label>
-                            <select
-                                id="to_status"
+                            <Combobox
+                                items={STATUS_OPTIONS.map((o) => o.value)}
                                 value={form.data.to_status}
-                                onChange={(e) => form.setData('to_status', e.target.value)}
-                                className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50/50 px-3 py-2 text-xs text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-900"
+                                onValueChange={(v) => form.setData('to_status', v ?? '')}
+                                itemToStringValue={(v) => STATUS_OPTIONS.find((o) => o.value === v)?.label ?? v}
                             >
-                                {STATUS_OPTIONS.map((opt) => (
-                                    <option key={opt.value} value={opt.value}>
-                                        {opt.label}
-                                    </option>
-                                ))}
-                            </select>
+                                <ComboboxInput id="to_status" aria-label="Status baru" />
+                                <ComboboxContent>
+                                    <ComboboxEmpty>Tidak ada status.</ComboboxEmpty>
+                                    <ComboboxList>
+                                        {(v) => (
+                                            <ComboboxItem key={v} value={v}>
+                                                {STATUS_OPTIONS.find((o) => o.value === v)?.label}
+                                            </ComboboxItem>
+                                        )}
+                                    </ComboboxList>
+                                </ComboboxContent>
+                            </Combobox>
                             {form.errors.to_status && <p className="mt-1 text-xs text-red-600">{form.errors.to_status}</p>}
 
                             <label className="mt-4 block text-xs font-semibold text-slate-700" htmlFor="note">

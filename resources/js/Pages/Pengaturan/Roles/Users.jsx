@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
 import { ArrowLeft, ShieldCheck, Eye } from 'lucide-react';
 import { formatDateTime } from '@/utils/format';
@@ -28,7 +29,8 @@ export default function Users({ role, users }) {
 
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
                 {users.data.length > 0 ? (
-                    <div className="overflow-x-auto">
+                    <ScrollArea>
+<ScrollBar orientation="horizontal" />
                         <table className="w-full text-left text-xs sm:text-sm">
                             <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                                 <tr>
@@ -72,7 +74,7 @@ export default function Users({ role, users }) {
                                 ))}
                             </tbody>
                         </table>
-                    </div>
+                    </ScrollArea>
                 ) : (
                     <div className="p-8">
                         <EmptyState

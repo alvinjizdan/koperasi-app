@@ -2,8 +2,15 @@ import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { PiggyBank, Plus, Search, Eye, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import { formatRupiah } from '@/utils/format';
+
+const ACCOUNT_STATUS_OPTIONS = [
+    { value: 'all', label: 'Semua Status' },
+    { value: 'active', label: 'Aktif' },
+    { value: 'closed', label: 'Ditutup' },
+];
 
 export default function Index({ accounts, filters, flash }) {
     const [search, setSearch] = useState(filters.search || '');
@@ -15,7 +22,7 @@ export default function Index({ accounts, filters, flash }) {
     };
 
     const handleStatusChange = (e) => {
-        const newStatus = e.target.value;
+        const newStatus = e?.target?.value ?? e ?? 'all';
         setStatus(newStatus);
         router.get(route('simpanan-rekening.index'), { search, status: newStatus }, { preserveState: true, replace: true });
     };
@@ -70,15 +77,24 @@ export default function Index({ accounts, filters, flash }) {
                             Cari
                         </button>
                     </form>
-                    <select
+                    <Combobox
+                        items={ACCOUNT_STATUS_OPTIONS.map((o) => o.value)}
                         value={status}
-                        onChange={handleStatusChange}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                        onValueChange={handleStatusChange}
+                        itemToStringValue={(v) => ACCOUNT_STATUS_OPTIONS.find((o) => o.value === v)?.label ?? v}
                     >
-                        <option value="all">Semua Status</option>
-                        <option value="active">Aktif</option>
-                        <option value="closed">Ditutup</option>
-                    </select>
+                        <ComboboxInput aria-label="Filter status rekening" />
+                        <ComboboxContent>
+                            <ComboboxEmpty>Tidak ada status.</ComboboxEmpty>
+                            <ComboboxList>
+                                {(v) => (
+                                    <ComboboxItem key={v} value={v}>
+                                        {ACCOUNT_STATUS_OPTIONS.find((o) => o.value === v)?.label}
+                                    </ComboboxItem>
+                                )}
+                            </ComboboxList>
+                        </ComboboxContent>
+                    </Combobox>
                 </div>
 
                 {accounts.data.length === 0 ? (
