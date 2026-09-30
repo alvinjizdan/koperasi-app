@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Requests\StoreUserRequest;
 use App\Http\Requests\UpdateUserRequest;
 use App\Models\Role;
@@ -17,13 +18,15 @@ use Inertia\Response;
 
 class UserController extends Controller
 {
+    use InteractsWithSorting;
+
     public function index(Request $request): Response
     {
         $search = trim((string) $request->input('search', ''));
         $role = $request->input('role', 'all');
         $status = $request->input('status', 'all');
 
-        $users = User::query()
+        $usersQuery = User::query()
             ->with('roles:id,name,display_name')
             ->withCount('roles')
             ->when($search !== '', function ($q) use ($search) {
@@ -35,9 +38,18 @@ class UserController extends Controller
                 });
             })
             ->when($role !== 'all', fn ($q) => $q->whereHas('roles', fn ($r) => $r->where('roles.name', $role)))
-            ->when($status !== 'all', fn ($q) => $q->where('is_active', $status === 'active'))
-            ->orderBy('created_at', 'desc')
-            ->paginate(10)
+            ->when($status !== 'all', fn ($q) => $q->where('is_active', $status === 'active'));
+
+        $sortStatus = $this->applySorting($usersQuery, $request, [
+            'name' => 'name',
+            'email' => 'email',
+            'roles_count' => 'roles_count',
+            'is_active' => 'is_active',
+            'last_login_at' => 'last_login_at',
+            'created_at' => 'created_at',
+        ], [['created_at', 'desc']]);
+
+        $users = $usersQuery->paginate($this->resolvePerPage($request))
             ->withQueryString()
             ->through(fn (User $user) => [
                 'id' => $user->id,
@@ -55,6 +67,7 @@ class UserController extends Controller
 
         return Inertia::render('Pengaturan/Users/Index', [
             'users' => $users,
+            'sort' => $sortStatus,
             'roles' => Role::query()->orderBy('name')->get(['id', 'name', 'display_name']),
             'filters' => [
                 'search' => $search,

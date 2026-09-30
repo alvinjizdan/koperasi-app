@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Requests\ReverseInstallmentPaymentRequest;
 use App\Http\Requests\StoreInstallmentPaymentRequest;
 use App\Models\InstallmentPayment;
@@ -15,6 +16,8 @@ use Inertia\Response;
 
 class InstallmentController extends Controller
 {
+    use InteractsWithSorting;
+
     public function __construct(private InstallmentPaymentService $paymentService) {}
 
     /**
@@ -34,12 +37,17 @@ class InstallmentController extends Controller
             });
         }
 
-        $loans = $loansQuery
-            ->when($search, fn ($q) => $q->where('loan_number', 'ilike', "%{$search}%")
-                ->orWhereHas('member', fn ($m) => $m->where('full_name', 'ilike', "%{$search}%")))
-            ->orderBy('created_at', 'desc')
-            ->paginate(15)
-            ->withQueryString();
+        $loansQuery->when($search, fn ($q) => $q->where('loan_number', 'ilike', "%{$search}%")
+            ->orWhereHas('member', fn ($m) => $m->where('full_name', 'ilike', "%{$search}%")));
+
+        $sortStatus = $this->applySorting($loansQuery, $request, [
+            'loan_number' => 'loan_number',
+            'amount' => 'amount',
+            'remaining_balance' => 'remaining_balance',
+            'created_at' => 'created_at',
+        ], [['created_at', 'desc']]);
+
+        $loans = $loansQuery->paginate($this->resolvePerPage($request))->withQueryString();
 
         // Update schedule statuses for listed loans
         foreach ($loans->items() as $loanItem) {
@@ -48,6 +56,7 @@ class InstallmentController extends Controller
 
         return Inertia::render('Angsuran/Index', [
             'loans' => $loans,
+            'sort' => $sortStatus,
             'filters' => [
                 'search' => $search ?? '',
                 'tab' => $tab,

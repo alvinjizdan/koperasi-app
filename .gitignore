@@ -7,6 +7,7 @@
 # Semua varian .env KECUALI contoh tanpa secret
 .env.*
 !.env.example
+!.env.docker.example
 
 # ============================================================
 # DOKUMENTASI PROYEK — dikelola lokal, tidak ikut commit/push
@@ -95,6 +96,3 @@ desktop.ini
 # ============================================================
 Homestead.json
 Homestead.yaml
-
-# Vercel: salinan aset statis (build artifact, dihasilkan buildCommand)
-/public_dist

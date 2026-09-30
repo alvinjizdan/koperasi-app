@@ -91,6 +91,7 @@ export default function Dashboard({
                             title="Anggota Terdaftar"
                             value={formatNumber(members.total)}
                             icon={Users}
+                            tone="emerald"
                             statusNote={`${formatNumber(members.active)} aktif • ${formatNumber(members.inactive)} nonaktif`}
                             scope="Sumber: tabel anggota"
                         />
@@ -98,6 +99,7 @@ export default function Dashboard({
                             title="Total Saldo Simpanan"
                             value={formatRupiah(savings.total_balance)}
                             icon={PiggyBank}
+                            tone="blue"
                             available={savings.has_accounts}
                             statusNote={
                                 savings.has_accounts
@@ -110,6 +112,7 @@ export default function Dashboard({
                             title="Total Pinjaman Dicairkan"
                             value={formatRupiah(loans.disbursed_amount)}
                             icon={Landmark}
+                            tone="indigo"
                             available={loans.has_disbursements}
                             statusNote={
                                 loans.has_disbursements
@@ -122,6 +125,7 @@ export default function Dashboard({
                             title="Sisa Kewajiban Pinjaman"
                             value={formatRupiah(loans.outstanding_amount)}
                             icon={Scale}
+                            tone="amber"
                             available={loans.has_disbursements}
                             statusNote="Nominal dicairkan dikurangi pembayaran angsuran berhasil"
                             scope="Rumus resmi modul Pinjaman; dihitung dari transaksi sah"
@@ -139,6 +143,7 @@ export default function Dashboard({
                             title="Anggota Baru"
                             value={formatNumber(members.new_in_period)}
                             icon={Users}
+                            tone="emerald"
                             statusNote="Berdasarkan tanggal bergabung"
                             scope={`Cakupan: ${formatDate(period?.date_from)} – ${formatDate(period?.date_to)}`}
                         />
@@ -146,6 +151,7 @@ export default function Dashboard({
                             title="Setoran Simpanan"
                             value={formatRupiah(savings.period_deposits)}
                             icon={ArrowDownCircle}
+                            tone="blue"
                             statusNote={`Penarikan: ${formatRupiah(savings.period_withdrawals)}`}
                             scope="Hanya transaksi simpanan berstatus selesai"
                         />
@@ -153,6 +159,7 @@ export default function Dashboard({
                             title="Pembayaran Angsuran"
                             value={formatRupiah(loans.period_payments_total)}
                             icon={Receipt}
+                            tone="indigo"
                             statusNote={`${formatNumber(loans.period_payments_count)} pembayaran berhasil`}
                             scope="Pembayaran dibatalkan tidak dihitung"
                         />
@@ -160,6 +167,7 @@ export default function Dashboard({
                             title="Pinjaman Dicairkan"
                             value={formatRupiah(loans.period_disbursed_amount)}
                             icon={Landmark}
+                            tone="amber"
                             statusNote={`${formatNumber(loans.period_disbursed_count)} pencairan • ${formatNumber(loans.period_submitted_count)} pengajuan baru`}
                             scope="Pengajuan, persetujuan, dan pencairan dipisahkan"
                         />
@@ -189,6 +197,7 @@ export default function Dashboard({
                             title="Saldo Awal Kas Hari Ini"
                             value={formatRupiah(cash.opening_balance)}
                             icon={Wallet}
+                            tone="emerald"
                             available={cash.has_sessions}
                             statusNote={`${formatNumber(cash.sessions_count)} sesi kasir hari ini`}
                             scope="Diambil dari sesi kasir pada tanggal operasional ini"
@@ -197,6 +206,7 @@ export default function Dashboard({
                             title="Penerimaan Kas"
                             value={formatRupiah(cash.income_total)}
                             icon={ArrowDownCircle}
+                            tone="blue"
                             available={cash.has_sessions}
                             statusNote={`Pengeluaran: ${formatRupiah(cash.expense_total)}`}
                             scope="Transaksi kas berstatus berlaku"
@@ -205,6 +215,7 @@ export default function Dashboard({
                             title="Setoran Kasir"
                             value={formatRupiah(cash.deposit_total)}
                             icon={Banknote}
+                            tone="indigo"
                             available={cash.has_sessions}
                             statusNote="Perpindahan kas internal, bukan pengeluaran operasional"
                             scope="Tidak dicampur dengan penerimaan atau pengeluaran eksternal"
@@ -213,6 +224,7 @@ export default function Dashboard({
                             title="Saldo Akhir Kas Sistem"
                             value={formatRupiah(cash.closing_balance)}
                             icon={Scale}
+                            tone="amber"
                             available={cash.has_sessions}
                             statusNote={
                                 cash.has_closed_session

@@ -1,5 +1,7 @@
 <?php
 
+use App\Support\PerPage;
+
 return [
 
     /*
@@ -21,9 +23,14 @@ return [
     |--------------------------------------------------------------------------
     | Pagination
     |--------------------------------------------------------------------------
+    |
+    | Page size laporan kini diatur pengguna lewat ?per_page= dengan whitelist
+    | yang sama seperti halaman lain (10/25/50/100, bawaan 25) — lihat
+    | App\Support\PerPage.
+    |
     */
 
-    'per_page' => 20,
+    'per_page' => PerPage::DEFAULT,
 
     /*
     |--------------------------------------------------------------------------

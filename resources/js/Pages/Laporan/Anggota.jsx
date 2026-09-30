@@ -4,10 +4,12 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import StatCard from '@/Components/Admin/StatCard';
 import ReportFilters from '@/Components/Admin/ReportFilters';
 import ReportTable from '@/Components/Admin/ReportTable';
+import useTableSort from '@/hooks/useTableSort';
 import { Eye, Landmark, PiggyBank, UserCheck, UserMinus, Users } from 'lucide-react';
 import { formatNumber, formatDate } from '@/utils/format';
 
-export default function Anggota({ rows, summary, filters, options, report_slug, export_route, operational_timezone }) {
+export default function Anggota({ rows, sort, summary, filters, options, report_slug, export_route, operational_timezone }) {
+    const handleSort = useTableSort('laporan.anggota');
     const columns = [
         { key: 'member_number', label: 'Nomor Anggota', className: 'font-mono text-xs font-medium text-slate-900' },
         { key: 'full_name', label: 'Nama Anggota', className: 'font-medium text-slate-900' },
@@ -133,6 +135,9 @@ export default function Anggota({ rows, summary, filters, options, report_slug, 
                     columns={columns}
                     rows={rows.data}
                     pagination={rows}
+                    sort={sort}
+                    onSort={handleSort}
+                    routeName="laporan.anggota"
                     emptyIcon={Users}
                     emptyTitle="Tidak ada anggota sesuai filter"
                     emptyDescription="Ubah kata kunci, status, atau rentang tanggal bergabung."

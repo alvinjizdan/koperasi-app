@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import TablePagination from '@/Components/Admin/TablePagination';
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import {
     PiggyBank,
     ChevronLeft,
-    ChevronRight,
     TrendingUp,
     TrendingDown,
     CheckCircle2,
@@ -258,25 +258,12 @@ export default function Show({ account, transactions, filters, flash }) {
                                 </tbody>
                             </table>
 
-                            {transactions.last_page > 1 && (
-                                <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
-                                    <p className="text-sm text-slate-500">
-                                        Halaman {transactions.current_page} dari {transactions.last_page}
-                                    </p>
-                                    <div className="flex gap-1">
-                                        {transactions.prev_page_url && (
-                                            <Link href={transactions.prev_page_url} className="rounded p-1.5 text-slate-500 hover:bg-slate-100 transition-colors">
-                                                <ChevronLeft className="h-4 w-4" />
-                                            </Link>
-                                        )}
-                                        {transactions.next_page_url && (
-                                            <Link href={transactions.next_page_url} className="rounded p-1.5 text-slate-500 hover:bg-slate-100 transition-colors">
-                                                <ChevronRight className="h-4 w-4" />
-                                            </Link>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
+                            <TablePagination
+                                paginator={transactions}
+                                itemLabel="transaksi"
+                                routeName="simpanan-rekening.show"
+                                routeParams={[account.id]}
+                            />
                         </div>
                     )}
                 </div>

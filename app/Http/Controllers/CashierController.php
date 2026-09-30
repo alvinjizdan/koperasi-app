@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Requests\CloseCashierSessionRequest;
 use App\Http\Requests\OpenCashierSessionRequest;
 use App\Models\CashierSession;
@@ -16,6 +17,8 @@ use Inertia\Response;
 
 class CashierController extends Controller
 {
+    use InteractsWithSorting;
+
     public function __construct(private CashierService $cashierService) {}
 
     /**
@@ -80,23 +83,30 @@ class CashierController extends Controller
             'status' => $request->input('status', 'all'),
         ];
 
-        $sessions = CashierSession::query()
+        $sessionsQuery = CashierSession::query()
             ->withTotals()
             ->with('operator')
             ->when($filters['date_from'], fn ($q, $date) => $q->whereDate('operational_date', '>=', $date))
             ->when($filters['date_to'], fn ($q, $date) => $q->whereDate('operational_date', '<=', $date))
             ->when($filters['operator_id'], fn ($q, $operatorId) => $q->where('opened_by', $operatorId))
-            ->when($filters['status'] !== 'all', fn ($q) => $q->where('status', $filters['status']))
-            ->orderByDesc('operational_date')
-            ->orderByDesc('id')
-            ->paginate(15)
-            ->withQueryString();
+            ->when($filters['status'] !== 'all', fn ($q) => $q->where('status', $filters['status']));
+
+        $sortStatus = $this->applySorting($sessionsQuery, $request, [
+            'session_number' => 'cashier_sessions.session_number',
+            'operational_date' => 'cashier_sessions.operational_date',
+            'opening_balance' => 'cashier_sessions.opening_balance',
+            'status' => 'cashier_sessions.status',
+            'created_at' => 'cashier_sessions.id',
+        ], [['cashier_sessions.operational_date', 'desc'], ['cashier_sessions.id', 'desc']]);
+
+        $sessions = $sessionsQuery->paginate($this->resolvePerPage($request))->withQueryString();
 
         return Inertia::render('Kasir/Sesi/Index', [
             'sessions' => [
                 ...$sessions->toArray(),
                 'data' => collect($sessions->items())->map->toSummaryArray()->all(),
             ],
+            'sort' => $sortStatus,
             'operators' => $this->operatorOptions(),
             'filters' => [
                 'date_from' => $filters['date_from'] ?? '',
@@ -114,15 +124,25 @@ class CashierController extends Controller
     /**
      * Detail satu sesi kasir beserta transaksinya.
      */
-    public function show(CashierSession $session): Response
+    public function show(Request $request, CashierSession $session): Response
     {
         $session->load('operator', 'closer');
 
-        $transactions = CashTransaction::query()
+        $transactionsQuery = CashTransaction::query()
             ->with(['operator', 'source', 'session'])
-            ->where('cashier_session_id', $session->id)
-            ->orderByDesc('transacted_at')
-            ->paginate(20, ['*'], 'transaksi_page')
+            ->where('cashier_session_id', $session->id);
+
+        $transactionSortStatus = $this->applySorting($transactionsQuery, $request, [
+            'transaction_number' => 'cash_transactions.transaction_number',
+            'transaction_date' => 'cash_transactions.transaction_date',
+            'type' => 'cash_transactions.type',
+            'category' => 'cash_transactions.category',
+            'amount' => 'cash_transactions.amount',
+            'created_at' => 'cash_transactions.id',
+        ], [['cash_transactions.transacted_at', 'desc']]);
+
+        $transactions = $transactionsQuery
+            ->paginate($this->resolvePerPage($request), ['*'], 'transaksi_page')
             ->withQueryString();
 
         return Inertia::render('Kasir/Sesi/Show', [
@@ -132,6 +152,7 @@ class CashierController extends Controller
                 ...$transactions->toArray(),
                 'data' => collect($transactions->items())->map->toPayloadArray()->all(),
             ],
+            'sort' => $transactionSortStatus,
             'flash' => [
                 'success' => session('success'),
                 'error' => session('error'),

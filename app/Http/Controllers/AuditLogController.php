@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -9,6 +10,8 @@ use Inertia\Response;
 
 class AuditLogController extends Controller
 {
+    use InteractsWithSorting;
+
     /**
      * Daftar audit trail dengan filter dan pagination server-side.
      */
@@ -23,7 +26,7 @@ class AuditLogController extends Controller
             'date_to' => (string) $request->input('date_to', ''),
         ];
 
-        $logs = AuditLog::query()
+        $logsQuery = AuditLog::query()
             ->with('actor:id,name,email')
             ->when($filters['search'] !== '', function ($q) use ($filters) {
                 $term = '%'.mb_strtolower($filters['search']).'%';
@@ -39,10 +42,15 @@ class AuditLogController extends Controller
             ->when($filters['module'] !== 'all', fn ($q) => $q->where('object_type', 'like', $filters['module'].'%'))
             ->when($filters['actor'] !== 'all' && $filters['actor'] !== null && $filters['actor'] !== '', fn ($q) => $q->where('actor_id', (int) $filters['actor']))
             ->when($filters['date_from'] !== '', fn ($q) => $q->where('created_at', '>=', $filters['date_from'].' 00:00:00'))
-            ->when($filters['date_to'] !== '', fn ($q) => $q->where('created_at', '<=', $filters['date_to'].' 23:59:59'))
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-            ->paginate(20)
+            ->when($filters['date_to'] !== '', fn ($q) => $q->where('created_at', '<=', $filters['date_to'].' 23:59:59'));
+
+        $sortStatus = $this->applySorting($logsQuery, $request, [
+            'action' => 'action',
+            'object_type' => 'object_type',
+            'created_at' => 'id',
+        ], [['created_at', 'desc'], ['id', 'desc']]);
+
+        $logs = $logsQuery->paginate($this->resolvePerPage($request))
             ->withQueryString()
             ->through(fn (AuditLog $log) => $this->toArray($log));
 
@@ -66,6 +74,7 @@ class AuditLogController extends Controller
 
         return Inertia::render('Pengaturan/AuditLog', [
             'logs' => $logs,
+            'sort' => $sortStatus,
             'actions' => $actions,
             'actors' => $actors,
             'filters' => $filters,

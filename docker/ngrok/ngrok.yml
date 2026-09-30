@@ -1,0 +1,9 @@
+# Konfigurasi tunnel ngrok (agent v3) — dibaca container ngrok via compose.
+# Authtoken TIDAK ada di file ini: diambil dari environment NGROK_AUTHTOKEN
+# yang disediakan .env.docker (env_file pada service ngrok).
+version: 3
+
+tunnels:
+  demo:
+    proto: http
+    addr: nginx:80

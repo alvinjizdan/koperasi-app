@@ -16,6 +16,13 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // HTTPS di belakang proxy internal (Docker/ngrok): percaya X-Forwarded-*
+        // hanya bila TRUST_PROXIES diset (mis. '*'); kosong = perilaku default lokal.
+        $proxies = env('TRUST_PROXIES');
+        if (is_string($proxies) && $proxies !== '') {
+            $middleware->trustProxies(at: $proxies);
+        }
+
         $middleware->web(append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,

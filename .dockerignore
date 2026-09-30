@@ -1,0 +1,54 @@
+# Menkecilkan build context — tidak dikirim ke Docker daemon
+.git
+.gitignore
+.github
+.idea
+.vscode
+.freebuff
+.agents
+AGENTS.md
+CLAUDE.md
+
+# Dependensi di-install ulang di dalam image
+vendor
+node_modules
+
+# Build frontend dibuat ulang di stage node
+public/build
+public/hot
+
+# Environment & secret — JANGAN pernah masuk image
+.env
+.env.*
+!.env.docker.example
+
+# Vercel artifacts (sisa / sudah dibersihkan)
+public_dist
+.vercel
+.vercelignore
+vercel.json
+
+# Dokumentasi lokal, backup, database lokal
+docs
+backups
+*.sql
+*.dump
+*.sqlite
+
+# Test & tooling
+tests
+.phpunit.result.cache
+.phpunit.cache
+phpunit.xml
+pint.json
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Cache Laravel lokal (dibuat ulang)
+bootstrap/cache/*.php
+storage/logs/*.log
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*.php
+storage/pail

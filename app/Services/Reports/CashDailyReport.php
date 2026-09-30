@@ -4,6 +4,7 @@ namespace App\Services\Reports;
 
 use App\Models\CashierSession;
 use App\Models\CashTransaction;
+use App\Support\QuerySorter;
 use Generator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,19 +19,44 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class CashDailyReport
 {
-    public function __construct(private readonly ReportPeriod $period) {}
+    private QuerySorter $sorter;
+
+    /**
+     * Status sorting yang diterapkan pada pemanggilan paginate() terakhir.
+     *
+     * @return array{key: string|null, direction: string|null}
+     */
+    public function sortStatus(): array
+    {
+        return $this->sorter->status();
+    }
+
+    public function __construct(private readonly ReportPeriod $period)
+    {
+        $this->sorter = new QuerySorter;
+    }
 
     /**
      * @param  array<string, mixed>  $filters
      * @return LengthAwarePaginator<int, array<string, mixed>>
      */
-    public function paginate(array $filters, int $perPage): LengthAwarePaginator
+    public function paginate(array $filters, int $perPage, ?string $sort = null, ?string $direction = null): LengthAwarePaginator
     {
-        return $this->query($filters)
+        $query = $this->query($filters)
             ->withTotals()
-            ->with(['operator:id,name', 'closer:id,name'])
-            ->orderByDesc('operational_date')
-            ->orderByDesc('id')
+            ->with(['operator:id,name', 'closer:id,name']);
+
+        $this->sorter->apply($query, $sort, $direction, [
+            'session_number' => 'session_number',
+            'operational_date' => 'operational_date',
+            'opening_balance' => 'opening_balance',
+            'income_total' => 'income_total',
+            'expense_total' => 'expense_total',
+            'deposit_total' => 'deposit_total',
+            'status' => 'status',
+        ], [['operational_date', 'desc'], ['id', 'desc']]);
+
+        return $query
             ->paginate($perPage)
             ->withQueryString()
             ->through(fn (CashierSession $session) => $this->toRow($session));

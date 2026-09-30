@@ -504,20 +504,34 @@ class ReportTest extends TestCase
     /** 11. Pagination dan pencarian berfungsi */
     public function test_reports_support_pagination_and_search(): void
     {
-        Member::factory()->count(25)->create(['status' => 'active', 'joined_at' => $this->today()]);
+        Member::factory()->count(30)->create(['status' => 'active', 'joined_at' => $this->today()]);
 
         $firstPage = $this->actingAs($this->user)->get(route('laporan.anggota'));
         $firstPage->assertInertia(fn (Assert $page) => $page
-            ->where('rows.total', fn ($value) => (int) $value === 25)
-            ->where('rows.per_page', fn ($value) => (int) $value === 20)
+            ->where('rows.total', fn ($value) => (int) $value === 30)
+            ->where('rows.per_page', fn ($value) => (int) $value === 25)
             ->where('rows.last_page', fn ($value) => (int) $value === 2)
-            ->where('rows.data', fn ($rows) => count($rows) === 20)
+            ->where('rows.data', fn ($rows) => count($rows) === 25)
         );
 
         $secondPage = $this->actingAs($this->user)->get(route('laporan.anggota', ['page' => 2]));
         $secondPage->assertInertia(fn (Assert $page) => $page
             ->where('rows.current_page', fn ($value) => (int) $value === 2)
             ->where('rows.data', fn ($rows) => count($rows) === 5)
+        );
+
+        // Page size dipilih pengguna: 10 baris per halaman.
+        $pageSize = $this->actingAs($this->user)->get(route('laporan.anggota', ['per_page' => 10]));
+        $pageSize->assertInertia(fn (Assert $page) => $page
+            ->where('rows.per_page', fn ($value) => (int) $value === 10)
+            ->where('rows.last_page', fn ($value) => (int) $value === 3)
+            ->where('rows.data', fn ($rows) => count($rows) === 10)
+        );
+
+        // per_page di luar whitelist (999999) jatuh ke bawaan 25.
+        $invalidPerPage = $this->actingAs($this->user)->get(route('laporan.anggota', ['per_page' => 999999]));
+        $invalidPerPage->assertInertia(fn (Assert $page) => $page
+            ->where('rows.per_page', fn ($value) => (int) $value === 25)
         );
 
         $target = Member::query()->orderBy('id')->first();

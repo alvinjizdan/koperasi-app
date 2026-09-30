@@ -3,6 +3,7 @@
 namespace App\Services\Reports;
 
 use App\Models\CashTransaction;
+use App\Support\QuerySorter;
 use Generator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,18 +19,42 @@ use Illuminate\Support\Facades\DB;
  */
 class CashTransactionReport
 {
-    public function __construct(private readonly ReportPeriod $period) {}
+    private QuerySorter $sorter;
+
+    /**
+     * Status sorting yang diterapkan pada pemanggilan paginate() terakhir.
+     *
+     * @return array{key: string|null, direction: string|null}
+     */
+    public function sortStatus(): array
+    {
+        return $this->sorter->status();
+    }
+
+    public function __construct(private readonly ReportPeriod $period)
+    {
+        $this->sorter = new QuerySorter;
+    }
 
     /**
      * @param  array<string, mixed>  $filters
      * @return LengthAwarePaginator<int, array<string, mixed>>
      */
-    public function paginate(array $filters, int $perPage): LengthAwarePaginator
+    public function paginate(array $filters, int $perPage, ?string $sort = null, ?string $direction = null): LengthAwarePaginator
     {
-        return $this->query($filters)
-            ->with(['operator:id,name', 'session:id,session_number'])
-            ->orderByDesc('transaction_date')
-            ->orderByDesc('id')
+        $query = $this->query($filters)
+            ->with(['operator:id,name', 'session:id,session_number']);
+
+        $this->sorter->apply($query, $sort, $direction, [
+            'transaction_number' => 'transaction_number',
+            'transaction_date' => 'transaction_date',
+            'type' => 'type',
+            'category' => 'category',
+            'amount' => 'amount',
+            'operator_name' => 'operator_name',
+        ], [['transaction_date', 'desc'], ['id', 'desc']]);
+
+        return $query
             ->paginate($perPage)
             ->withQueryString()
             ->through(fn (CashTransaction $transaction) => $this->toRow($transaction));

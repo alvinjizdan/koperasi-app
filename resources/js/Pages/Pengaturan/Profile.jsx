@@ -1,7 +1,7 @@
 import React from 'react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import SettingsForm from '@/Pages/Pengaturan/SettingsForm';
-import { Building2 } from 'lucide-react';
+import { Building2, CheckCircle2 } from 'lucide-react';
 
 export default function Profile({ settings, definitions, flash }) {
     // Hanya field grup "profil" yang tampil di halaman ini.

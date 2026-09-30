@@ -2,8 +2,11 @@ import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import TableSortButton from '@/Components/Admin/TableSortButton';
+import TablePagination from '@/Components/Admin/TablePagination';
+import useTableSort from '@/hooks/useTableSort';
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
-import { PiggyBank, Plus, Search, Eye, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { PiggyBank, Plus, Search, Eye, CheckCircle2, AlertCircle } from 'lucide-react';
 import { formatRupiah } from '@/utils/format';
 
 const ACCOUNT_STATUS_OPTIONS = [
@@ -12,9 +15,10 @@ const ACCOUNT_STATUS_OPTIONS = [
     { value: 'closed', label: 'Ditutup' },
 ];
 
-export default function Index({ accounts, filters, flash }) {
+export default function Index({ accounts, sort, filters, flash }) {
     const [search, setSearch] = useState(filters.search || '');
     const [status, setStatus] = useState(filters.status || 'all');
+    const handleSort = useTableSort('simpanan-rekening.index');
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
@@ -123,11 +127,17 @@ export default function Index({ accounts, filters, flash }) {
                         <table className="min-w-full divide-y divide-slate-200">
                             <thead className="bg-slate-50">
                                 <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">No. Rekening</th>
+                                    <th className="px-4 py-3 text-left">
+                                        <TableSortButton column="account_number" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>No. Rekening</TableSortButton>
+                                    </th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Anggota</th>
                                     <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Produk</th>
-                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Saldo</th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                                    <th className="px-4 py-3 text-right">
+                                        <TableSortButton column="balance" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>Saldo</TableSortButton>
+                                    </th>
+                                    <th className="px-4 py-3 text-left">
+                                        <TableSortButton column="status" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>Status</TableSortButton>
+                                    </th>
                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Aksi</th>
                                 </tr>
                             </thead>
@@ -170,25 +180,7 @@ export default function Index({ accounts, filters, flash }) {
                             </tbody>
                         </table>
 
-                        {accounts.last_page > 1 && (
-                            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
-                                <p className="text-sm text-slate-500">
-                                    Halaman {accounts.current_page} dari {accounts.last_page}
-                                </p>
-                                <div className="flex gap-1">
-                                    {accounts.prev_page_url && (
-                                        <Link href={accounts.prev_page_url} className="rounded p-1.5 text-slate-500 hover:bg-slate-100 transition-colors">
-                                            <ChevronLeft className="h-4 w-4" />
-                                        </Link>
-                                    )}
-                                    {accounts.next_page_url && (
-                                        <Link href={accounts.next_page_url} className="rounded p-1.5 text-slate-500 hover:bg-slate-100 transition-colors">
-                                            <ChevronRight className="h-4 w-4" />
-                                        </Link>
-                                    )}
-                                </div>
-                            </div>
-                        )}
+                        <TablePagination paginator={accounts} itemLabel="rekening" routeName="simpanan-rekening.index" />
                     </div>
                 )}
             </div>

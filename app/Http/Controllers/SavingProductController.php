@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Requests\StoreSavingProductRequest;
 use App\Http\Requests\UpdateSavingProductRequest;
 use App\Models\SavingProduct;
@@ -13,6 +14,8 @@ use Inertia\Response;
 
 class SavingProductController extends Controller
 {
+    use InteractsWithSorting;
+
     /**
      * Tampilkan daftar produk simpanan.
      */
@@ -20,15 +23,23 @@ class SavingProductController extends Controller
     {
         $search = $request->input('search');
 
-        $products = SavingProduct::query()
+        $query = SavingProduct::query()
             ->when($search, fn ($q) => $q->where('name', 'ilike', "%{$search}%")
-                ->orWhere('code', 'ilike', "%{$search}%"))
-            ->orderBy('code')
-            ->paginate(15)
-            ->withQueryString();
+                ->orWhere('code', 'ilike', "%{$search}%"));
+
+        $sortStatus = $this->applySorting($query, $request, [
+            'code' => 'code',
+            'name' => 'name',
+            'category' => 'category',
+            'is_active' => 'is_active',
+            'created_at' => 'created_at',
+        ], [['code', 'asc']]);
+
+        $products = $query->paginate($this->resolvePerPage($request))->withQueryString();
 
         return Inertia::render('Simpanan/Produk/Index', [
             'products' => $products,
+            'sort' => $sortStatus,
             'filters' => ['search' => $search ?? ''],
             'flash' => [
                 'success' => session('success'),

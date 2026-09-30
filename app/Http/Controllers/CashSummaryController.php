@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Models\CashierSession;
 use App\Models\CashTransaction;
 use App\Models\User;
@@ -11,6 +12,8 @@ use Inertia\Response;
 
 class CashSummaryController extends Controller
 {
+    use InteractsWithSorting;
+
     /**
      * Ringkasan kas harian berdasarkan transaksi sah (POSTED).
      */
@@ -27,13 +30,20 @@ class CashSummaryController extends Controller
             ->when($operatorId, fn ($q) => $q->where('opened_by', $operatorId))
             ->when($status !== 'all', fn ($q) => $q->where('status', $status));
 
-        $sessions = $baseQuery()
+        $sessionsQuery = $baseQuery()
             ->withTotals()
-            ->with('operator')
-            ->orderByDesc('operational_date')
-            ->orderByDesc('id')
-            ->paginate(20)
-            ->withQueryString();
+            ->with('operator');
+
+        $sortStatus = $this->applySorting($sessionsQuery, $request, [
+            'session_number' => 'cashier_sessions.session_number',
+            'operational_date' => 'cashier_sessions.operational_date',
+            'opening_balance' => 'cashier_sessions.opening_balance',
+            'system_balance' => 'cashier_sessions.system_closing_balance',
+            'status' => 'cashier_sessions.status',
+            'created_at' => 'cashier_sessions.id',
+        ], [['cashier_sessions.operational_date', 'desc'], ['cashier_sessions.id', 'desc']]);
+
+        $sessions = $sessionsQuery->paginate($this->resolvePerPage($request))->withQueryString();
 
         $sessionIds = $baseQuery()->pluck('id');
 
@@ -54,6 +64,7 @@ class CashSummaryController extends Controller
                 ...$sessions->toArray(),
                 'data' => collect($sessions->items())->map->toSummaryArray()->all(),
             ],
+            'sort' => $sortStatus,
             'summary' => [
                 'date_from' => $dateFrom,
                 'date_to' => $dateTo,

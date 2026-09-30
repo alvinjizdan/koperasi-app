@@ -47,7 +47,7 @@ class ReportController extends Controller
         $report = new MemberReport;
 
         return Inertia::render('Laporan/Anggota', [
-            'rows' => $report->paginate($filters, $request->perPage()),
+            'rows' => $report->paginate($filters, $request->perPage(), $request->sort(), $request->sortDirection()),
             'summary' => $report->summary($filters),
             'filters' => [
                 'status' => $filters['status'],
@@ -62,6 +62,7 @@ class ReportController extends Controller
                     ['value' => 'inactive', 'label' => 'Nonaktif'],
                 ],
             ],
+            'sort' => $report->sortStatus(),
             'report_slug' => 'anggota',
             'export_route' => 'laporan.export',
             'operational_timezone' => ReportPeriod::timezone(),
@@ -78,7 +79,7 @@ class ReportController extends Controller
         $report = new SavingsReport($period);
 
         return Inertia::render('Laporan/Simpanan', [
-            'rows' => $report->paginate($filters, $request->perPage()),
+            'rows' => $report->paginate($filters, $request->perPage(), $request->sort(), $request->sortDirection()),
             'summary' => $report->summary($filters),
             'period' => $period->toArray(),
             'filters' => $this->periodFilters($filters) + [
@@ -95,6 +96,7 @@ class ReportController extends Controller
                     ['value' => 'closed', 'label' => 'Ditutup'],
                 ],
             ],
+            'sort' => $report->sortStatus(),
             'report_slug' => 'simpanan',
             'export_route' => 'laporan.export',
             'operational_timezone' => ReportPeriod::timezone(),
@@ -111,7 +113,7 @@ class ReportController extends Controller
         $report = new LoanReport($period);
 
         return Inertia::render('Laporan/Pinjaman', [
-            'rows' => $report->paginate($filters, $request->perPage()),
+            'rows' => $report->paginate($filters, $request->perPage(), $request->sort(), $request->sortDirection()),
             'summary' => $report->summary($filters),
             'period' => $period->toArray(),
             'filters' => $this->periodFilters($filters) + [
@@ -133,6 +135,7 @@ class ReportController extends Controller
                     ['value' => 'disbursement', 'label' => 'Tanggal Pencairan'],
                 ],
             ],
+            'sort' => $report->sortStatus(),
             'report_slug' => 'pinjaman',
             'export_route' => 'laporan.export',
             'operational_timezone' => ReportPeriod::timezone(),
@@ -149,7 +152,7 @@ class ReportController extends Controller
         $report = new InstallmentReport($period);
 
         return Inertia::render('Laporan/Angsuran', [
-            'rows' => $report->paginate($filters, $request->perPage()),
+            'rows' => $report->paginate($filters, $request->perPage(), $request->sort(), $request->sortDirection()),
             'summary' => $report->summary($filters),
             'period' => $period->toArray(),
             'filters' => $this->periodFilters($filters) + [
@@ -164,6 +167,7 @@ class ReportController extends Controller
                     ['value' => 'REVERSED', 'label' => 'Dibatalkan'],
                 ],
             ],
+            'sort' => $report->sortStatus(),
             'report_slug' => 'angsuran',
             'export_route' => 'laporan.export',
             'operational_timezone' => ReportPeriod::timezone(),
@@ -179,7 +183,7 @@ class ReportController extends Controller
         $report = new OverdueReport;
 
         return Inertia::render('Laporan/Tunggakan', [
-            'rows' => $report->paginate($filters, $request->perPage()),
+            'rows' => $report->paginate($filters, $request->perPage(), $request->sort(), $request->sortDirection()),
             'summary' => $report->summary($filters),
             'filters' => [
                 'search' => $filters['search'],
@@ -187,6 +191,7 @@ class ReportController extends Controller
                 'minimum_days_late' => $filters['minimum_days_late'],
             ],
             'options' => [],
+            'sort' => $report->sortStatus(),
             'report_slug' => 'tunggakan',
             'export_route' => 'laporan.export',
             'operational_timezone' => ReportPeriod::timezone(),
@@ -207,7 +212,7 @@ class ReportController extends Controller
         $asOfDate = $filters['as_of_date'] ?? ReportPeriod::todayDate();
         $searchFilters = ['as_of_date' => $asOfDate, 'search' => $filters['search']];
 
-        $rows = $report->paginate($searchFilters, $request->perPage())->through(fn ($snapshot) => [
+        $rows = $report->paginate($searchFilters, $request->perPage(), $request->sort(), $request->sortDirection())->through(fn ($snapshot) => [
             'id' => $snapshot->id,
             'loan_id' => $snapshot->loan_id,
             'as_of_date' => (string) $snapshot->as_of_date,
@@ -232,6 +237,7 @@ class ReportController extends Controller
 
         return Inertia::render('Laporan/PosisiPinjaman', [
             'rows' => $rows,
+            'sort' => $report->sortStatus(),
             'summary' => $report->summary($searchFilters),
             'availability' => $report->availability($asOfDate),
             'filters' => [
@@ -272,7 +278,7 @@ class ReportController extends Controller
         $report = new CashTransactionReport($period);
 
         return Inertia::render('Laporan/TransaksiKas', [
-            'rows' => $report->paginate($filters, $request->perPage()),
+            'rows' => $report->paginate($filters, $request->perPage(), $request->sort(), $request->sortDirection()),
             'summary' => $report->summary($filters),
             'period' => $period->toArray(),
             'filters' => $this->periodFilters($filters) + [
@@ -302,6 +308,7 @@ class ReportController extends Controller
                 ],
                 'operators' => $this->operatorOptions(),
             ],
+            'sort' => $report->sortStatus(),
             'report_slug' => 'transaksi-kas',
             'export_route' => 'laporan.export',
             'operational_timezone' => ReportPeriod::timezone(),
@@ -321,7 +328,7 @@ class ReportController extends Controller
         $report = new CashDailyReport($period);
 
         return Inertia::render('Laporan/KasHarian', [
-            'rows' => $report->paginate($filters, $request->perPage()),
+            'rows' => $report->paginate($filters, $request->perPage(), $request->sort(), $request->sortDirection()),
             'summary' => $report->summary($filters),
             'period' => $period->toArray(),
             'filters' => $this->periodFilters($filters) + [
@@ -336,6 +343,7 @@ class ReportController extends Controller
                     ['value' => 'CLOSED', 'label' => 'Ditutup'],
                 ],
             ],
+            'sort' => $report->sortStatus(),
             'report_slug' => 'kas-harian',
             'export_route' => 'laporan.export',
             'operational_timezone' => ReportPeriod::timezone(),

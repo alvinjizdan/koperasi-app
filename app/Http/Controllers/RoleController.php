@@ -8,6 +8,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Services\AuditLogger;
 use App\Services\PermissionRegistry;
+use App\Support\PerPage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -205,7 +206,7 @@ class RoleController extends Controller
     {
         $users = $role->users()
             ->orderBy('name')
-            ->paginate(10)
+            ->paginate(PerPage::resolve(request()->input(PerPage::PARAM)))
             ->through(fn (User $user) => [
                 'id' => $user->id,
                 'name' => $user->name,

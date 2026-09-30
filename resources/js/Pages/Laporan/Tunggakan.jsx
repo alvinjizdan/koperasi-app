@@ -4,10 +4,12 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import StatCard from '@/Components/Admin/StatCard';
 import ReportFilters from '@/Components/Admin/ReportFilters';
 import ReportTable from '@/Components/Admin/ReportTable';
+import useTableSort from '@/hooks/useTableSort';
 import { AlertTriangle, CalendarClock, Eye, Landmark, Receipt } from 'lucide-react';
 import { formatRupiah, formatNumber, formatDate } from '@/utils/format';
 
-export default function Tunggakan({ rows, summary, filters, report_slug, export_route, operational_timezone }) {
+export default function Tunggakan({ rows, sort, summary, filters, report_slug, export_route, operational_timezone }) {
+    const handleSort = useTableSort('laporan.tunggakan');
     const columns = [
         { key: 'loan_number', label: 'Nomor Pinjaman', className: 'font-mono text-xs font-medium text-slate-900' },
         {
@@ -150,6 +152,9 @@ export default function Tunggakan({ rows, summary, filters, report_slug, export_
                     columns={columns}
                     rows={rows.data}
                     pagination={rows}
+                    sort={sort}
+                    onSort={handleSort}
+                    routeName="laporan.tunggakan"
                     emptyIcon={AlertTriangle}
                     emptyTitle="Tidak ada tunggakan"
                     emptyDescription="Seluruh angsuran pada filter ini belum melewati jatuh tempo atau sudah lunas."

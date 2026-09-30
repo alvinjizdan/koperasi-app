@@ -5,6 +5,7 @@ namespace App\Services\Reports;
 use App\Models\InstallmentPayment;
 use App\Models\Loan;
 use App\Models\LoanDisbursement;
+use App\Support\QuerySorter;
 use Generator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -20,6 +21,18 @@ use Illuminate\Support\Facades\DB;
  */
 class LoanReport
 {
+    private QuerySorter $sorter;
+
+    /**
+     * Status sorting yang diterapkan pada pemanggilan paginate() terakhir.
+     *
+     * @return array{key: string|null, direction: string|null}
+     */
+    public function sortStatus(): array
+    {
+        return $this->sorter->status();
+    }
+
     /**
      * Status angsuran yang masih memiliki kewajiban berjalan.
      *
@@ -40,22 +53,34 @@ class LoanReport
         'CANCELLED' => 'Dibatalkan',
     ];
 
-    public function __construct(private readonly ReportPeriod $period) {}
+    public function __construct(private readonly ReportPeriod $period)
+    {
+        $this->sorter = new QuerySorter;
+    }
 
     /**
      * @param  array<string, mixed>  $filters
      * @return LengthAwarePaginator<int, array<string, mixed>>
      */
-    public function paginate(array $filters, int $perPage): LengthAwarePaginator
+    public function paginate(array $filters, int $perPage, ?string $sort = null, ?string $direction = null): LengthAwarePaginator
     {
-        return $this->query($filters)
+        $query = $this->query($filters)
             ->withSum(['payments as paid_total' => fn ($q) => $q->where('status', 'COMPLETED')], 'amount')
             ->withMin(
                 ['schedules as next_due_date' => fn ($q) => $q->whereIn('status', self::OPEN_SCHEDULE_STATUSES)->where('remaining_amount', '>', 0)],
                 'due_date'
-            )
-            ->orderByDesc('submission_date')
-            ->orderByDesc('id')
+            );
+
+        $this->sorter->apply($query, $sort, $direction, [
+            'loan_number' => 'loan_number',
+            'submission_date' => 'submission_date',
+            'amount' => 'amount',
+            'tenor_months' => 'tenor_months',
+            'status' => 'status',
+            'paid_total' => 'paid_total',
+        ], [['submission_date', 'desc'], ['id', 'desc']]);
+
+        return $query
             ->paginate($perPage)
             ->withQueryString()
             ->through(fn (Loan $loan) => $this->toRow($loan));

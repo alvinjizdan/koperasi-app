@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Requests\StoreMemberRequest;
 use App\Http\Requests\UpdateMemberRequest;
 use App\Models\InstallmentSchedule;
@@ -14,6 +15,8 @@ use Inertia\Response;
 
 class MemberController extends Controller
 {
+    use InteractsWithSorting;
+
     /**
      * Tampilkan daftar anggota dengan pencarian dan pagination.
      */
@@ -24,13 +27,21 @@ class MemberController extends Controller
 
         $members = Member::query()
             ->search($search)
-            ->status($status)
-            ->orderBy('created_at', 'desc')
-            ->paginate(10)
-            ->withQueryString();
+            ->status($status);
+
+        $sortStatus = $this->applySorting($members, $request, [
+            'member_number' => 'member_number',
+            'full_name' => 'full_name',
+            'joined_at' => 'joined_at',
+            'status' => 'status',
+            'created_at' => 'created_at',
+        ], [['created_at', 'desc']]);
+
+        $members = $members->paginate($this->resolvePerPage($request))->withQueryString();
 
         return Inertia::render('Anggota/Index', [
             'members' => $members,
+            'sort' => $sortStatus,
             'filters' => [
                 'search' => $search ?? '',
                 'status' => $status,

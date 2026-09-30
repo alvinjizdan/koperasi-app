@@ -3,6 +3,9 @@ import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
+import TableSortButton from '@/Components/Admin/TableSortButton';
+import TablePagination from '@/Components/Admin/TablePagination';
+import useTableSort from '@/hooks/useTableSort';
 import {
     BookOpen,
     Plus,
@@ -12,14 +15,13 @@ import {
     PowerOff,
     CheckCircle2,
     AlertCircle,
-    ChevronLeft,
-    ChevronRight,
 } from 'lucide-react';
 
-export default function Index({ products, filters, flash }) {
+export default function Index({ products, sort, filters, flash }) {
     const [search, setSearch] = useState(filters.search || '');
     const [deactivateProduct, setDeactivateProduct] = useState(null);
     const [isDeactivating, setIsDeactivating] = useState(false);
+    const handleSort = useTableSort('simpanan-produk.index');
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
@@ -129,11 +131,19 @@ export default function Index({ products, filters, flash }) {
                         <table className="min-w-full divide-y divide-slate-200">
                             <thead className="bg-slate-50">
                                 <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Kode</th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Nama Produk</th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Kategori</th>
+                                    <th className="px-4 py-3 text-left">
+                                        <TableSortButton column="code" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>Kode</TableSortButton>
+                                    </th>
+                                    <th className="px-4 py-3 text-left">
+                                        <TableSortButton column="name" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>Nama Produk</TableSortButton>
+                                    </th>
+                                    <th className="px-4 py-3 text-left">
+                                        <TableSortButton column="category" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>Kategori</TableSortButton>
+                                    </th>
                                     <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Deskripsi</th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                                    <th className="px-4 py-3 text-left">
+                                        <TableSortButton column="is_active" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>Status</TableSortButton>
+                                    </th>
                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Aksi</th>
                                 </tr>
                             </thead>
@@ -190,31 +200,7 @@ export default function Index({ products, filters, flash }) {
                         </table>
 
                         {/* Pagination */}
-                        {products.last_page > 1 && (
-                            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
-                                <p className="text-sm text-slate-500">
-                                    Halaman {products.current_page} dari {products.last_page}
-                                </p>
-                                <div className="flex gap-1">
-                                    {products.prev_page_url && (
-                                        <Link
-                                            href={products.prev_page_url}
-                                            className="rounded p-1.5 text-slate-500 hover:bg-slate-100 transition-colors"
-                                        >
-                                            <ChevronLeft className="h-4 w-4" />
-                                        </Link>
-                                    )}
-                                    {products.next_page_url && (
-                                        <Link
-                                            href={products.next_page_url}
-                                            className="rounded p-1.5 text-slate-500 hover:bg-slate-100 transition-colors"
-                                        >
-                                            <ChevronRight className="h-4 w-4" />
-                                        </Link>
-                                    )}
-                                </div>
-                            </div>
-                        )}
+                        <TablePagination paginator={products} itemLabel="produk" routeName="simpanan-produk.index" />
                     </div>
                 )}
             </div>

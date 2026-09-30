@@ -1,8 +1,10 @@
 import React from "react";
 import { Link } from "@inertiajs/react";
 import EmptyState from "@/Components/Admin/EmptyState";
+import TableSortButton from "@/Components/Admin/TableSortButton";
+import TablePagination from "@/Components/Admin/TablePagination";
 import { ScrollArea, ScrollBar } from "@/Components/ui/scroll-area";
-import { ChevronLeft, ChevronRight, Table2 } from "lucide-react";
+import { Table2 } from "lucide-react";
 
 const ALIGNMENTS = {
     left: "text-left",
@@ -11,9 +13,13 @@ const ALIGNMENTS = {
 };
 
 /**
- * Tabel laporan bersama dengan empty state dan pagination server-side.
+ * Tabel laporan bersama dengan empty state, header sortable, dan pagination
+ * server-side.
  *
- * Kolom didefinisikan sebagai { key, label, align, className, render }.
+ * Kolom didefinisikan sebagai { key, label, align, className, render, sortable }.
+ * Ketika `sort` (status dari server) dan `onSort` disediakan, kolom dengan
+ * `sortable !== false` dirender sebagai tombol pengurut; kolom lain tetap
+ * teks biasa.
  */
 export default function ReportTable({
     columns,
@@ -22,7 +28,28 @@ export default function ReportTable({
     emptyTitle = "Tidak ada data",
     emptyDescription = "Ubah filter untuk melihat data lainnya.",
     pagination = null,
+    sort = null,
+    onSort = null,
+    routeName = null,
+    routeParams = [],
 }) {
+    const renderHeader = (column) => {
+        if (sort && onSort && column.sortable !== false) {
+            return (
+                <TableSortButton
+                    column={column.key}
+                    sort={sort?.key}
+                    direction={sort?.direction}
+                    onSort={onSort}
+                >
+                    {column.label}
+                </TableSortButton>
+            );
+        }
+
+        return column.label;
+    };
+
     if (!rows || rows.length === 0) {
         return (
             <EmptyState
@@ -44,11 +71,11 @@ export default function ReportTable({
                                 <th
                                     key={column.key}
                                     scope="col"
-                                    className={`whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                                    className={`whitespace-nowrap px-4 py-3 ${
                                         ALIGNMENTS[column.align || "left"]
                                     }`}
                                 >
-                                    {column.label}
+                                    {renderHeader(column)}
                                 </th>
                             ))}
                         </tr>
@@ -77,36 +104,13 @@ export default function ReportTable({
                 </table>
             </ScrollArea>
 
-            {pagination && pagination.last_page > 1 && (
-                <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
-                    <p className="text-sm text-slate-500">
-                        Menampilkan {pagination.from}–{pagination.to} dari{" "}
-                        {pagination.total} baris
-                    </p>
-                    <div className="flex gap-1">
-                        {pagination.prev_page_url && (
-                            <Link
-                                href={pagination.prev_page_url}
-                                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-100"
-                                aria-label="Halaman sebelumnya"
-                            >
-                                <ChevronLeft className="h-4 w-4" />
-                            </Link>
-                        )}
-                        <span className="px-2 py-1 text-xs text-slate-500">
-                            {pagination.current_page} / {pagination.last_page}
-                        </span>
-                        {pagination.next_page_url && (
-                            <Link
-                                href={pagination.next_page_url}
-                                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-100"
-                                aria-label="Halaman berikutnya"
-                            >
-                                <ChevronRight className="h-4 w-4" />
-                            </Link>
-                        )}
-                    </div>
-                </div>
+            {pagination && (
+                <TablePagination
+                    paginator={pagination}
+                    itemLabel="baris"
+                    routeName={routeName}
+                    routeParams={routeParams}
+                />
             )}
         </div>
     );

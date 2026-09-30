@@ -3,6 +3,7 @@ import { Link } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
+import TablePagination from '@/Components/Admin/TablePagination';
 import { ArrowLeft, ShieldCheck, Eye } from 'lucide-react';
 import { formatDateTime } from '@/utils/format';
 
@@ -85,37 +86,12 @@ export default function Users({ role, users }) {
                     </div>
                 )}
 
-                {users.links && users.links.length > 3 && (
-                    <div className="flex flex-col items-center justify-between gap-4 border-t border-slate-200 bg-slate-50/50 px-6 py-4 text-xs text-slate-500 sm:flex-row">
-                        <div>
-                            Menampilkan <span className="font-semibold text-slate-900">{users.from || 0}</span>–
-                            <span className="font-semibold text-slate-900">{users.to || 0}</span> dari{' '}
-                            <span className="font-semibold text-slate-900">{users.total}</span> pengguna
-                        </div>
-                        <div className="flex items-center gap-1">
-                            {users.links.map((link, idx) =>
-                                link.url ? (
-                                    <Link
-                                        key={idx}
-                                        href={link.url}
-                                        className={`rounded-md px-3 py-1.5 font-semibold transition-colors ${
-                                            link.active
-                                                ? 'bg-slate-900 text-white shadow-xs'
-                                                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-200/80'
-                                        }`}
-                                        dangerouslySetInnerHTML={{ __html: link.label }}
-                                    />
-                                ) : (
-                                    <span
-                                        key={idx}
-                                        className="rounded-md bg-slate-100/60 px-3 py-1.5 font-medium text-slate-400"
-                                        dangerouslySetInnerHTML={{ __html: link.label }}
-                                    />
-                                )
-                            )}
-                        </div>
-                    </div>
-                )}
+                <TablePagination
+                    paginator={users}
+                    itemLabel="pengguna"
+                    routeName="pengaturan.roles.users"
+                    routeParams={[role.id]}
+                />
             </div>
         </AdminLayout>
     );

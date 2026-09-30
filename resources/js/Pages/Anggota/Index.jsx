@@ -4,6 +4,9 @@ import AdminLayout from "@/Layouts/AdminLayout";
 import { ScrollArea, ScrollBar } from "@/Components/ui/scroll-area";
 import EmptyState from "@/Components/Admin/EmptyState";
 import ConfirmModal from "@/Components/Admin/ConfirmModal";
+import TableSortButton from "@/Components/Admin/TableSortButton";
+import TablePagination from "@/Components/Admin/TablePagination";
+import useTableSort from "@/hooks/useTableSort";
 import {
     Combobox,
     ComboboxContent,
@@ -22,8 +25,6 @@ import {
     UserX,
     CheckCircle2,
     AlertCircle,
-    ChevronLeft,
-    ChevronRight,
 } from "lucide-react";
 
 const MEMBER_STATUS_OPTIONS = [
@@ -32,11 +33,12 @@ const MEMBER_STATUS_OPTIONS = [
     { value: "inactive", label: "Nonaktif" },
 ];
 
-export default function Index({ members, filters, flash }) {
+export default function Index({ members, sort, filters, flash }) {
     const [search, setSearch] = useState(filters.search || "");
     const [status, setStatus] = useState(filters.status || "all");
     const [deactivateMember, setDeactivateMember] = useState(null);
     const [isDeactivating, setIsDeactivating] = useState(false);
+    const handleSort = useTableSort("anggota.index");
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
@@ -186,22 +188,48 @@ export default function Index({ members, filters, flash }) {
                     <ScrollArea>
                         <ScrollBar orientation="horizontal" />
                         <table className="w-full text-left text-xs sm:text-sm">
-                            <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                            <thead className="border-b border-slate-200 bg-slate-50">
                                 <tr>
                                     <th scope="col" className="px-6 py-3.5">
-                                        No. Anggota
+                                        <TableSortButton
+                                            column="member_number"
+                                            sort={sort?.key}
+                                            direction={sort?.direction}
+                                            onSort={handleSort}
+                                        >
+                                            No. Anggota
+                                        </TableSortButton>
                                     </th>
                                     <th scope="col" className="px-6 py-3.5">
-                                        Nama Lengkap / NIK
+                                        <TableSortButton
+                                            column="full_name"
+                                            sort={sort?.key}
+                                            direction={sort?.direction}
+                                            onSort={handleSort}
+                                        >
+                                            Nama Lengkap / NIK
+                                        </TableSortButton>
+                                    </th>
+                                    <th scope="col" className="px-6 py-3.5">No. Telepon</th>
+                                    <th scope="col" className="px-6 py-3.5">
+                                        <TableSortButton
+                                            column="joined_at"
+                                            sort={sort?.key}
+                                            direction={sort?.direction}
+                                            onSort={handleSort}
+                                        >
+                                            Tanggal Bergabung
+                                        </TableSortButton>
                                     </th>
                                     <th scope="col" className="px-6 py-3.5">
-                                        No. Telepon
-                                    </th>
-                                    <th scope="col" className="px-6 py-3.5">
-                                        Tanggal Bergabung
-                                    </th>
-                                    <th scope="col" className="px-6 py-3.5">
-                                        Status
+                                        <TableSortButton
+                                            column="status"
+                                            sort={sort?.key}
+                                            direction={sort?.direction}
+                                            onSort={handleSort}
+                                        >
+                                            Status
+                                        </TableSortButton>
                                     </th>
                                     <th
                                         scope="col"
@@ -316,56 +344,7 @@ export default function Index({ members, filters, flash }) {
                 )}
 
                 {/* Pagination Controls */}
-                {members.links && members.links.length > 3 && (
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-200 bg-slate-50/50 px-6 py-4 text-xs text-slate-500">
-                        <div>
-                            Menampilkan{" "}
-                            <span className="font-semibold text-slate-900">
-                                {members.from || 0}
-                            </span>{" "}
-                            sampai{" "}
-                            <span className="font-semibold text-slate-900">
-                                {members.to || 0}
-                            </span>{" "}
-                            dari total{" "}
-                            <span className="font-semibold text-slate-900">
-                                {members.total || 0}
-                            </span>{" "}
-                            anggota
-                        </div>
-
-                        <div className="flex items-center gap-1">
-                            {members.links.map((link, idx) => {
-                                if (!link.url) {
-                                    return (
-                                        <span
-                                            key={idx}
-                                            className="px-3 py-1.5 rounded-md text-slate-400 bg-slate-100/60 font-medium"
-                                            dangerouslySetInnerHTML={{
-                                                __html: link.label,
-                                            }}
-                                        />
-                                    );
-                                }
-
-                                return (
-                                    <Link
-                                        key={idx}
-                                        href={link.url}
-                                        className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${
-                                            link.active
-                                                ? "bg-slate-900 text-white shadow-xs"
-                                                : "text-slate-700 hover:bg-slate-200/80 bg-white border border-slate-200"
-                                        }`}
-                                        dangerouslySetInnerHTML={{
-                                            __html: link.label,
-                                        }}
-                                    />
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
+                <TablePagination paginator={members} itemLabel="anggota" routeName="anggota.index" />
             </div>
 
             {/* Modal Konfirmasi Nonaktifkan */}

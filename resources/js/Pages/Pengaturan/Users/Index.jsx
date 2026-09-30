@@ -4,6 +4,9 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
+import TableSortButton from '@/Components/Admin/TableSortButton';
+import TablePagination from '@/Components/Admin/TablePagination';
+import useTableSort from '@/hooks/useTableSort';
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import {
     Users,
@@ -25,12 +28,13 @@ const USER_STATUS_OPTIONS = [
     { value: 'inactive', label: 'Nonaktif' },
 ];
 
-export default function Index({ users, roles, filters, flash }) {
+export default function Index({ users, sort, roles, filters, flash }) {
     const [search, setSearch] = useState(filters.search || '');
     const [role, setRole] = useState(filters.role || 'all');
     const [status, setStatus] = useState(filters.status || 'all');
     const [toggleTarget, setToggleTarget] = useState(null);
     const [isToggling, setIsToggling] = useState(false);
+    const handleSort = useTableSort('pengaturan.users.index');
 
     const applyFilters = (overrides = {}) => {
         router.get(
@@ -170,14 +174,30 @@ export default function Index({ users, roles, filters, flash }) {
                     <ScrollArea>
 <ScrollBar orientation="horizontal" />
                         <table className="w-full text-left text-xs sm:text-sm">
-                            <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                            <thead className="border-b border-slate-200 bg-slate-50">
                                 <tr>
-                                    <th scope="col" className="px-6 py-3.5">Nama / Email</th>
-                                    <th scope="col" className="px-6 py-3.5">Role</th>
-                                    <th scope="col" className="px-6 py-3.5">Status</th>
-                                    <th scope="col" className="px-6 py-3.5">Login Terakhir</th>
-                                    <th scope="col" className="px-6 py-3.5">Dibuat</th>
-                                    <th scope="col" className="px-6 py-3.5 text-right">Aksi</th>
+                                    <th scope="col" className="px-6 py-3.5">
+                                        <TableSortButton column="name" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                            Nama / Email
+                                        </TableSortButton>
+                                    </th>
+                                    <th scope="col" className="px-6 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Role</th>
+                                    <th scope="col" className="px-6 py-3.5">
+                                        <TableSortButton column="is_active" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                            Status
+                                        </TableSortButton>
+                                    </th>
+                                    <th scope="col" className="px-6 py-3.5">
+                                        <TableSortButton column="last_login_at" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                            Login Terakhir
+                                        </TableSortButton>
+                                    </th>
+                                    <th scope="col" className="px-6 py-3.5">
+                                        <TableSortButton column="created_at" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                            Dibuat
+                                        </TableSortButton>
+                                    </th>
+                                    <th scope="col" className="px-6 py-3.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500">Aksi</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -264,37 +284,7 @@ export default function Index({ users, roles, filters, flash }) {
                     </div>
                 )}
 
-                {users.links && users.links.length > 3 && (
-                    <div className="flex flex-col items-center justify-between gap-4 border-t border-slate-200 bg-slate-50/50 px-6 py-4 text-xs text-slate-500 sm:flex-row">
-                        <div>
-                            Menampilkan <span className="font-semibold text-slate-900">{users.from || 0}</span>–
-                            <span className="font-semibold text-slate-900">{users.to || 0}</span> dari{' '}
-                            <span className="font-semibold text-slate-900">{users.total}</span> pengguna
-                        </div>
-                        <div className="flex items-center gap-1">
-                            {users.links.map((link, idx) =>
-                                link.url ? (
-                                    <Link
-                                        key={idx}
-                                        href={link.url}
-                                        className={`rounded-md px-3 py-1.5 font-semibold transition-colors ${
-                                            link.active
-                                                ? 'bg-slate-900 text-white shadow-xs'
-                                                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-200/80'
-                                        }`}
-                                        dangerouslySetInnerHTML={{ __html: link.label }}
-                                    />
-                                ) : (
-                                    <span
-                                        key={idx}
-                                        className="rounded-md bg-slate-100/60 px-3 py-1.5 font-medium text-slate-400"
-                                        dangerouslySetInnerHTML={{ __html: link.label }}
-                                    />
-                                )
-                            )}
-                        </div>
-                    </div>
-                )}
+                <TablePagination paginator={users} itemLabel="pengguna" routeName="pengaturan.users.index" />
             </div>
 
             <ConfirmModal

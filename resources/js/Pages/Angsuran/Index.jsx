@@ -2,20 +2,22 @@ import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import TableSortButton from '@/Components/Admin/TableSortButton';
+import TablePagination from '@/Components/Admin/TablePagination';
+import useTableSort from '@/hooks/useTableSort';
 import {
     Receipt,
     Search,
-    ChevronLeft,
-    ChevronRight,
     Calendar,
     CheckCircle2,
     AlertCircle,
 } from 'lucide-react';
 import { formatRupiah, formatDate } from '@/utils/format';
 
-export default function Index({ loans, filters, flash }) {
+export default function Index({ loans, sort, filters, flash }) {
     const [search, setSearch] = useState(filters.search || '');
     const [tab, setTab] = useState(filters.tab || 'active');
+    const handleSort = useTableSort('angsuran.index');
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
@@ -108,10 +110,16 @@ export default function Index({ loans, filters, flash }) {
                         <table className="min-w-full divide-y divide-slate-200">
                             <thead className="bg-slate-50">
                                 <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">No. Pinjaman</th>
+                                    <th className="px-4 py-3 text-left">
+                                        <TableSortButton column="loan_number" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>No. Pinjaman</TableSortButton>
+                                    </th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Anggota</th>
-                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Pokok</th>
-                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Sisa Kewajiban</th>
+                                    <th className="px-4 py-3 text-right">
+                                        <TableSortButton column="amount" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>Pokok</TableSortButton>
+                                    </th>
+                                    <th className="px-4 py-3 text-right">
+                                        <TableSortButton column="remaining_balance" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>Sisa Kewajiban</TableSortButton>
+                                    </th>
                                     <th className="hidden lg:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Jatuh Tempo Ke-1</th>
                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Aksi</th>
                                 </tr>
@@ -158,25 +166,7 @@ export default function Index({ loans, filters, flash }) {
                             </tbody>
                         </table>
 
-                        {loans.last_page > 1 && (
-                            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
-                                <p className="text-sm text-slate-500">
-                                    Halaman {loans.current_page} dari {loans.last_page}
-                                </p>
-                                <div className="flex gap-1">
-                                    {loans.prev_page_url && (
-                                        <Link href={loans.prev_page_url} className="rounded p-1.5 text-slate-500 hover:bg-slate-100 transition-colors">
-                                            <ChevronLeft className="h-4 w-4" />
-                                        </Link>
-                                    )}
-                                    {loans.next_page_url && (
-                                        <Link href={loans.next_page_url} className="rounded p-1.5 text-slate-500 hover:bg-slate-100 transition-colors">
-                                            <ChevronRight className="h-4 w-4" />
-                                        </Link>
-                                    )}
-                                </div>
-                            </div>
-                        )}
+                        <TablePagination paginator={loans} itemLabel="pinjaman" routeName="angsuran.index" />
                     </div>
                 )}
             </div>

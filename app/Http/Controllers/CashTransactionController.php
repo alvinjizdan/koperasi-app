@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Requests\ReverseCashTransactionRequest;
 use App\Http\Requests\StoreCashDepositRequest;
 use App\Http\Requests\StoreCashExpenseRequest;
@@ -17,6 +18,8 @@ use Inertia\Response;
 
 class CashTransactionController extends Controller
 {
+    use InteractsWithSorting;
+
     public function __construct(private CashierService $cashierService) {}
 
     /**
@@ -34,7 +37,7 @@ class CashTransactionController extends Controller
             'session_id' => $request->input('session_id'),
         ];
 
-        $transactions = CashTransaction::query()
+        $transactionsQuery = CashTransaction::query()
             ->with(['operator', 'source', 'session'])
             ->when($filters['date_from'], fn ($q, $date) => $q->whereDate('transaction_date', '>=', $date))
             ->when($filters['date_to'], fn ($q, $date) => $q->whereDate('transaction_date', '<=', $date))
@@ -42,17 +45,25 @@ class CashTransactionController extends Controller
             ->when($filters['category'] !== 'all', fn ($q) => $q->where('category', $filters['category']))
             ->when($filters['status'] !== 'all', fn ($q) => $q->where('status', $filters['status']))
             ->when($filters['operator_id'], fn ($q, $operatorId) => $q->where('processed_by', $operatorId))
-            ->when($filters['session_id'], fn ($q, $sessionId) => $q->where('cashier_session_id', $sessionId))
-            ->orderByDesc('transacted_at')
-            ->orderByDesc('id')
-            ->paginate(15)
-            ->withQueryString();
+            ->when($filters['session_id'], fn ($q, $sessionId) => $q->where('cashier_session_id', $sessionId));
+
+        $sortStatus = $this->applySorting($transactionsQuery, $request, [
+            'transaction_number' => 'cash_transactions.transaction_number',
+            'transaction_date' => 'cash_transactions.transaction_date',
+            'type' => 'cash_transactions.type',
+            'category' => 'cash_transactions.category',
+            'amount' => 'cash_transactions.amount',
+            'created_at' => 'cash_transactions.id',
+        ], [['cash_transactions.transaction_date', 'desc'], ['cash_transactions.id', 'desc']]);
+
+        $transactions = $transactionsQuery->paginate($this->resolvePerPage($request))->withQueryString();
 
         return Inertia::render('Kasir/Transaksi/Index', [
             'transactions' => [
                 ...$transactions->toArray(),
                 'data' => collect($transactions->items())->map->toPayloadArray()->all(),
             ],
+            'sort' => $sortStatus,
             'filters' => [
                 'date_from' => $filters['date_from'] ?? '',
                 'date_to' => $filters['date_to'] ?? '',

@@ -4,6 +4,7 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import StatCard from '@/Components/Admin/StatCard';
 import ReportFilters from '@/Components/Admin/ReportFilters';
 import ReportTable from '@/Components/Admin/ReportTable';
+import useTableSort from '@/hooks/useTableSort';
 import { AlertTriangle, CalendarClock, Download, Eye, Info, Landmark, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { formatRupiah, formatNumber, formatDate, formatDateTime } from '@/utils/format';
 
@@ -22,7 +23,8 @@ function HistoryBadge({ row }) {
     );
 }
 
-export default function PosisiPinjaman({ rows, summary, availability, filters, operational_timezone }) {
+export default function PosisiPinjaman({ rows, sort, summary, availability, filters, operational_timezone }) {
+    const handleSort = useTableSort('laporan.posisi-pinjaman');
     const columns = [
         { key: 'loan_number', label: 'Nomor Pinjaman', className: 'font-mono text-xs font-medium text-slate-900' },
         {
@@ -205,6 +207,9 @@ export default function PosisiPinjaman({ rows, summary, availability, filters, o
                     columns={columns}
                     rows={rows.data}
                     pagination={rows}
+                    sort={sort}
+                    onSort={handleSort}
+                    routeName="laporan.posisi-pinjaman"
                     emptyIcon={AlertTriangle}
                     emptyTitle="Tidak ada snapshot posisi"
                     emptyDescription={

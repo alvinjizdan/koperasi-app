@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import TablePagination from '@/Components/Admin/TablePagination';
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { History, Search, ExternalLink } from 'lucide-react';
 import { formatDateTime } from '@/utils/format';
@@ -238,37 +239,7 @@ export default function AuditLog({ logs, actions, actors, filters }) {
                     </div>
                 )}
 
-                {logs.links && logs.links.length > 3 && (
-                    <div className="flex flex-col items-center justify-between gap-4 border-t border-slate-200 bg-slate-50/50 px-6 py-4 text-xs text-slate-500 sm:flex-row">
-                        <div>
-                            Menampilkan <span className="font-semibold text-slate-900">{logs.from || 0}</span>–
-                            <span className="font-semibold text-slate-900">{logs.to || 0}</span> dari{' '}
-                            <span className="font-semibold text-slate-900">{logs.total}</span> catatan
-                        </div>
-                        <div className="flex items-center gap-1">
-                            {logs.links.map((link, idx) =>
-                                link.url ? (
-                                    <Link
-                                        key={idx}
-                                        href={link.url}
-                                        className={`rounded-md px-3 py-1.5 font-semibold transition-colors ${
-                                            link.active
-                                                ? 'bg-slate-900 text-white shadow-xs'
-                                                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-200/80'
-                                        }`}
-                                        dangerouslySetInnerHTML={{ __html: link.label }}
-                                    />
-                                ) : (
-                                    <span
-                                        key={idx}
-                                        className="rounded-md bg-slate-100/60 px-3 py-1.5 font-medium text-slate-400"
-                                        dangerouslySetInnerHTML={{ __html: link.label }}
-                                    />
-                                )
-                            )}
-                        </div>
-                    </div>
-                )}
+                <TablePagination paginator={logs} itemLabel="catatan" routeName="pengaturan.audit.index" />
             </div>
         </AdminLayout>
     );

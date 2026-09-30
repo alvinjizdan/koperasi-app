@@ -4,9 +4,10 @@ import AdminLayout from "@/Layouts/AdminLayout";
 import { ScrollArea, ScrollBar } from "@/Components/ui/scroll-area";
 import EmptyState from "@/Components/Admin/EmptyState";
 import CashierSessionCard from "@/Components/Admin/CashierSessionCard";
+import TableSortButton from "@/Components/Admin/TableSortButton";
+import TablePagination from "@/Components/Admin/TablePagination";
+import useTableSort from "@/hooks/useTableSort";
 import {
-    ChevronLeft,
-    ChevronRight,
     CheckCircle2,
     AlertCircle,
     Receipt,
@@ -48,12 +49,14 @@ const OPERATOR_OPTIONS = (operators) => [
 
 export default function Index({
     transactions,
+    sort,
     filters,
     category_options,
     operators,
     active_session,
     flash,
 }) {
+    const handleSort = useTableSort("kasir.transaksi.index");
     const [filterState, setFilterState] = useState({
         date_from: filters.date_from || "",
         date_to: filters.date_to || "",
@@ -349,23 +352,33 @@ export default function Index({
                             <table className="min-w-full divide-y divide-slate-200">
                                 <thead className="bg-slate-50">
                                     <tr>
-                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                            No. Transaksi
+                                        <th className="px-4 py-3 text-left">
+                                            <TableSortButton column="transaction_number" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                                No. Transaksi
+                                            </TableSortButton>
                                         </th>
-                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                            Waktu
+                                        <th className="px-4 py-3 text-left">
+                                            <TableSortButton column="transaction_date" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                                Waktu
+                                            </TableSortButton>
                                         </th>
-                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                            Jenis
+                                        <th className="px-4 py-3 text-left">
+                                            <TableSortButton column="type" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                                Jenis
+                                            </TableSortButton>
                                         </th>
-                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                            Kategori
+                                        <th className="px-4 py-3 text-left">
+                                            <TableSortButton column="category" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                                Kategori
+                                            </TableSortButton>
                                         </th>
                                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                                             Operator
                                         </th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                            Nominal
+                                        <th className="px-4 py-3 text-right">
+                                            <TableSortButton column="amount" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                                Nominal
+                                            </TableSortButton>
                                         </th>
                                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                                             Status
@@ -459,33 +472,7 @@ export default function Index({
                             </table>
                         </ScrollArea>
 
-                        {transactions.last_page > 1 && (
-                            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
-                                <p className="text-sm text-slate-500">
-                                    Menampilkan {transactions.from}–
-                                    {transactions.to} dari {transactions.total}{" "}
-                                    transaksi
-                                </p>
-                                <div className="flex gap-1">
-                                    {transactions.prev_page_url && (
-                                        <Link
-                                            href={transactions.prev_page_url}
-                                            className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-100"
-                                        >
-                                            <ChevronLeft className="h-4 w-4" />
-                                        </Link>
-                                    )}
-                                    {transactions.next_page_url && (
-                                        <Link
-                                            href={transactions.next_page_url}
-                                            className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-100"
-                                        >
-                                            <ChevronRight className="h-4 w-4" />
-                                        </Link>
-                                    )}
-                                </div>
-                            </div>
-                        )}
+                        <TablePagination paginator={transactions} itemLabel="transaksi" routeName="kasir.transaksi.index" />
                     </div>
                 )}
             </div>

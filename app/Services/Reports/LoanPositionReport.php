@@ -3,6 +3,7 @@
 namespace App\Services\Reports;
 
 use App\Models\LoanBalanceSnapshot;
+use App\Support\QuerySorter;
 use Generator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
@@ -18,6 +19,23 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
  */
 class LoanPositionReport
 {
+    private QuerySorter $sorter;
+
+    /**
+     * Status sorting yang diterapkan pada pemanggilan paginate() terakhir.
+     *
+     * @return array{key: string|null, direction: string|null}
+     */
+    public function sortStatus(): array
+    {
+        return $this->sorter->status();
+    }
+
+    public function __construct()
+    {
+        $this->sorter = new QuerySorter;
+    }
+
     /**
      * Daftar snapshot per tanggal posisi (terbaru per pinjaman), dengan nama
      * anggota untuk tampilan. Eager loading mencegah N+1.
@@ -25,12 +43,12 @@ class LoanPositionReport
      * @param  array{as_of_date: ?string, search: ?string}  $filters
      * @return LengthAwarePaginator<int, LoanBalanceSnapshot>
      */
-    public function paginate(array $filters, int $perPage): LengthAwarePaginator
+    public function paginate(array $filters, int $perPage, ?string $sort = null, ?string $direction = null): LengthAwarePaginator
     {
         $asOfDate = $filters['as_of_date'] ?? ReportPeriod::todayDate();
         $search = trim((string) ($filters['search'] ?? ''));
 
-        return LoanBalanceSnapshot::query()
+        $query = LoanBalanceSnapshot::query()
             ->where('as_of_date', $asOfDate)
             ->when($search !== '', function ($q) use ($search) {
                 $term = '%'.mb_strtolower($search).'%';
@@ -43,8 +61,17 @@ class LoanPositionReport
                         });
                 });
             })
-            ->with(['loan:id,loan_number,member_id', 'loan.member:id,member_number,full_name'])
-            ->orderBy('loan_id')
+            ->with(['loan:id,loan_number,member_id', 'loan.member:id,member_number,full_name']);
+
+        $this->sorter->apply($query, $sort, $direction, [
+            'loan_id' => 'loan_id',
+            'outstanding_principal' => 'outstanding_principal',
+            'outstanding_interest' => 'outstanding_interest',
+            'outstanding_penalty' => 'outstanding_penalty',
+            'total_owed' => 'total_owed',
+        ], [['loan_id', 'asc']]);
+
+        return $query
             ->paginate($perPage)
             ->withQueryString();
     }

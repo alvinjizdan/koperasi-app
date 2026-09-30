@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Requests\StoreSavingsAccountRequest;
 use App\Models\Member;
 use App\Models\SavingProduct;
@@ -14,6 +15,8 @@ use Inertia\Response;
 
 class SavingsAccountController extends Controller
 {
+    use InteractsWithSorting;
+
     /**
      * Tampilkan daftar rekening simpanan.
      */
@@ -22,16 +25,23 @@ class SavingsAccountController extends Controller
         $search = $request->input('search');
         $status = $request->input('status', 'all');
 
-        $accounts = SavingsAccount::with(['member', 'savingProduct'])
+        $query = SavingsAccount::with(['member', 'savingProduct'])
             ->when($search, fn ($q) => $q->where('account_number', 'ilike', "%{$search}%")
                 ->orWhereHas('member', fn ($m) => $m->where('full_name', 'ilike', "%{$search}%")))
-            ->when($status !== 'all', fn ($q) => $q->where('status', $status))
-            ->orderBy('created_at', 'desc')
-            ->paginate(15)
-            ->withQueryString();
+            ->when($status !== 'all', fn ($q) => $q->where('status', $status));
+
+        $sortStatus = $this->applySorting($query, $request, [
+            'account_number' => 'savings_accounts.account_number',
+            'balance' => 'savings_accounts.balance',
+            'status' => 'savings_accounts.status',
+            'created_at' => 'savings_accounts.created_at',
+        ], [['savings_accounts.created_at', 'desc']]);
+
+        $accounts = $query->paginate($this->resolvePerPage($request))->withQueryString();
 
         return Inertia::render('Simpanan/Rekening/Index', [
             'accounts' => $accounts,
+            'sort' => $sortStatus,
             'filters' => [
                 'search' => $search ?? '',
                 'status' => $status,
@@ -107,19 +117,27 @@ class SavingsAccountController extends Controller
         $dateTo = $request->input('date_to');
         $search = $request->input('search');
 
-        $transactions = $savingsAccount->transactions()
+        $transactionsQuery = $savingsAccount->transactions()
             ->with('operator')
             ->when($typeFilter !== 'all', fn ($q) => $q->where('type', $typeFilter))
             ->when($dateFrom, fn ($q) => $q->where('transaction_date', '>=', $dateFrom))
             ->when($dateTo, fn ($q) => $q->where('transaction_date', '<=', $dateTo))
-            ->when($search, fn ($q) => $q->where('transaction_number', 'ilike', "%{$search}%"))
-            ->orderBy('created_at', 'desc')
-            ->paginate(20)
-            ->withQueryString();
+            ->when($search, fn ($q) => $q->where('transaction_number', 'ilike', "%{$search}%"));
+
+        $transactionSortStatus = $this->applySorting($transactionsQuery, $request, [
+            'transaction_number' => 'savings_transactions.transaction_number',
+            'type' => 'savings_transactions.type',
+            'amount' => 'savings_transactions.amount',
+            'transaction_date' => 'savings_transactions.transaction_date',
+            'created_at' => 'savings_transactions.created_at',
+        ], [['savings_transactions.created_at', 'desc']]);
+
+        $transactions = $transactionsQuery->paginate($this->resolvePerPage($request))->withQueryString();
 
         return Inertia::render('Simpanan/Rekening/Show', [
             'account' => $savingsAccount,
             'transactions' => $transactions,
+            'sort' => $transactionSortStatus,
             'filters' => [
                 'type' => $typeFilter,
                 'date_from' => $dateFrom ?? '',

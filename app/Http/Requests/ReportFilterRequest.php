@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Services\Reports\ReportPeriod;
+use App\Support\PerPage;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -46,6 +47,8 @@ class ReportFilterRequest extends FormRequest
             'category' => ['nullable', 'string', 'max:50'],
             'as_of_date' => ['nullable', 'date'],
             'minimum_days_late' => ['nullable', 'integer', 'min:0', 'max:3650'],
+            'sort' => ['nullable', 'string', 'max:50'],
+            'direction' => ['nullable', Rule::in(['asc', 'desc'])],
         ];
     }
 
@@ -109,12 +112,34 @@ class ReportFilterRequest extends FormRequest
     }
 
     /**
-     * Jumlah baris per halaman.
+     * Jumlah baris per halaman sesuai pilihan pengguna (?per_page=).
+     *
+     * Hanya menerima whitelist 10/25/50/100; nilai lain jatuh ke bawaan 25.
+     *
+     * @see PerPage
      */
     public function perPage(): int
     {
-        $configured = (int) config('reports.per_page', 20);
+        return PerPage::resolve($this->input(PerPage::PARAM));
+    }
 
-        return max(5, min(100, $configured));
+    /**
+     * Kunci kolom sorting yang diminta (mis. "member_number").
+     */
+    public function sort(): ?string
+    {
+        $sort = $this->validated()['sort'] ?? $this->input('sort');
+
+        return is_string($sort) && $sort !== '' ? $sort : null;
+    }
+
+    /**
+     * Arah sorting: "asc" atau "desc".
+     */
+    public function sortDirection(): ?string
+    {
+        $direction = $this->validated()['direction'] ?? $this->input('direction');
+
+        return strtolower((string) $direction) === 'desc' ? 'desc' : (strtolower((string) $direction) === 'asc' ? 'asc' : null);
     }
 }

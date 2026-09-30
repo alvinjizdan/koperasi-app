@@ -4,13 +4,14 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import StatCard from '@/Components/Admin/StatCard';
 import EmptyState from '@/Components/Admin/EmptyState';
+import TableSortButton from '@/Components/Admin/TableSortButton';
+import TablePagination from '@/Components/Admin/TablePagination';
+import useTableSort from '@/hooks/useTableSort';
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import {
     ArrowDownCircle,
     ArrowUpCircle,
     Banknote,
-    ChevronLeft,
-    ChevronRight,
     CheckCircle2,
     AlertCircle,
     Filter,
@@ -30,13 +31,14 @@ const OPERATOR_OPTIONS = (operators) => [
     ...operators.map((o) => ({ value: String(o.id), label: o.name })),
 ];
 
-export default function Ringkasan({ rows, summary, filters, operators, flash }) {
+export default function Ringkasan({ rows, sort, summary, filters, operators, flash }) {
     const [filterState, setFilterState] = useState({
         date_from: filters.date_from || '',
         date_to: filters.date_to || '',
         operator_id: filters.operator_id || '',
         status: filters.status || 'all',
     });
+    const handleSort = useTableSort('kasir.ringkasan.index');
 
     const applyFilters = (next) => {
         setFilterState(next);
@@ -202,17 +204,23 @@ export default function Ringkasan({ rows, summary, filters, operators, flash }) 
                             <table className="min-w-full divide-y divide-slate-200">
                                 <thead className="bg-slate-50">
                                     <tr>
-                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                            Tanggal
+                                        <th className="px-4 py-3 text-left">
+                                            <TableSortButton column="operational_date" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                                Tanggal
+                                            </TableSortButton>
                                         </th>
                                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                                             Operator
                                         </th>
-                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                            No. Sesi
+                                        <th className="px-4 py-3 text-left">
+                                            <TableSortButton column="session_number" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                                No. Sesi
+                                            </TableSortButton>
                                         </th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                            Saldo Awal
+                                        <th className="px-4 py-3 text-right">
+                                            <TableSortButton column="opening_balance" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                                Saldo Awal
+                                            </TableSortButton>
                                         </th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
                                             Penerimaan
@@ -223,14 +231,18 @@ export default function Ringkasan({ rows, summary, filters, operators, flash }) 
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
                                             Setoran
                                         </th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                            Saldo Akhir
+                                        <th className="px-4 py-3 text-right">
+                                            <TableSortButton column="system_balance" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                                Saldo Akhir
+                                            </TableSortButton>
                                         </th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
                                             Selisih
                                         </th>
-                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                            Status
+                                        <th className="px-4 py-3 text-left">
+                                            <TableSortButton column="status" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>
+                                                Status
+                                            </TableSortButton>
                                         </th>
                                     </tr>
                                 </thead>
@@ -294,31 +306,7 @@ export default function Ringkasan({ rows, summary, filters, operators, flash }) 
                             </table>
                         </ScrollArea>
 
-                        {rows.last_page > 1 && (
-                            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
-                                <p className="text-sm text-slate-500">
-                                    Menampilkan {rows.from}–{rows.to} dari {rows.total} sesi
-                                </p>
-                                <div className="flex gap-1">
-                                    {rows.prev_page_url && (
-                                        <Link
-                                            href={rows.prev_page_url}
-                                            className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-100"
-                                        >
-                                            <ChevronLeft className="h-4 w-4" />
-                                        </Link>
-                                    )}
-                                    {rows.next_page_url && (
-                                        <Link
-                                            href={rows.next_page_url}
-                                            className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-100"
-                                        >
-                                            <ChevronRight className="h-4 w-4" />
-                                        </Link>
-                                    )}
-                                </div>
-                            </div>
-                        )}
+                        <TablePagination paginator={rows} itemLabel="sesi" routeName="kasir.ringkasan.index" />
                     </div>
                 )}
 

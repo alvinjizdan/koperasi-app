@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Requests\RunReconciliationRequest;
 use App\Http\Requests\UpdateFindingStatusRequest;
 use App\Models\ReconciliationFinding;
@@ -14,6 +15,8 @@ use Inertia\Response;
 
 class ReconciliationController extends Controller
 {
+    use InteractsWithSorting;
+
     public function __construct(private ReconciliationService $reconciliationService) {}
 
     /**
@@ -61,16 +64,26 @@ class ReconciliationController extends Controller
      */
     public function runs(Request $request): Response
     {
-        $runs = ReconciliationRun::query()
+        $runsQuery = ReconciliationRun::query()
             ->with('runner:id,name')
-            ->when($request->input('status', 'all') !== 'all', fn ($q) => $q->where('status', $request->input('status')))
-            ->orderByDesc('id')
-            ->paginate(15)
+            ->when($request->input('status', 'all') !== 'all', fn ($q) => $q->where('status', $request->input('status')));
+
+        $runSortStatus = $this->applySorting($runsQuery, $request, [
+            'run_number' => 'run_number',
+            'period_start' => 'period_start',
+            'period_end' => 'period_end',
+            'findings_count' => 'findings_count',
+            'status' => 'status',
+            'created_at' => 'id',
+        ], [['id', 'desc']]);
+
+        $runs = $runsQuery->paginate($this->resolvePerPage($request))
             ->withQueryString()
             ->through(fn (ReconciliationRun $run) => $this->runToArray($run));
 
         return Inertia::render('Rekonsiliasi/Runs', [
             'runs' => $runs,
+            'sort' => $runSortStatus,
             'filters' => ['status' => $request->input('status', 'all')],
             'can' => [
                 'run' => $request->user()->can('rekonsiliasi.run'),
@@ -98,7 +111,7 @@ class ReconciliationController extends Controller
     /**
      * Detail satu proses rekonsiliasi beserta temuan-temuannya.
      */
-    public function show(ReconciliationRun $run): Response
+    public function show(Request $request, ReconciliationRun $run): Response
     {
         $run->load('runner:id,name');
 
@@ -106,7 +119,7 @@ class ReconciliationController extends Controller
             ->when(request()->input('status', 'all') !== 'all', fn ($q) => $q->where('status', request()->input('status')))
             ->orderByRaw("CASE priority WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END")
             ->orderBy('id')
-            ->paginate(20)
+            ->paginate($this->resolvePerPage($request))
             ->withQueryString()
             ->through(fn (ReconciliationFinding $finding) => $this->findingToArray($finding));
 
@@ -133,20 +146,27 @@ class ReconciliationController extends Controller
             'priority' => (string) $request->input('priority', 'all'),
         ];
 
-        $findings = ReconciliationFinding::query()
+        $findingsQuery = ReconciliationFinding::query()
             ->with(['run:id,run_number,status'])
             ->when($filters['status'] !== 'all', fn ($q) => $q->where('status', $filters['status']))
             ->when($filters['module'] !== 'all', fn ($q) => $q->where('module', $filters['module']))
             ->when($filters['finding_type'] !== 'all', fn ($q) => $q->where('finding_type', $filters['finding_type']))
-            ->when($filters['priority'] !== 'all', fn ($q) => $q->where('priority', $filters['priority']))
-            ->orderByRaw("CASE priority WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END")
-            ->orderByDesc('id')
-            ->paginate(20)
+            ->when($filters['priority'] !== 'all', fn ($q) => $q->where('priority', $filters['priority']));
+
+        $findingSortStatus = $this->applySorting($findingsQuery, $request, [
+            'finding_type' => 'finding_type',
+            'module' => 'module',
+            'priority' => "CASE priority WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END",
+            'created_at' => 'id',
+        ], [["CASE priority WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END", 'asc'], ['id', 'desc']]);
+
+        $findings = $findingsQuery->paginate($this->resolvePerPage($request))
             ->withQueryString()
             ->through(fn (ReconciliationFinding $finding) => $this->findingToArray($finding));
 
         return Inertia::render('Rekonsiliasi/Findings', [
             'findings' => $findings,
+            'sort' => $findingSortStatus,
             'filters' => $filters,
             'can' => [
                 'resolve' => $request->user()->can('rekonsiliasi.resolve'),

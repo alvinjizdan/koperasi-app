@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Requests\ApproveLoanRequest;
 use App\Http\Requests\DisburseLoanRequest;
 use App\Http\Requests\RejectLoanRequest;
@@ -17,6 +18,8 @@ use Inertia\Response;
 
 class LoanController extends Controller
 {
+    use InteractsWithSorting;
+
     public function __construct(private LoanService $loanService) {}
 
     /**
@@ -27,16 +30,25 @@ class LoanController extends Controller
         $search = $request->input('search');
         $status = $request->input('status', 'all');
 
-        $loans = Loan::with(['member', 'creator'])
+        $query = Loan::with(['member', 'creator'])
             ->when($search, fn ($q) => $q->where('loan_number', 'ilike', "%{$search}%")
                 ->orWhereHas('member', fn ($m) => $m->where('full_name', 'ilike', "%{$search}%")))
-            ->when($status !== 'all', fn ($q) => $q->where('status', $status))
-            ->orderBy('created_at', 'desc')
-            ->paginate(15)
-            ->withQueryString();
+            ->when($status !== 'all', fn ($q) => $q->where('status', $status));
+
+        $sortStatus = $this->applySorting($query, $request, [
+            'loan_number' => 'loan_number',
+            'amount' => 'amount',
+            'tenor_months' => 'tenor_months',
+            'submission_date' => 'submission_date',
+            'status' => 'status',
+            'created_at' => 'created_at',
+        ], [['created_at', 'desc']]);
+
+        $loans = $query->paginate($this->resolvePerPage($request))->withQueryString();
 
         return Inertia::render('Pinjaman/Index', [
             'loans' => $loans,
+            'sort' => $sortStatus,
             'filters' => [
                 'search' => $search ?? '',
                 'status' => $status,

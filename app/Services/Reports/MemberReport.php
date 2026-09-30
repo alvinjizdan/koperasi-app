@@ -3,6 +3,7 @@
 namespace App\Services\Reports;
 
 use App\Models\Member;
+use App\Support\QuerySorter;
 use Generator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,14 +17,45 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class MemberReport
 {
+    private QuerySorter $sorter;
+
+    /**
+     * Status sorting yang diterapkan pada pemanggilan paginate() terakhir.
+     *
+     * @return array{key: string|null, direction: string|null}
+     */
+    public function sortStatus(): array
+    {
+        return $this->sorter->status();
+    }
+
+    public function __construct()
+    {
+        $this->sorter = new QuerySorter;
+    }
+
     /**
      * @param  array<string, mixed>  $filters
      * @return LengthAwarePaginator<int, array<string, mixed>>
      */
-    public function paginate(array $filters, int $perPage): LengthAwarePaginator
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return LengthAwarePaginator<int, array<string, mixed>>
+     */
+    public function paginate(array $filters, int $perPage, ?string $sort = null, ?string $direction = null): LengthAwarePaginator
     {
-        return $this->query($filters)
-            ->orderBy('member_number')
+        $query = $this->query($filters);
+
+        $this->sorter->apply($query, $sort, $direction, [
+            'member_number' => 'member_number',
+            'full_name' => 'full_name',
+            'joined_at' => 'joined_at',
+            'status' => 'status',
+            'savings_accounts_count' => 'savings_accounts_count',
+            'active_loans_count' => 'active_loans_count',
+        ], [['member_number', 'asc']]);
+
+        return $query
             ->paginate($perPage)
             ->withQueryString()
             ->through(fn (Member $member) => $this->toRow($member));

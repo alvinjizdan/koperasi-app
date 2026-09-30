@@ -4,10 +4,12 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import StatCard from '@/Components/Admin/StatCard';
 import ReportFilters from '@/Components/Admin/ReportFilters';
 import ReportTable from '@/Components/Admin/ReportTable';
+import useTableSort from '@/hooks/useTableSort';
 import { Banknote, Eye, Scale, Wallet } from 'lucide-react';
 import { formatRupiah, formatNumber, formatDate } from '@/utils/format';
 
-export default function KasHarian({ rows, summary, period, filters, options, report_slug, export_route, operational_timezone }) {
+export default function KasHarian({ rows, sort, summary, period, filters, options, report_slug, export_route, operational_timezone }) {
+    const handleSort = useTableSort('laporan.kas-harian');
     const columns = [
         { key: 'operational_date', label: 'Tanggal', render: (row) => formatDate(row.operational_date) },
         {
@@ -164,6 +166,9 @@ export default function KasHarian({ rows, summary, period, filters, options, rep
                     columns={columns}
                     rows={rows.data}
                     pagination={rows}
+                    sort={sort}
+                    onSort={handleSort}
+                    routeName="laporan.kas-harian"
                     emptyIcon={Wallet}
                     emptyTitle="Tidak ada sesi kasir"
                     emptyDescription="Ubah periode, operator, atau status sesi untuk melihat data lainnya."

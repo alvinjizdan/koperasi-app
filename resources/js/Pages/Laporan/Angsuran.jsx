@@ -4,10 +4,12 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import StatCard from '@/Components/Admin/StatCard';
 import ReportFilters from '@/Components/Admin/ReportFilters';
 import ReportTable from '@/Components/Admin/ReportTable';
+import useTableSort from '@/hooks/useTableSort';
 import { Ban, CheckCircle2, Eye, Receipt } from 'lucide-react';
 import { formatRupiah, formatNumber, formatDate } from '@/utils/format';
 
-export default function Angsuran({ rows, summary, period, filters, options, report_slug, export_route, operational_timezone }) {
+export default function Angsuran({ rows, sort, summary, period, filters, options, report_slug, export_route, operational_timezone }) {
+    const handleSort = useTableSort('laporan.angsuran');
     const columns = [
         { key: 'payment_number', label: 'Nomor Pembayaran', className: 'font-mono text-xs font-medium text-slate-900' },
         { key: 'loan_number', label: 'Nomor Pinjaman', className: 'font-mono text-xs text-slate-600' },
@@ -122,6 +124,9 @@ export default function Angsuran({ rows, summary, period, filters, options, repo
                     columns={columns}
                     rows={rows.data}
                     pagination={rows}
+                    sort={sort}
+                    onSort={handleSort}
+                    routeName="laporan.angsuran"
                     emptyIcon={Receipt}
                     emptyTitle="Tidak ada pembayaran sesuai filter"
                     emptyDescription="Ubah periode, operator, status, atau kata kunci pencarian."

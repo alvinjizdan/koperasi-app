@@ -3,6 +3,7 @@
 namespace App\Services\Reports;
 
 use App\Models\InstallmentSchedule;
+use App\Support\QuerySorter;
 use Generator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,17 +19,44 @@ use Illuminate\Support\Carbon;
  */
 class OverdueReport
 {
+    private QuerySorter $sorter;
+
+    /**
+     * Status sorting yang diterapkan pada pemanggilan paginate() terakhir.
+     *
+     * @return array{key: string|null, direction: string|null}
+     */
+    public function sortStatus(): array
+    {
+        return $this->sorter->status();
+    }
+
+    public function __construct()
+    {
+        $this->sorter = new QuerySorter;
+    }
+
     /**
      * @param  array<string, mixed>  $filters
      * @return LengthAwarePaginator<int, array<string, mixed>>
      */
-    public function paginate(array $filters, int $perPage): LengthAwarePaginator
+    public function paginate(array $filters, int $perPage, ?string $sort = null, ?string $direction = null): LengthAwarePaginator
     {
         $asOf = $this->asOfDate($filters);
+        $query = $this->query($filters, $asOf);
 
-        return $this->query($filters, $asOf)
-            ->orderBy('due_date')
-            ->orderBy('installment_number')
+        $this->sorter->apply($query, $sort, $direction, [
+            'loan_number' => 'loan_number',
+            'installment_number' => 'installment_number',
+            'due_date' => 'due_date',
+            'total_amount' => 'total_amount',
+            'paid_amount' => 'paid_amount',
+            'remaining_amount' => 'remaining_amount',
+            'days_late' => 'due_date',
+            'status' => 'status',
+        ], [['due_date', 'asc'], ['installment_number', 'asc']]);
+
+        return $query
             ->paginate($perPage)
             ->withQueryString()
             ->through(fn (InstallmentSchedule $schedule) => $this->toRow($schedule, $asOf));

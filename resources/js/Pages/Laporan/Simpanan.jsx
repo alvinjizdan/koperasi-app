@@ -4,10 +4,12 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import StatCard from '@/Components/Admin/StatCard';
 import ReportFilters from '@/Components/Admin/ReportFilters';
 import ReportTable from '@/Components/Admin/ReportTable';
+import useTableSort from '@/hooks/useTableSort';
 import { ArrowDownCircle, ArrowUpCircle, Eye, PiggyBank, Scale, Wallet } from 'lucide-react';
 import { formatRupiah, formatNumber, formatDate } from '@/utils/format';
 
-export default function Simpanan({ rows, summary, period, filters, options, report_slug, export_route, operational_timezone }) {
+export default function Simpanan({ rows, sort, summary, period, filters, options, report_slug, export_route, operational_timezone }) {
+    const handleSort = useTableSort('laporan.simpanan');
     const columns = [
         { key: 'account_number', label: 'Nomor Rekening', className: 'font-mono text-xs font-medium text-slate-900' },
         {
@@ -134,6 +136,9 @@ export default function Simpanan({ rows, summary, period, filters, options, repo
                     columns={columns}
                     rows={rows.data}
                     pagination={rows}
+                    sort={sort}
+                    onSort={handleSort}
+                    routeName="laporan.simpanan"
                     emptyIcon={PiggyBank}
                     emptyTitle="Tidak ada rekening sesuai filter"
                     emptyDescription="Ubah periode, produk, status rekening, atau kata kunci pencarian."

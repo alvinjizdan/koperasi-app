@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
+import TablePagination from '@/Components/Admin/TablePagination';
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
 import { ChevronLeft, ListChecks, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import StatusBadge from '@/Components/Admin/StatusBadge';
@@ -186,30 +187,7 @@ export default function Show({ run, findings, filters, can }) {
                     </div>
                 )}
 
-                {findings.links && findings.links.length > 3 && (
-                    <div className="flex flex-wrap items-center justify-center gap-1 border-t border-slate-200 bg-slate-50/50 px-6 py-4">
-                        {findings.links.map((link, idx) =>
-                            link.url ? (
-                                <Link
-                                    key={idx}
-                                    href={link.url}
-                                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-                                        link.active
-                                            ? 'bg-slate-900 text-white shadow-xs'
-                                            : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-200/80'
-                                    }`}
-                                    dangerouslySetInnerHTML={{ __html: link.label }}
-                                />
-                            ) : (
-                                <span
-                                    key={idx}
-                                    className="rounded-md bg-slate-100/60 px-3 py-1.5 text-xs font-medium text-slate-400"
-                                    dangerouslySetInnerHTML={{ __html: link.label }}
-                                />
-                            )
-                        )}
-                    </div>
-                )}
+                <TablePagination paginator={findings} itemLabel="temuan" routeName="rekonsiliasi.runs.show" routeParams={[run.id]} />
             </div>
 
             {can?.run && (
