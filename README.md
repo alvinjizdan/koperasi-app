@@ -1,6 +1,6 @@
-# KSP Bima Sakti Mandiri
+# Koperasi APP
 
-Sistem Informasi Manajemen Koperasi Simpan Pinjam (KSP) Bima Sakti Mandiri berbasis web dan Mobile Progressive Web App (PWA).
+Sistem Informasi Manajemen Koperasi Simpan Pinjam berbasis web dan Mobile Progressive Web App (PWA).
 
 ## 1. Tech Stack
 
