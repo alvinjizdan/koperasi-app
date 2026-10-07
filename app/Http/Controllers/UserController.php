@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -68,7 +69,7 @@ class UserController extends Controller
         return Inertia::render('Pengaturan/Users/Index', [
             'users' => $users,
             'sort' => $sortStatus,
-            'roles' => Role::query()->orderBy('name')->get(['id', 'name', 'display_name']),
+            'roles' => Role::query()->active()->orderBy('name')->get(['id', 'name', 'display_name']),
             'filters' => [
                 'search' => $search,
                 'role' => $role,
@@ -84,7 +85,7 @@ class UserController extends Controller
     public function create(): Response
     {
         return Inertia::render('Pengaturan/Users/Create', [
-            'roles' => Role::query()->orderBy('name')->get(['id', 'name', 'display_name', 'description']),
+            'roles' => Role::query()->active()->orderBy('name')->get(['id', 'name', 'display_name', 'description']),
         ]);
     }
 
@@ -143,7 +144,7 @@ class UserController extends Controller
                 'is_superadmin' => $user->isSuperadmin(),
                 'is_last_active_superadmin' => $user->isLastActiveSuperadmin(),
             ],
-            'allRoles' => Role::query()->orderBy('name')->get(['id', 'name', 'display_name', 'description']),
+            'allRoles' => Role::query()->active()->orderBy('name')->get(['id', 'name', 'display_name', 'description']),
             'flash' => [
                 'success' => session('success'),
                 'error' => session('error'),
@@ -258,7 +259,9 @@ class UserController extends Controller
 
         $validated = $request->validate([
             'roles' => ['nullable', 'array'],
-            'roles.*' => ['integer', 'exists:roles,id'],
+            // Role nonaktif (mis. role lama yang sudah tidak dipakai) tidak
+            // boleh ditugaskan lagi, meski barisnya masih tersimpan.
+            'roles.*' => ['integer', Rule::exists('roles', 'id')->where('is_active', true)],
         ]);
 
         $oldRoleIds = $user->roles()->pluck('roles.id')->all();

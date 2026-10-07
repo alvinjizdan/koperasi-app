@@ -28,6 +28,14 @@ return Application::configure(basePath: dirname(__DIR__))
             AddLinkHeadersForPreloadedAssets::class,
         ]);
 
+        // Tamu yang membuka halaman SHM diarahkan ke pintu masuk SHM
+        // (/shm/login), bukan ke halaman login koperasi. Perilaku aplikasi
+        // koperasi tidak berubah. Autentikasinya tetap satu sistem: guard,
+        // session, dan controller login yang sama (Ticket 48).
+        $middleware->redirectGuestsTo(function (Request $request): string {
+            return $request->is('shm', 'shm/*') ? route('shm.login') : route('login');
+        });
+
         // Semua halaman terautentikasi memvalidasi status akun secara konsisten.
         $middleware->alias([
             'active.account' => EnsureUserIsActive::class,

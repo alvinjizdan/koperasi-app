@@ -10,6 +10,7 @@ use App\Models\Member;
 use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -118,8 +119,21 @@ class MemberController extends Controller
                 + penalty_accrued - penalty_paid
             ), 0) as owed')->value('owed'), 2);
 
+        // Titik lokasi hanya dikirim bila pengguna berhak melihatnya.
+        // Kolom latitude/longitude sudah disembunyikan di model Member, sehingga
+        // tanpa prop ini koordinat tidak pernah bocor ke respons biasa.
+        $canViewLocation = Gate::allows('marketing.member_location.view');
+        $canUpdateLocation = Gate::allows('marketing.member_location.update');
+
         return Inertia::render('Anggota/Show', [
             'member' => $member,
+            'location' => $canViewLocation ? [
+                'has_location' => $member->hasLocation(),
+                'latitude' => $member->latitude,
+                'longitude' => $member->longitude,
+            ] : null,
+            'can_view_location' => $canViewLocation,
+            'can_update_location' => $canUpdateLocation,
             'financial_summary' => [
                 'total_savings_balance' => round((float) $member->savingsAccounts->sum('balance'), 2),
                 'savings_account_count' => $member->savingsAccounts->count(),

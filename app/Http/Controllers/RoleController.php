@@ -29,6 +29,7 @@ class RoleController extends Controller
                 'display_name' => $role->display_name,
                 'description' => $role->description,
                 'is_system' => $role->is_system,
+                'is_active' => $role->is_active,
                 'users_count' => $role->users_count,
                 'permissions_count' => $role->permissions_count,
                 'is_superadmin' => $role->isSuperadmin(),
@@ -60,6 +61,7 @@ class RoleController extends Controller
                 'display_name' => $validated['display_name'],
                 'description' => $validated['description'] ?? null,
                 'is_system' => false,
+                'is_active' => true,
             ]);
 
             $role->permissions()->sync($this->filterValidPermissions($validated['permissions'] ?? []));
@@ -190,6 +192,7 @@ class RoleController extends Controller
                 'name' => $role->name,
                 'display_name' => $role->display_name,
                 'is_superadmin' => $role->isSuperadmin(),
+                'is_active' => $role->is_active,
                 'permissions' => $role->permissions->pluck('name')->all(),
             ]),
             'flash' => [

@@ -26,6 +26,11 @@ class AuthenticatedSessionController extends Controller
 
     /**
      * Handle an incoming authentication request.
+     *
+     * Dipakai bersama oleh halaman login koperasi dan pintu masuk SHM
+     * (Ticket 48). Permintaan masuk dari SHM menyertakan `context=shm` sehingga
+     * tujuan bawaannya adalah dashboard SHM; tanpa penanda itu perilakunya
+     * sama persis seperti sebelumnya. Otentikasinya tetap satu implementasi.
      */
     public function store(LoginRequest $request): RedirectResponse
     {
@@ -36,11 +41,20 @@ class AuthenticatedSessionController extends Controller
         // Catat waktu login terakhir untuk halaman keamanan akun.
         $request->user()?->forceFill(['last_login_at' => now()])->save();
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        $fallback = $request->input('context') === 'shm'
+            ? route('shm.dashboard', absolute: false)
+            : route('dashboard', absolute: false);
+
+        return redirect()->intended($fallback);
     }
 
     /**
      * Destroy an authenticated session.
+     *
+     * Satu implementasi untuk kedua area: permintaan keluar dari SHM
+     * menyertakan `context=shm` sehingga pengguna dikembalikan ke pintu masuk
+     * SHM, sedangkan keluar dari aplikasi koperasi tetap menuju halaman utama.
+     * Tidak ada session atau guard kedua.
      */
     public function destroy(Request $request): RedirectResponse
     {
@@ -50,6 +64,8 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerateToken();
 
-        return redirect('/');
+        return $request->input('context') === 'shm'
+            ? redirect()->route('shm.login')
+            : redirect('/');
     }
 }

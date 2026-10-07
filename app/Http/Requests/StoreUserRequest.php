@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 
 class StoreUserRequest extends FormRequest
@@ -23,7 +24,8 @@ class StoreUserRequest extends FormRequest
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', Password::defaults()],
             'roles' => ['nullable', 'array'],
-            'roles.*' => ['integer', 'exists:roles,id'],
+            // Role nonaktif tidak dapat ditugaskan lagi.
+            'roles.*' => ['integer', Rule::exists('roles', 'id')->where('is_active', true)],
             'is_active' => ['nullable', 'boolean'],
         ];
     }

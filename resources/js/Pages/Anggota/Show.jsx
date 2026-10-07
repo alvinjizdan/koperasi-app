@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, router } from '@inertiajs/react';
+import { Link, router, useForm } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
 import { formatRupiah, formatDateTime } from '@/utils/format';
@@ -18,11 +18,47 @@ import {
     PiggyBank,
     Landmark,
     Clock,
+    Crosshair,
 } from 'lucide-react';
 
-export default function Show({ member, financialSummary, flash }) {
+export default function Show({
+    member,
+    financialSummary,
+    location,
+    can_view_location,
+    can_update_location,
+    flash,
+}) {
     const [isDeactivating, setIsDeactivating] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+    // Form titik lokasi anggota. Alamat (address) tetap terpisah dan tidak
+    // diubah oleh form ini.
+    const locationForm = useForm({
+        latitude: location?.latitude ?? '',
+        longitude: location?.longitude ?? '',
+    });
+
+    /**
+     * Ambil koordinat perangkat untuk mengisi form. Gunaannya hanya membantu
+     * pengisian; server tetap memvalidasi dan menyimpan nilainya.
+     */
+    const fillCurrentLocation = () => {
+        if (!('geolocation' in navigator)) {
+            return;
+        }
+        navigator.geolocation.getCurrentPosition((position) => {
+            locationForm.setData({
+                latitude: String(position.coords.latitude),
+                longitude: String(position.coords.longitude),
+            });
+        });
+    };
+
+    const submitLocation = (event) => {
+        event.preventDefault();
+        locationForm.put(route('marketing.member-location.update', member.id));
+    };
 
     // Ticket 17 BUG-02: ringkasan finansial dari backend; fallback aman bila
     // tidak tersedia (mis. share lama).
@@ -193,6 +229,107 @@ export default function Show({ member, financialSummary, flash }) {
                             </div>
                         </dl>
                     </div>
+
+                    {/* Titik Lokasi — informasi terpisah dari alamat, hanya
+                        dirender bila pengguna memiliki permission lokasi. */}
+                    {can_view_location && (
+                        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs">
+                            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                                <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+                                    Titik Lokasi
+                                </h3>
+                                <span className="text-xs text-slate-400 font-medium">
+                                    Informasi Pendukung Kunjungan
+                                </span>
+                            </div>
+
+                            {location?.has_location ? (
+                                <div className="flex items-center gap-2 text-sm text-slate-700">
+                                    <Crosshair className="h-4 w-4 text-emerald-600" />
+                                    <span>
+                                        Tersedia: {Number(location.latitude).toFixed(5)},{' '}
+                                        {Number(location.longitude).toFixed(5)}
+                                    </span>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-slate-400">
+                                    Titik lokasi belum tersedia. Lokasi boleh kosong dan sistem tidak
+                                    membuat koordinat pengganti.
+                                </p>
+                            )}
+
+                            {can_update_location && (
+                                <form onSubmit={submitLocation} className="mt-4">
+                                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                        <div>
+                                            <label className="text-xs font-medium text-slate-700">
+                                                Latitude
+                                            </label>
+                                            <input
+                                                type="number"
+                                                step="0.0000001"
+                                                min="-90"
+                                                max="90"
+                                                value={locationForm.data.latitude}
+                                                onChange={(event) =>
+                                                    locationForm.setData(
+                                                        'latitude',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-medium text-slate-700">
+                                                Longitude
+                                            </label>
+                                            <input
+                                                type="number"
+                                                step="0.0000001"
+                                                min="-180"
+                                                max="180"
+                                                value={locationForm.data.longitude}
+                                                onChange={(event) =>
+                                                    locationForm.setData(
+                                                        'longitude',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                    {locationForm.errors.latitude && (
+                                        <p className="mt-1 text-xs font-medium text-rose-600">
+                                            {locationForm.errors.latitude}
+                                        </p>
+                                    )}
+                                    {locationForm.errors.longitude && (
+                                        <p className="mt-1 text-xs font-medium text-rose-600">
+                                            {locationForm.errors.longitude}
+                                        </p>
+                                    )}
+                                    <div className="mt-3 flex items-center gap-2">
+                                        <button
+                                            type="submit"
+                                            disabled={locationForm.processing}
+                                            className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                                        >
+                                            Simpan Lokasi
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={fillCurrentLocation}
+                                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                        >
+                                            Gunakan Lokasi Perangkat
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
+                        </div>
+                    )}
 
                     {/* Area Riwayat Transaksi Finansial (Placeholder / Empty State) */}
                     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs">

@@ -17,6 +17,8 @@ import {
     Building2,
     ChevronDown,
     X,
+    Briefcase,
+    Home,
 } from "lucide-react";
 
 /**
@@ -68,6 +70,32 @@ const navigationItems = [
             { name: "Transaksi Kas", route: "kasir.transaksi.index", permission: "kasir.view" },
             { name: "Ringkasan Harian", route: "kasir.ringkasan.index", permission: "kasir.view" },
         ],
+    },
+    {
+        name: "Marketing",
+        icon: Briefcase,
+        children: [
+            {
+                name: "Aktivitas Kunjungan",
+                route: "marketing.activities.index",
+                permission: "marketing.view",
+            },
+            {
+                name: "Monitoring Aktivitas",
+                route: "marketing.monitoring.index",
+                permission: "marketing.monitoring.view",
+            },
+        ],
+    },
+    {
+        // Ticket 48: SHM sudah punya shell dan navigasinya sendiri. Sidebar
+        // koperasi hanya menyediakan SATU pintu masuk ke aplikasi SHM supaya
+        // tidak ada dua daftar navigasi SHM yang bisa saling menyimpang.
+        name: "Aplikasi SHM",
+        route: "shm.entry",
+        icon: Home,
+        isReleased: true,
+        permission: "shm.view",
     },
     {
         name: "Laporan",

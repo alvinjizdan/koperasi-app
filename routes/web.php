@@ -5,12 +5,15 @@ use App\Http\Controllers\Accounting\FinancialReportController;
 use App\Http\Controllers\Accounting\JournalController;
 use App\Http\Controllers\Accounting\LedgerController;
 use App\Http\Controllers\AuditLogController;
+use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\CashierController;
 use App\Http\Controllers\CashSummaryController;
 use App\Http\Controllers\CashTransactionController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\InstallmentController;
 use App\Http\Controllers\LoanController;
+use App\Http\Controllers\Marketing\MarketingActivityController;
+use App\Http\Controllers\Marketing\MemberLocationController;
 use App\Http\Controllers\MemberController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReconciliationController;
@@ -21,6 +24,16 @@ use App\Http\Controllers\SavingProductController;
 use App\Http\Controllers\SavingsAccountController;
 use App\Http\Controllers\SavingsTransactionController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\Shm\ShmApplicationController;
+use App\Http\Controllers\Shm\ShmApprovalController;
+use App\Http\Controllers\Shm\ShmCreditCheckController;
+use App\Http\Controllers\Shm\ShmCustomerController;
+use App\Http\Controllers\Shm\ShmDashboardController;
+use App\Http\Controllers\Shm\ShmDocumentsController;
+use App\Http\Controllers\Shm\ShmEntryController;
+use App\Http\Controllers\Shm\ShmExportController;
+use App\Http\Controllers\Shm\ShmLoginController;
+use App\Http\Controllers\Shm\ShmMemorandumController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -216,6 +229,339 @@ Route::middleware(['auth', 'verified', 'active.account'])->group(function () {
             ->name('export');
     });
 
+    // Modul Marketing: aktivitas/kunjungan Marketing.
+    // Route literal didaftarkan sebelum route parameter agar tidak tertelan
+    // wildcard. Pembatasan data "milik sendiri" ditegakkan di query controller.
+    Route::prefix('marketing')->name('marketing.')->group(function () {
+        Route::middleware('permission:marketing.view')->group(function () {
+            Route::get('/', [MarketingActivityController::class, 'index'])->name('activities.index');
+            Route::get('/aktivitas/{activity}', [MarketingActivityController::class, 'show'])->name('activities.show');
+        });
+
+        Route::post('/aktivitas', [MarketingActivityController::class, 'store'])
+            ->middleware('permission:marketing.create')
+            ->name('activities.store');
+
+        Route::patch('/aktivitas/{activity}/hasil', [MarketingActivityController::class, 'updateResult'])
+            ->middleware('permission:marketing.result.update')
+            ->name('activities.result.update');
+
+        // Monitoring seluruh Marketing: permission terpisah, bukan oleh nama role.
+        Route::get('/monitoring', [MarketingActivityController::class, 'monitoring'])
+            ->middleware('permission:marketing.monitoring.view')
+            ->name('monitoring.index');
+
+        // Titik lokasi anggota: hak akses terpisah dari hak akses anggota.
+        Route::put('/anggota/{member}/lokasi', [MemberLocationController::class, 'update'])
+            ->middleware('permission:marketing.member_location.update')
+            ->name('member-location.update');
+    });
+
+});
+
+// =====================================================================
+// Aplikasi SHM sebagai shell tersendiri (Ticket 48).
+//
+// `/shm` adalah boundary UI dan otorisasi di DALAM aplikasi Laravel yang sama:
+// satu database, satu deployment, satu sistem autentikasi (guard `web` dan
+// session yang sama), serta satu audit trail. TIDAK ada project, database,
+// microservice, API internal, atau session kedua.
+//
+// Struktur pintu masuk:
+//   GET  /shm           -> pintu masuk: tamu ke /shm/login, sisanya ke dashboard
+//   GET  /shm/login     -> halaman masuk ber-branding SHM
+//   POST /shm/login     -> memakai controller login yang SAMA (context=shm)
+//   GET  /shm/dashboard -> dashboard shell SHM
+//
+// Seluruh halaman SHM tetap memerlukan login, akun aktif, email terverifikasi,
+// dan permission SHM masing-masing seperti sebelumnya. Halaman modul SHM
+// didaftarkan di bawah ini dan tidak lagi berada di dalam grup modul koperasi,
+// tetapi middleware-nya identik sehingga otorisasi tidak berubah.
+// =====================================================================
+Route::prefix('shm')->name('shm.')->group(function () {
+    // Route ini sengaja TANPA middleware auth supaya tamu diarahkan ke pintu
+    // masuk SHM (bukan halaman login koperasi) dan pengguna yang sudah login
+    // tanpa akses SHM memperoleh 403 yang jelas, bukan sekadar dipentalikan.
+    Route::get('/', ShmEntryController::class)->name('entry');
+
+    Route::middleware('guest')->group(function () {
+        Route::get('/login', [ShmLoginController::class, 'create'])->name('login');
+
+        // Otentikasi tetap milik AuthenticatedSessionController: tidak ada
+        // controller login kedua, hanya tujuan bawaan setelah masuk yang
+        // dibedakan lewat input `context` pada formulir SHM.
+        Route::post('/login', [AuthenticatedSessionController::class, 'store'])->name('login.store');
+    });
+
+    Route::middleware(['auth', 'verified', 'active.account'])->group(function () {
+        // Dashboard shell SHM. Batas akses memakai permission `shm.view` yang
+        // sudah ada; tidak ada permission `shm.access` baru.
+        Route::get('/dashboard', ShmDashboardController::class)
+            ->middleware('permission:shm.view')
+            ->name('dashboard');
+
+        // -----------------------------------------------------------------
+        // Modul SHM/SHGB (Ticket 44).
+        //
+        // Workflow di sini adalah workflow TEKNIS MVP agar sistem dapat dipakai
+        // dan didemokan. Bukan SOP resmi KSP.
+        //
+        // Route literal didaftarkan sebelum route parameter agar tidak tertelan
+        // wildcard. Setiap endpoint transisi dipisah per tujuan supaya arah
+        // transisi tidak pernah berasal dari request klien.
+        // -----------------------------------------------------------------
+
+        // Pengajuan SHM. Route literal (/pengajuan/create) didaftarkan SEBELUM
+        // route parameter (/pengajuan/{application}) agar tidak tertelan wildcard.
+        Route::get('/pengajuan/create', [ShmApplicationController::class, 'create'])
+            ->middleware('permission:shm.create')
+            ->name('applications.create');
+
+        Route::middleware('permission:shm.view')->group(function () {
+            Route::get('/pengajuan', [ShmApplicationController::class, 'index'])->name('applications.index');
+            Route::get('/pengajuan/{application}', [ShmApplicationController::class, 'show'])
+                ->name('applications.show');
+        });
+
+        Route::post('/pengajuan', [ShmApplicationController::class, 'store'])
+            ->middleware('permission:shm.create')
+            ->name('applications.store');
+
+        Route::put('/pengajuan/{application}', [ShmApplicationController::class, 'update'])
+            ->middleware('permission:shm.update')
+            ->name('applications.update');
+
+        Route::get('/pengajuan/{application}/edit', [ShmApplicationController::class, 'edit'])
+            ->middleware('permission:shm.update')
+            ->name('applications.edit');
+
+        // Transisi tahap. Setiap tujuan punya endpoint sendiri.
+        Route::post('/pengajuan/{application}/submit', [ShmApplicationController::class, 'submit'])
+            ->middleware('permission:shm.submit')
+            ->name('applications.submit');
+
+        Route::post('/pengajuan/{application}/setujui', [ShmApplicationController::class, 'approve'])
+            ->middleware('permission:shm.approval.decide')
+            ->name('applications.approve');
+
+        Route::post('/pengajuan/{application}/tolak', [ShmApplicationController::class, 'reject'])
+            ->middleware('permission:shm.approval.decide')
+            ->name('applications.reject');
+
+        Route::post('/pengajuan/{application}/cairkan', [ShmApplicationController::class, 'disburse'])
+            ->middleware('permission:shm.disburse')
+            ->name('applications.disburse');
+
+        Route::post('/pengajuan/{application}/selesai', [ShmApplicationController::class, 'complete'])
+            ->middleware('permission:shm.complete')
+            ->name('applications.complete');
+
+        Route::post('/pengajuan/{application}/batalkan', [ShmApplicationController::class, 'cancel'])
+            ->middleware('permission:shm.submit')
+            ->name('applications.cancel');
+
+        // Transisi antar tahap kerja (Ticket 45).
+        // Setiap endpoint punya permission sendiri dan hanya boleh dijalankan oleh
+        // pemilik pengajuan. Arah transisi ditentukan server dan tidak dapat
+        // dipalsukan lewat payload.
+        Route::post('/pengajuan/{application}/credit-checking/lanjut', [ShmApplicationController::class, 'startCreditChecking'])
+            ->middleware('permission:shm.submit')
+            ->name('applications.start-credit-checking');
+
+        Route::post('/pengajuan/{application}/memorandum/lanjut', [ShmApplicationController::class, 'startMemorandum'])
+            ->middleware('permission:shm.memorandum.update')
+            ->name('applications.start-memorandum');
+
+        Route::post('/pengajuan/{application}/approval/lanjut', [ShmApplicationController::class, 'startApproval'])
+            ->middleware('permission:shm.memorandum.update')
+            ->name('applications.start-approval');
+
+        Route::post('/pengajuan/{application}/dokumen/lanjut', [ShmApplicationController::class, 'startDocumentCheck'])
+            ->middleware('permission:shm.document.update')
+            ->name('applications.start-document-check');
+
+        Route::post('/pengajuan/{application}/siap-cair', [ShmApplicationController::class, 'markReadyForDisbursement'])
+            ->middleware('permission:shm.document.update')
+            ->name('applications.mark-ready-for-disbursement');
+
+        Route::post('/pengajuan/{application}/buka-kembali-dokumen', [ShmApplicationController::class, 'reopenDocumentCheck'])
+            ->middleware('permission:shm.document.update')
+            ->name('applications.reopen-document-check');
+
+        Route::post('/pengajuan/{application}/kembali-draft', [ShmApplicationController::class, 'returnToDraft'])
+            ->middleware('permission:shm.approval.decide')
+            ->name('applications.return-to-draft');
+
+        // Data tahap: objek, credit checking, memorandum, dokumen.
+        Route::put('/pengajuan/{application}/objek', [ShmApplicationController::class, 'saveProperty'])
+            ->middleware('permission:shm.property.manage')
+            ->name('applications.property');
+
+        // Mulai pengerjaan credit checking. Baris credit checking dibuat di sini
+        // secara eksplisit, bukan otomatis saat pengajuan dibuat.
+        Route::post('/pengajuan/{application}/credit-checking/mulai', [ShmCreditCheckController::class, 'start'])
+            ->middleware('permission:shm.credit_checking.update')
+            ->name('applications.credit-checking.start');
+
+        Route::put('/pengajuan/{application}/memorandum', [ShmApplicationController::class, 'recordMemorandum'])
+            ->middleware('permission:shm.memorandum.update')
+            ->name('applications.memorandum');
+
+        Route::put('/pengajuan/{application}/dokumen', [ShmApplicationController::class, 'recordDocument'])
+            ->middleware('permission:shm.document.update')
+            ->name('applications.document');
+
+        // Kelengkapan Dokumen (Admin monitoring) — Ticket 50.
+        // Dibaca/ditulis dengan permission yang sama dengan modul dokumen yang
+        // sudah ada (shm.document.update); Admin memakai cakupan seluruh
+        // pengajuan, Marketing memakai cakupan milik sendiri (sama seperti
+        // modul Memorandum).
+        Route::middleware('permission:shm.document.update')->group(function () {
+            Route::get('/dokumen', [ShmDocumentsController::class, 'index'])->name('documents.index');
+            Route::get('/dokumen/{application}', [ShmDocumentsController::class, 'show'])->name('documents.show');
+            Route::patch('/dokumen/{application}', [ShmDocumentsController::class, 'update'])->name('documents.update');
+        });
+
+        // Nasabah SHM (Ticket 46).
+        //
+        // Master data nasabah TERPISAH dari anggota koperasi: halaman ini
+        // tidak pernah membaca maupun mengubah tabel members.
+        //
+        // Route literal (/nasabah/create) didaftarkan sebelum route parameter
+        // ({customer}) agar tidak tertelan wildcard.
+        Route::middleware('permission:shm.customer.create')->group(function () {
+            Route::get('/nasabah/create', [ShmCustomerController::class, 'create'])->name('customers.create');
+            Route::post('/nasabah', [ShmCustomerController::class, 'store'])->name('customers.store');
+        });
+
+        Route::middleware('permission:shm.customer.view')->group(function () {
+            Route::get('/nasabah', [ShmCustomerController::class, 'index'])->name('customers.index');
+            Route::get('/nasabah/{customer}', [ShmCustomerController::class, 'show'])->name('customers.show');
+        });
+
+        Route::get('/nasabah/{customer}/edit', [ShmCustomerController::class, 'edit'])
+            ->middleware('permission:shm.customer.update')
+            ->name('customers.edit');
+
+        Route::put('/nasabah/{customer}', [ShmCustomerController::class, 'update'])
+            ->middleware('permission:shm.customer.update')
+            ->name('customers.update');
+
+        Route::patch('/nasabah/{customer}/status', [ShmCustomerController::class, 'toggleActive'])
+            ->middleware('permission:shm.customer.update')
+            ->name('customers.toggle-active');
+
+        // Credit Checking (Ticket 47).
+        //
+        // Workflow manual: Pending -> InProgress -> Completed. Bukan integrasi
+        // BI Checking/SLIK dan bukan penilaian kredit.
+        //
+        // Route literal (/hasil) didaftarkan sebelum route parameter
+        // ({creditCheck}) agar tidak tertelan wildcard.
+        Route::prefix('credit-checking')->name('credit-checks.')->group(function () {
+            Route::middleware('permission:shm.credit_checking.view')->group(function () {
+                // Proses Marketing: daftar pengajuan yang perlu/sedang diperiksa.
+                Route::get('/', [ShmCreditCheckController::class, 'index'])->name('index');
+                // Hasil Marketing: hanya credit checking yang sudah selesai.
+                Route::get('/hasil', [ShmCreditCheckController::class, 'results'])->name('results');
+                Route::get('/{creditCheck}', [ShmCreditCheckController::class, 'show'])->name('show');
+            });
+
+            Route::put('/{creditCheck}', [ShmCreditCheckController::class, 'update'])
+                ->middleware('permission:shm.credit_checking.update')
+                ->name('update');
+
+            Route::post('/{creditCheck}/selesai', [ShmCreditCheckController::class, 'complete'])
+                ->middleware('permission:shm.credit_checking.update')
+                ->name('complete');
+        });
+
+        // -----------------------------------------------------------------
+        // Modul Memorandum (Ticket 49): SHM/SHGB & Buyback.
+        //
+        // Satu domain ShmMemorandum untuk dua kategori; kategori hanya
+        // filter/atribut, bukan controller kedua. Route literal (create)
+        // didaftarkan sebelum route parameter ({memorandum}) agar tidak
+        // tertelan wildcard. Otorisasi tetap memakai permission memorandum
+        // yang sudah ada sejak Ticket 44; tidak ada permission baru.
+        // -----------------------------------------------------------------
+        Route::middleware('permission:shm.memorandum.update')->group(function () {
+            Route::get('/memorandum', [ShmMemorandumController::class, 'index'])
+                ->name('memorandums.index');
+
+            Route::get('/memorandum/create', [ShmMemorandumController::class, 'create'])
+                ->name('memorandums.create');
+
+            Route::post('/memorandum', [ShmMemorandumController::class, 'store'])
+                ->name('memorandums.store');
+
+            Route::get('/memorandum/{memorandum}', [ShmMemorandumController::class, 'show'])
+                ->name('memorandums.show');
+
+            Route::get('/memorandum/{memorandum}/edit', [ShmMemorandumController::class, 'edit'])
+                ->name('memorandums.edit');
+
+            Route::put('/memorandum/{memorandum}', [ShmMemorandumController::class, 'update'])
+                ->name('memorandums.update');
+        });
+
+        // -----------------------------------------------------------------
+        // Modul Approval operasional (Ticket 54).
+        //
+        // Halaman kerja untuk memutuskan pengajuan pada tahap approval.
+        // Modul ini HANYA MEMBACA data existing: keputusan approve/reject tetap
+        // memakai endpoint pengajuan yang sudah ada (shm.applications.approve /
+        // shm.applications.reject) dengan ShmWorkflowService sebagai satu-satunya
+        // penulis status, sehingga tidak ada state machine, status, permission,
+        // atau audit kedua. Permission yang dipakai adalah permission approval
+        // existing (shm.approval.decide); tidak ada permission baru.
+        //
+        // Route literal (/approval) didaftarkan sebelum route parameter
+        // (/approval/{application}) agar tidak tertelan wildcard.
+        // -----------------------------------------------------------------
+        Route::middleware('permission:shm.approval.decide')->group(function () {
+            Route::get('/approval', [ShmApprovalController::class, 'index'])
+                ->name('approvals.index');
+
+            Route::get('/approval/{application}', [ShmApprovalController::class, 'show'])
+                ->name('approvals.show');
+        });
+
+        // -----------------------------------------------------------------
+        // Modul Export — pemantauan data operasional (Ticket 55).
+        //
+        // Empat halaman READ-ONLY yang memetakan pengajuan ke tahap existing
+        // ShmApplicationStatus (masuk = submitted_at terisi, approve = status
+        // approved, reject = status rejected, pencairan = disbursed_at terisi).
+        // Tidak ada CRUD, workflow, permission, atau ekspor file baru. Permission
+        // `shm.view` existing dipakai; scope kepemilikan SHM tetap ditegakkan
+        // di level query sehingga export bukan pintu bypass visibility.
+        // -----------------------------------------------------------------
+        Route::middleware('permission:shm.view')->group(function () {
+            Route::get('/export/masuk', [ShmExportController::class, 'index'])
+                ->defaults('category', 'masuk')
+                ->name('exports.masuk');
+
+            Route::get('/export/approve', [ShmExportController::class, 'index'])
+                ->defaults('category', 'approve')
+                ->name('exports.approve');
+
+            Route::get('/export/reject', [ShmExportController::class, 'index'])
+                ->defaults('category', 'reject')
+                ->name('exports.reject');
+
+            Route::get('/export/pencairan', [ShmExportController::class, 'index'])
+                ->defaults('category', 'pencairan')
+                ->name('exports.pencairan');
+        });
+    });
+});
+
+// =====================================================================
+// Modul koperasi (lanjutan). Grup auth dibuka kembali di sini karena blok SHM
+// di atas berdiri sebagai boundary tersendiri.
+// =====================================================================
+Route::middleware(['auth', 'verified', 'active.account'])->group(function () {
     // Modul Pengaturan & Manajemen Pengguna (BUG-01: halaman pengaturan umum
     // dibungkus pengaturan.view; halaman keamanan akun tetap milik akun sendiri).
     Route::prefix('pengaturan')->name('pengaturan.')->group(function () {
@@ -243,9 +589,15 @@ Route::middleware(['auth', 'verified', 'active.account'])->group(function () {
         // Manajemen pengguna
         Route::middleware('permission:pengguna.view')->group(function () {
             Route::get('/pengguna', [UserController::class, 'index'])->name('users.index');
+        });
+        // Route literal (create) didaftarkan sebelum route parameter ({user})
+        // agar tidak tertelan wildcard — halaman tambah pengguna sebelumnya
+        // menghasilkan 404 karena tertangkap /pengguna/{user} dengan
+        // {user} = "create".
+        Route::get('/pengguna/create', [UserController::class, 'create'])->middleware('permission:pengguna.create')->name('users.create');
+        Route::middleware('permission:pengguna.view')->group(function () {
             Route::get('/pengguna/{user}', [UserController::class, 'show'])->name('users.show');
         });
-        Route::get('/pengguna/create', [UserController::class, 'create'])->middleware('permission:pengguna.create')->name('users.create');
         Route::post('/pengguna', [UserController::class, 'store'])->middleware('permission:pengguna.create')->name('users.store');
         Route::get('/pengguna/{user}/edit', [UserController::class, 'edit'])->middleware('permission:pengguna.update')->name('users.edit');
         Route::put('/pengguna/{user}', [UserController::class, 'update'])->middleware('permission:pengguna.update')->name('users.update');

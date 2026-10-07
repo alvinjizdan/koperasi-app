@@ -29,8 +29,25 @@ class Member extends Model
         'identity_number',
         'phone',
         'address',
+        'latitude',
+        'longitude',
         'joined_at',
         'status',
+    ];
+
+    /**
+     * Titik lokasi tidak ikut terkirim pada respons biasa.
+     *
+     * Data lokasi dilindungi: koordinat hanya dikirim melalui prop terpisah
+     * yang hanya diberikan kepada pengguna yang memiliki permission
+     * `marketing.member_location.view`. Tanpa ini, setiap pengguna yang boleh
+     * membuka detail anggota (kasir, pengawas, admin) ikut menerima koordinat.
+     *
+     * @var array<int, string>
+     */
+    protected $hidden = [
+        'latitude',
+        'longitude',
     ];
 
     /**
@@ -42,7 +59,28 @@ class Member extends Model
         'joined_at' => 'date:Y-m-d',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        // Desimal, bukan float: koordinat tidak boleh bergeser saat disimpan.
+        'latitude' => 'decimal:7',
+        'longitude' => 'decimal:7',
     ];
+
+    /**
+     * Apakah titik lokasi anggota sudah terisi?
+     *
+     * Lokasi boleh kosong; tidak ada koordinat pengganti yang dibuat otomatis.
+     */
+    public function hasLocation(): bool
+    {
+        return $this->latitude !== null && $this->longitude !== null;
+    }
+
+    /**
+     * Hanya anggota yang titik lokasinya sudah terisi.
+     */
+    public function scopeWithLocation(Builder $query): Builder
+    {
+        return $query->whereNotNull('latitude')->whereNotNull('longitude');
+    }
 
     /**
      * Scope query untuk pencarian anggota.
@@ -89,5 +127,13 @@ class Member extends Model
     public function loans(): HasMany
     {
         return $this->hasMany(Loan::class);
+    }
+
+    /**
+     * Aktivitas kunjungan Marketing terhadap anggota ini.
+     */
+    public function marketingActivities(): HasMany
+    {
+        return $this->hasMany(MarketingActivity::class);
     }
 }

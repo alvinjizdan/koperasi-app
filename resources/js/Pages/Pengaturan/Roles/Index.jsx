@@ -11,6 +11,7 @@ import {
     Lock,
     CheckCircle2,
     AlertCircle,
+    Ban,
 } from 'lucide-react';
 
 export default function Index({ roles, flash }) {
@@ -53,6 +54,7 @@ export default function Index({ roles, flash }) {
                     </h2>
                     <p className="mt-1 text-xs text-slate-500 sm:text-sm">
                         Role mengelompokkan permission. Role sistem dan role yang masih dipakai pengguna tidak dapat dihapus.
+                        Role nonaktif tidak lagi dapat ditugaskan ke pengguna baru, tetapi datanya tetap disimpan untuk riwayat.
                     </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -75,15 +77,26 @@ export default function Index({ roles, flash }) {
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {roles.map((role) => (
-                    <div key={role.id} className="flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+                    <div
+                        key={role.id}
+                        className={`flex flex-col rounded-xl border border-slate-200 p-5 shadow-xs ${
+                            role.is_active ? 'bg-white' : 'bg-slate-50'
+                        }`}
+                    >
                         <div className="flex items-start justify-between gap-2">
                             <div>
-                                <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                                <h3 className="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-900">
                                     {role.display_name}
                                     {role.is_superadmin && (
                                         <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
                                             <ShieldCheck className="h-3 w-3" />
                                             Sistem
+                                        </span>
+                                    )}
+                                    {!role.is_active && (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                                            <Ban className="h-3 w-3" />
+                                            Nonaktif
                                         </span>
                                     )}
                                 </h3>

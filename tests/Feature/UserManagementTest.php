@@ -226,16 +226,16 @@ class UserManagementTest extends TestCase
     {
         $target = $this->plainUser();
         $kasirRole = Role::query()->where('name', 'kasir')->value('id');
-        $simpananRole = Role::query()->where('name', 'petugas_simpanan')->value('id');
+        $marketingRole = Role::query()->where('name', 'marketing')->value('id');
 
         $this->actingAs($this->superadmin)
             ->patch(route('pengaturan.users.update-roles', $target->id), [
-                'roles' => [$kasirRole, $simpananRole],
+                'roles' => [$kasirRole, $marketingRole],
             ])
             ->assertSessionHas('success');
 
         $this->assertSame(
-            [$kasirRole, $simpananRole],
+            [$kasirRole, $marketingRole],
             $target->fresh()->roles()->pluck('roles.id')->sort()->values()->all()
         );
 
@@ -438,7 +438,10 @@ class UserManagementTest extends TestCase
         $kasir->roles()->attach(Role::query()->where('name', 'kasir')->value('id'));
 
         $other = User::factory()->create();
-        $other->roles()->attach(Role::query()->where('name', 'petugas_pinjaman')->value('id'));
+        // Role admin memegang seluruh permission (all_permissions), termasuk
+        // pinjaman.approve, sehingga cocok untuk membuktikan bahwa akses user
+        // lain tidak ikut berubah.
+        $other->roles()->attach(Role::query()->where('name', 'admin')->value('id'));
 
         // Kasir dapat membuka sesi (kasir.open_session).
         $this->assertTrue($kasir->fresh()->hasPermission('kasir.open_session'));
@@ -449,12 +452,15 @@ class UserManagementTest extends TestCase
         $this->actingAs($this->superadmin)->patch(route('pengaturan.users.update-roles', $kasir->id), [
             'roles' => [
                 Role::query()->where('name', 'kasir')->value('id'),
-                Role::query()->where('name', 'petugas_simpanan')->value('id'),
+                Role::query()->where('name', 'marketing')->value('id'),
             ],
         ]);
 
         $this->assertTrue($kasir->fresh()->hasPermission('kasir.open_session'));
+        // Akses bawaan kasir tetap utuh.
         $this->assertTrue($kasir->fresh()->hasPermission('simpanan.deposit'));
+        // Role marketing menambah hak baca tanpa menghapus hak lama.
+        $this->assertTrue($kasir->fresh()->hasPermission('pinjaman.view'));
     }
 
     /** 14b. Akses modul laporan tetap berfungsi setelah sistem permission diaktifkan */

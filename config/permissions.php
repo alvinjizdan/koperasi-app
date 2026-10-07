@@ -78,6 +78,57 @@ return [
             ],
         ],
 
+        'marketing' => [
+            'label' => 'Marketing',
+            'actions' => [
+                'view' => 'Melihat aktivitas kunjungan sendiri',
+                'create' => 'Melakukan check-in kunjungan dan mencatat aktivitas',
+                'result.update' => 'Mengubah hasil dan catatan kunjungan sendiri',
+                'monitoring.view' => 'Memantau seluruh aktivitas Marketing',
+                'member_location.view' => 'Melihat titik lokasi anggota',
+                'member_location.update' => 'Memperbarui titik lokasi anggota',
+            ],
+        ],
+
+        // Ticket 44: modul SHM/SHGB.
+        //
+        // Permission di sini hanya mengatur TEKNIS siapa yang boleh melakukan
+        // apa pada lifecycle pengajuan. Permission ini BUKAN keputusan bisnis:
+        // batas kewenangan approval, kelengkapan dokumen, dan panduan cara
+        // approval masih PENDING BUSINESS DECISION dari KSP (lihat
+        // config/shm.php dan docs/SHM-BUSINESS-DECISION-PACKAGE.md).
+        'shm' => [
+            'label' => 'SHM/SHGB',
+            'actions' => [
+                'view' => 'Melihat daftar pengajuan SHM yang tersedia',
+                'view_all' => 'Melihat seluruh pengajuan SHM milik semua Marketing',
+                'create' => 'Membuat pengajuan SHM atas nama diri sendiri',
+                'update' => 'Mengubah data pengajuan SHM yang masih draft',
+                'submit' => 'Mengirim pengajuan SHM dari draft ke tahap berikutnya',
+                'property.manage' => 'Mengelola data objek SHM/SHGB',
+                // Ticket 47: memisahkan wewenang MELIHAT proses/hasil credit
+                // checking dari wewenang MENGERJAKANNYA. Mulai, mengubah, dan
+                // menyelesaikan checking memakai permission update yang sama
+                // karena KSP belum memutuskan pemisahan kewenangan tersebut.
+                'credit_checking.view' => 'Melihat proses & hasil credit checking pengajuan',
+                'credit_checking.update' => 'Mengerjakan & menyelesaikan credit checking pengajuan',
+                'memorandum.update' => 'Mencatat memorandum pengajuan',
+                'approval.decide' => 'Mengambil keputusan approval atau penolakan',
+                'document.update' => 'Mencatat kelengkapan dokumen pengajuan',
+                'disburse' => 'Menandai pengajuan sebagai dicairkan',
+                'complete' => 'Menandai pengajuan sebagai selesai',
+                // Ticket 46: master data Nasabah SHM.
+                //
+                // Nasabah SHM adalah entity tersendiri, terpisah dari anggota
+                // koperasi. Permission ini hanya mengatur TEKNIS siapa yang
+                // boleh mengelola master nasabah, bukan aturan bisnis siapa
+                // yang boleh menjadi nasabah SHM.
+                'customer.view' => 'Melihat daftar & detail nasabah SHM',
+                'customer.create' => 'Menambah nasabah SHM',
+                'customer.update' => 'Mengubah data & status nasabah SHM',
+            ],
+        ],
+
         'laporan' => [
             'label' => 'Laporan',
             'actions' => [
@@ -156,6 +207,9 @@ return [
     | permission melalui mekanisme bypass. Daftar ini bukan struktur final;
     | role tambahan dapat dibuat dari halaman Pengaturan > Role.
     |
+    | Role sistem yang tidak lagi ada di daftar ini dinonaktifkan oleh seeder
+    | (is_active=false), bukan dihapus, agar data historis tetap utuh.
+    |
     */
 
     'default_roles' => [
@@ -186,33 +240,51 @@ return [
                 'laporan.view',
             ],
         ],
-        'petugas_simpanan' => [
-            'display_name' => 'Petugas Simpanan',
-            'description' => 'Pengelolaan rekening, produk, dan mutasi simpanan.',
-            'permissions' => [
-                'dashboard.view',
-                'anggota.view',
-                'simpanan.view',
-                'simpanan.create',
-                'simpanan.deposit',
-                'simpanan.withdraw',
-                'laporan.view',
-            ],
-        ],
-        'petugas_pinjaman' => [
-            'display_name' => 'Petugas Pinjaman',
-            'description' => 'Pengajuan, persetujuan, pencairan pinjaman, dan pencatatan angsuran.',
+        // Marketing menggantikan Petugas Simpanan & Petugas Pinjaman sebagai role
+        // operasional tunggal di garis depan.
+        //
+        // Hak akses dibatasi pada lingkup yang dinyatakan tiket:
+        // mencatat dan melihat aktivitas kunjungan sendiri, serta melihat titik
+        // lokasi anggota sebagai informasi pendukung kunjungan.
+        //
+        // SENGAJA TIDAK diberikan: marketing.monitoring.view (memantau Marketing
+        // lain), marketing.member_location.update, dan seluruh authority tulis
+        // modul lain. Siapa yang boleh memantau dan siapa yang boleh mengubah
+        // lokasi anggota masih PENDING BUSINESS DECISION (lihat
+        // docs/SHM-BUSINESS-DECISION-PACKAGE.md). Jangan menambah permission tanpa
+        // dasar keputusan tersebut.
+        'marketing' => [
+            'display_name' => 'Marketing',
+            'description' => 'Aktivitas kunjungan nasabah: check-in, catatan hasil, dan titik lokasi anggota.',
             'permissions' => [
                 'dashboard.view',
                 'anggota.view',
                 'pinjaman.view',
-                'pinjaman.create',
-                'pinjaman.approve',
-                'pinjaman.reject',
-                'pinjaman.disburse',
                 'angsuran.view',
-                'angsuran.record_payment',
-                'laporan.view',
+                'marketing.view',
+                'marketing.create',
+                'marketing.result.update',
+                'marketing.member_location.view',
+                // Ticket 44: Marketing membuat dan menjalankan pengajuan SHM
+                // miliknya sendiri. Marketing SENGAJA TIDAK diberi
+                // shm.view_all, shm.approval.decide, shm.disburse, atau
+                // shm.complete karena batas kewenangan approval dan
+                // pencairan belum diputuskan KSP.
+                'shm.view',
+                'shm.create',
+                'shm.update',
+                'shm.submit',
+                'shm.property.manage',
+                'shm.credit_checking.view',
+                'shm.credit_checking.update',
+                'shm.memorandum.update',
+                'shm.document.update',
+                // Ticket 46: Marketing membuat & memilih nasabah SHM saat
+                // membuat pengajuan. Master nasabah bukan anggota koperasi,
+                // sehingga hak ini tidak menyentuh data keanggotaan.
+                'shm.customer.view',
+                'shm.customer.create',
+                'shm.customer.update',
             ],
         ],
         'pengawas' => [
