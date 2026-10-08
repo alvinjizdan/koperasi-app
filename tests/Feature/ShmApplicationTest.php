@@ -468,6 +468,198 @@ class ShmApplicationTest extends TestCase
             ->assertOk();
     }
 
+    // -----------------------------------------------------------------
+    // C1. Ticket 62 — filter `status` server-side pada daftar pengajuan.
+    //
+    // Drill-down Pipeline Dashboard mengirim status ke endpoint INI; tidak ada
+    // endpoint, query, atau filtering frontend baru.
+    // -----------------------------------------------------------------
+
+    public function test_application_index_filters_by_status_server_side(): void
+    {
+        $ownApproved = $this->advanceTo(
+            $this->createApplicationFor($this->marketing),
+            ShmApplicationStatus::Approved
+        );
+        $otherApproved = $this->advanceTo(
+            $this->createApplicationFor($this->otherMarketing),
+            ShmApplicationStatus::Approved
+        );
+        $draft = $this->createApplicationFor($this->marketing);
+
+        // view_all melihat application sesuai status lintas Marketing,
+        // dan status aktif dikembalikan sebagai konteks filter.
+        $this->actingAs($this->admin)
+            ->get(route('shm.applications.index', ['status' => 'approved']))
+            ->assertOk()
+            ->assertInertia(function ($page) use ($ownApproved, $otherApproved, $draft) {
+                $props = $page->toArray()['props'];
+
+                $this->assertSame('approved', $props['filters']['status']);
+
+                $ids = array_column($props['applications']['data'], 'id');
+                $this->assertCount(2, $ids);
+                $this->assertContains($ownApproved->id, $ids);
+                $this->assertContains($otherApproved->id, $ids);
+                // Application dengan status lain tidak ikut tampil.
+                $this->assertNotContains($draft->id, $ids);
+
+                foreach ($props['applications']['data'] as $row) {
+                    $this->assertSame('approved', $row['status']);
+                }
+            });
+    }
+
+    public function test_application_index_status_filter_works_with_search(): void
+    {
+        $target = $this->advanceTo(
+            $this->createApplicationFor($this->marketing),
+            ShmApplicationStatus::Approved
+        );
+        $other = $this->advanceTo(
+            $this->createApplicationFor($this->marketing),
+            ShmApplicationStatus::Approved
+        );
+
+        $this->actingAs($this->admin)
+            ->get(route('shm.applications.index', [
+                'status' => 'approved',
+                'search' => $target->application_number,
+            ]))
+            ->assertOk()
+            ->assertInertia(function ($page) use ($target, $other) {
+                $props = $page->toArray()['props'];
+
+                $this->assertSame('approved', $props['filters']['status']);
+                $this->assertSame($target->application_number, $props['filters']['search']);
+
+                $ids = array_column($props['applications']['data'], 'id');
+                $this->assertSame([$target->id], $ids);
+                $this->assertNotContains($other->id, $ids);
+            });
+    }
+
+    public function test_application_index_status_filter_works_with_pagination(): void
+    {
+        // per_page memakai whitelist existing (10, 25, 50, 100).
+        foreach (range(1, 12) as $ignored) {
+            $this->advanceTo(
+                $this->createApplicationFor($this->marketing),
+                ShmApplicationStatus::Approved
+            );
+        }
+        $draft = $this->createApplicationFor($this->marketing);
+
+        $this->actingAs($this->admin)
+            ->get(route('shm.applications.index', ['status' => 'approved', 'per_page' => 10]))
+            ->assertOk()
+            ->assertInertia(function ($page) use ($draft) {
+                $props = $page->toArray()['props'];
+
+                $this->assertSame(12, $props['applications']['total']);
+                $this->assertCount(10, $props['applications']['data']);
+                foreach ($props['applications']['data'] as $row) {
+                    $this->assertSame('approved', $row['status']);
+                }
+                $this->assertNotContains($draft->id, array_column($props['applications']['data'], 'id'));
+            });
+
+        // Halaman kedua tetap terfilter dan query string dipertahankan.
+        $this->actingAs($this->admin)
+            ->get(route('shm.applications.index', [
+                'status' => 'approved',
+                'per_page' => 10,
+                'page' => 2,
+            ]))
+            ->assertOk()
+            ->assertInertia(function ($page) {
+                $props = $page->toArray()['props'];
+
+                $this->assertSame(12, $props['applications']['total']);
+                $this->assertCount(2, $props['applications']['data']);
+                foreach ($props['applications']['data'] as $row) {
+                    $this->assertSame('approved', $row['status']);
+                }
+            });
+    }
+
+    public function test_application_index_status_filter_cannot_bypass_ownership(): void
+    {
+        $own = $this->advanceTo(
+            $this->createApplicationFor($this->marketing),
+            ShmApplicationStatus::Approved
+        );
+        $other = $this->advanceTo(
+            $this->createApplicationFor($this->otherMarketing),
+            ShmApplicationStatus::Approved
+        );
+
+        // Restricted user memanipulasi `marketing_id` ke Marketing lain:
+        // filter tersebut DIIRISKAN dengan scope kepemilikan, sehingga tidak
+        // ada data Marketing lain yang bocor (hasil irisan kosong).
+        $this->actingAs($this->marketing)
+            ->get(route('shm.applications.index', [
+                'status' => 'approved',
+                'marketing_id' => $this->otherMarketing->id,
+            ]))
+            ->assertOk()
+            ->assertInertia(function ($page) use ($own, $other) {
+                $ids = array_column($page->toArray()['props']['applications']['data'], 'id');
+
+                $this->assertNotContains($other->id, $ids);
+                $this->assertNotContains($own->id, $ids);
+                $this->assertCount(0, $ids);
+            });
+
+        // Dengan marketing_id sendiri, restricted user tetap hanya melihat
+        // application miliknya.
+        $this->actingAs($this->marketing)
+            ->get(route('shm.applications.index', [
+                'status' => 'approved',
+                'marketing_id' => $this->marketing->id,
+            ]))
+            ->assertOk()
+            ->assertInertia(function ($page) use ($own, $other) {
+                $ids = array_column($page->toArray()['props']['applications']['data'], 'id');
+
+                $this->assertSame([$own->id], $ids);
+                $this->assertNotContains($other->id, $ids);
+            });
+
+        // Pemegang shm.view_all dapat memilih Marketing lain.
+        $this->actingAs($this->admin)
+            ->get(route('shm.applications.index', [
+                'status' => 'approved',
+                'marketing_id' => $this->marketing->id,
+            ]))
+            ->assertOk()
+            ->assertInertia(function ($page) use ($own, $other) {
+                $ids = array_column($page->toArray()['props']['applications']['data'], 'id');
+
+                $this->assertContains($own->id, $ids);
+                $this->assertNotContains($other->id, $ids);
+            });
+    }
+
+    public function test_application_index_without_status_parameter_still_works(): void
+    {
+        $this->createApplicationFor($this->marketing);
+        $this->advanceTo(
+            $this->createApplicationFor($this->marketing),
+            ShmApplicationStatus::Approved
+        );
+
+        $this->actingAs($this->admin)
+            ->get(route('shm.applications.index'))
+            ->assertOk()
+            ->assertInertia(function ($page) {
+                $props = $page->toArray()['props'];
+
+                $this->assertNull($props['filters']['status']);
+                $this->assertCount(2, $props['applications']['data']);
+            });
+    }
+
     public function test_marketing_cannot_approve_application(): void
     {
         $application = $this->createApplicationFor($this->marketing);

@@ -65,15 +65,34 @@ const PIPELINE_LABELS = {
 const REJECTED_KEY = "rejected";
 
 /**
- * Peta metric -> route existing untuk metric yang dapat diklik. Tidak ada
- * endpoint navigasi baru; yang tidak punya daftar khusus tidak diklik.
+ * Status Pipeline yang memiliki drill-down ke daftar pengajuan existing
+ * (Ticket 62): route `shm.applications.index` dengan filter server-side
+ * `status=<status>`. Kunci persis nilai status aplikasi yang sudah dipakai
+ * seluruh file ini (kontrak ShmApplicationStatus) — tidak ada status baru.
+ *
+ * `submitted` (Masuk) SENGAJA tidak masuk daftar: Masuk bukan drill-down
+ * status (semantics submitted_at terisi) dan tetap memakai link modul export
+ * existing di PIPELINE_LINKS. Pending Approval juga di luar cakupan karena
+ * berasal dari shm_approvals, bukan status pengajuan.
+ */
+const PIPELINE_STATUS_DRILL_DOWNS = [
+    "credit_checking",
+    "memorandum",
+    "approval",
+    "approved",
+    "rejected",
+    "document_check",
+    "ready_for_disbursement",
+    "disbursed",
+    "completed",
+];
+
+/**
+ * Peta metric -> route existing untuk metric TANPA drill-down status.
+ * Tidak ada endpoint navigasi baru; yang tidak punya daftar tidak diklik.
  */
 const PIPELINE_LINKS = {
     submitted: "shm.exports.masuk",
-    approval: "shm.approvals.index",
-    approved: "shm.exports.approve",
-    rejected: "shm.exports.reject",
-    disbursed: "shm.exports.pencairan",
 };
 
 /** Link navigasi modul operasional existing. */
@@ -207,38 +226,55 @@ export default function Dashboard({ scope, metrics, flash }) {
         return found ? found.total : 0;
     };
 
+    /**
+     * Target navigasi sebuah baris Pipeline. Status dengan drill-down (T62)
+     * menuju daftar pengajuan existing dengan filter `status` server-side;
+     * sisanya memakai link existing PIPELINE_LINKS atau tidak diklik.
+     */
+    const pipelineHref = (key) => {
+        if (PIPELINE_STATUS_DRILL_DOWNS.includes(key)) {
+            return route("shm.applications.index", { status: key });
+        }
+
+        return PIPELINE_LINKS[key] ? route(PIPELINE_LINKS[key]) : null;
+    };
+
     const pipeline = PIPELINE_KEYS.map((key) => ({
         key,
         label: PIPELINE_LABELS[key],
         total: statusCount(key),
-        link: PIPELINE_LINKS[key] ?? null,
+        href: pipelineHref(key),
     }));
     const rejected = {
         key: REJECTED_KEY,
         label: "Rejected",
         total: statusCount(REJECTED_KEY),
-        link: PIPELINE_LINKS[REJECTED_KEY] ?? null,
+        href: pipelineHref(REJECTED_KEY),
     };
 
     const recent = metrics.recent_applications ?? [];
 
     const renderCount = (item) => {
+        // Ticket 62: count 0 tidak menjadi link aktif — user tidak diarahkan
+        // ke daftar kosong dari metric yang memang tidak punya data.
+        const clickable = Boolean(item.href) && item.total > 0;
+
         const inner = (
             <>
                 <span className="text-slate-600">{item.label}</span>
                 <span className="flex items-center gap-1 font-semibold text-slate-900">
                     {item.total}
-                    {item.link && (
+                    {clickable && (
                         <ArrowRight className="h-3 w-3 text-slate-400" />
                     )}
                 </span>
             </>
         );
 
-        return item.link ? (
+        return clickable ? (
             <Link
                 key={item.key}
-                href={route(item.link)}
+                href={item.href}
                 className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
             >
                 {inner}

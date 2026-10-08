@@ -660,6 +660,72 @@ class ShmDashboardTest extends TestCase
             });
     }
 
+    /**
+     * Ticket 62 — kontrak drill-down Pipeline Workflow pada Dashboard:
+     * - target navigasi = named route shm.applications.index dengan param status
+     * - seluruh status berasal dari ShmApplicationStatus (tidak ada status baru)
+     * - Masuk (submitted_at) dan Pending Approval tidak diperlakukan sebagai
+     *   status drill-down
+     * - count 0 tidak menjadi link aktif
+     * - drill-down T60 (Lihat Aplikasi) dan T61 (marketing + status) tetap ada
+     */
+    public function test_pipeline_drill_down_contract_uses_existing_status_values(): void
+    {
+        $source = file_get_contents(resource_path('js/Pages/Shm/Dashboard.jsx'));
+
+        $this->assertMatchesRegularExpression(
+            '/PIPELINE_STATUS_DRILL_DOWNS = \[[^\]]*\];/s',
+            $source
+        );
+
+        preg_match('/PIPELINE_STATUS_DRILL_DOWNS = \[(.*?)\];/s', $source, $match);
+        preg_match_all('/"([a-z_]+)"/', $match[1], $keys);
+        $keys = $keys[1];
+
+        $expected = [
+            'credit_checking',
+            'memorandum',
+            'approval',
+            'approved',
+            'rejected',
+            'document_check',
+            'ready_for_disbursement',
+            'disbursed',
+            'completed',
+        ];
+        sort($expected);
+        $sorted = $keys;
+        sort($sorted);
+        $this->assertSame($expected, $sorted);
+
+        // Seluruh key adalah status aplikasi existing — tidak ada status baru,
+        // dan nilai status persis kontrak ShmApplicationStatus.
+        foreach ($keys as $key) {
+            $this->assertContains($key, ShmApplicationStatus::values());
+        }
+
+        // Masuk (bukan status) dan Pending Approval (shm_approvals) tidak
+        // menjadi drill-down status.
+        $this->assertNotContains('submitted', $keys);
+        $this->assertStringNotContainsString('pending_approval: {', $source);
+
+        // Navigasi memakai named route helper, bukan URL hard-coded.
+        $this->assertStringContainsString(
+            'route("shm.applications.index", { status: key })',
+            $source
+        );
+
+        // Count 0 tidak menghasilkan link aktif.
+        $this->assertStringContainsString(
+            'Boolean(item.href) && item.total > 0',
+            $source
+        );
+
+        // T60 Total drill-down dan T61 Marketing + Status drill-down tetap ada.
+        $this->assertStringContainsString('Lihat Aplikasi', $source);
+        $this->assertStringContainsString('DRILL_DOWN_ACTIONS', $source);
+    }
+
     public function test_marketing_summary_does_not_mutate_data(): void
     {
         $app = $this->application($this->marketing);
