@@ -18,6 +18,10 @@ use Tests\TestCase;
  *
  * Menguji: pencatatan lokasi anggota, aktivitas/check-in marketing, batas
  * keamanan data lokasi, idempotensi check-in, dan monitoring.
+ *
+ * Ticket 63: halaman aktivitas/monitoring kini dirutekan melalui
+ * shm.marketing.* (bounded context SHM); titik lokasi anggota tetap memakai
+ * marketing.member-location.update di konteks koperasi.
  */
 class MarketingActivityTest extends TestCase
 {
@@ -162,7 +166,7 @@ class MarketingActivityTest extends TestCase
     public function test_marketing_can_check_in(): void
     {
         $this->actingAs($this->marketing)
-            ->post(route('marketing.activities.store'), $this->checkInPayload())
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload())
             ->assertSessionHasNoErrors();
 
         $activity = MarketingActivity::query()->firstOrFail();
@@ -179,7 +183,7 @@ class MarketingActivityTest extends TestCase
     public function test_check_in_is_audited(): void
     {
         $this->actingAs($this->marketing)
-            ->post(route('marketing.activities.store'), $this->checkInPayload());
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload());
 
         $this->assertDatabaseHas('audit_logs', ['action' => 'marketing.activity.checked_in']);
     }
@@ -190,7 +194,7 @@ class MarketingActivityTest extends TestCase
         $other = $this->userWithRole('marketing');
 
         $this->actingAs($this->marketing)
-            ->post(route('marketing.activities.store'), $this->checkInPayload([
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload([
                 'marketing_id' => $other->id,
             ]))
             ->assertSessionHasNoErrors();
@@ -204,7 +208,7 @@ class MarketingActivityTest extends TestCase
     public function test_check_in_without_coordinates_is_rejected(): void
     {
         $this->actingAs($this->marketing)
-            ->post(route('marketing.activities.store'), $this->checkInPayload([
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload([
                 'latitude' => '',
                 'longitude' => '',
             ]))
@@ -217,7 +221,7 @@ class MarketingActivityTest extends TestCase
     public function test_check_in_requires_existing_member(): void
     {
         $this->actingAs($this->marketing)
-            ->post(route('marketing.activities.store'), $this->checkInPayload([
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload([
                 'member_id' => 999999,
             ]))
             ->assertSessionHasErrors('member_id');
@@ -229,7 +233,7 @@ class MarketingActivityTest extends TestCase
     public function test_check_in_rejects_out_of_range_coordinates(): void
     {
         $this->actingAs($this->marketing)
-            ->post(route('marketing.activities.store'), $this->checkInPayload([
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload([
                 'latitude' => 91,
                 'longitude' => 181,
             ]))
@@ -240,7 +244,7 @@ class MarketingActivityTest extends TestCase
     public function test_check_in_time_comes_from_server(): void
     {
         $this->actingAs($this->marketing)
-            ->post(route('marketing.activities.store'), $this->checkInPayload([
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload([
                 'checked_in_at' => '1990-01-01 00:00:00',
             ]))
             ->assertSessionHasNoErrors();
@@ -255,13 +259,13 @@ class MarketingActivityTest extends TestCase
         $key = 'test-idem-'.uniqid();
 
         $this->actingAs($this->marketing)
-            ->post(route('marketing.activities.store'), $this->checkInPayload([
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload([
                 'idempotency_key' => $key,
             ]))
             ->assertSessionHasNoErrors();
 
         $this->actingAs($this->marketing)
-            ->post(route('marketing.activities.store'), $this->checkInPayload([
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload([
                 'idempotency_key' => $key,
             ]))
             ->assertSessionHasNoErrors();
@@ -278,9 +282,9 @@ class MarketingActivityTest extends TestCase
     {
         $kasir = $this->userWithRole('kasir');
 
-        $this->actingAs($kasir)->get(route('marketing.activities.index'))->assertForbidden();
+        $this->actingAs($kasir)->get(route('shm.marketing.activities.index'))->assertForbidden();
         $this->actingAs($kasir)
-            ->post(route('marketing.activities.store'), $this->checkInPayload())
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload())
             ->assertForbidden();
     }
 
@@ -290,13 +294,13 @@ class MarketingActivityTest extends TestCase
         $other = $this->userWithRole('marketing');
 
         $this->actingAs($this->marketing)
-            ->post(route('marketing.activities.store'), $this->checkInPayload());
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload());
 
         $activity = MarketingActivity::query()->firstOrFail();
 
-        $this->actingAs($other)->get(route('marketing.activities.show', $activity->id))->assertForbidden();
+        $this->actingAs($other)->get(route('shm.marketing.activities.show', $activity->id))->assertForbidden();
         $this->actingAs($other)
-            ->patch(route('marketing.activities.result.update', $activity->id), ['result' => 'Diubah'])
+            ->patch(route('shm.marketing.activities.result.update', $activity->id), ['result' => 'Diubah'])
             ->assertForbidden();
     }
 
@@ -306,16 +310,16 @@ class MarketingActivityTest extends TestCase
         $other = $this->userWithRole('marketing');
 
         $this->actingAs($this->marketing)
-            ->post(route('marketing.activities.store'), $this->checkInPayload());
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload());
 
         $this->actingAs($other)
-            ->post(route('marketing.activities.store'), $this->checkInPayload());
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload());
 
         $this->actingAs($this->marketing)
-            ->get(route('marketing.activities.index'))
+            ->get(route('shm.marketing.activities.index'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('Marketing/Activities/Index')
+                ->component('Shm/Marketing/Activities/Index')
                 ->has('activities.data', 1)
                 ->where('activities.data.0.marketing.id', $this->marketing->id)
             );
@@ -368,12 +372,12 @@ class MarketingActivityTest extends TestCase
     public function test_marketing_can_update_result_of_own_activity(): void
     {
         $this->actingAs($this->marketing)
-            ->post(route('marketing.activities.store'), $this->checkInPayload());
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload());
 
         $activity = MarketingActivity::query()->firstOrFail();
 
         $this->actingAs($this->marketing)
-            ->patch(route('marketing.activities.result.update', $activity->id), [
+            ->patch(route('shm.marketing.activities.result.update', $activity->id), [
                 'result' => 'Hasil diperbarui',
                 'notes' => 'Catatan tambahan',
             ])
@@ -398,8 +402,8 @@ class MarketingActivityTest extends TestCase
     /** 20. Monitoring hanya untuk pemegang permission. */
     public function test_monitoring_requires_permission(): void
     {
-        $this->actingAs($this->marketing)->get(route('marketing.monitoring.index'))->assertForbidden();
-        $this->actingAs($this->superadmin)->get(route('marketing.monitoring.index'))->assertOk();
+        $this->actingAs($this->marketing)->get(route('shm.marketing.monitoring.index'))->assertForbidden();
+        $this->actingAs($this->superadmin)->get(route('shm.marketing.monitoring.index'))->assertOk();
     }
 
     /** 21. Admin melihat seluruh aktivitas Marketing. */
@@ -407,16 +411,16 @@ class MarketingActivityTest extends TestCase
     {
         $other = $this->userWithRole('marketing');
 
-        $this->actingAs($this->marketing)->post(route('marketing.activities.store'), $this->checkInPayload());
-        $this->actingAs($other)->post(route('marketing.activities.store'), $this->checkInPayload([
+        $this->actingAs($this->marketing)->post(route('shm.marketing.activities.store'), $this->checkInPayload());
+        $this->actingAs($other)->post(route('shm.marketing.activities.store'), $this->checkInPayload([
             'member_id' => Member::factory()->create()->id,
         ]));
 
         $this->actingAs($this->superadmin)
-            ->get(route('marketing.monitoring.index'))
+            ->get(route('shm.marketing.monitoring.index'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('Marketing/Monitoring')
+                ->component('Shm/Marketing/Monitoring')
                 ->has('activities.data', 2)
             );
     }
@@ -434,7 +438,7 @@ class MarketingActivityTest extends TestCase
             ]);
         }
 
-        $response = $this->actingAs($this->superadmin)->get(route('marketing.monitoring.index'));
+        $response = $this->actingAs($this->superadmin)->get(route('shm.marketing.monitoring.index'));
         $response->assertOk();
         $response->assertInertia(fn ($page) => $page
             ->where('activities.total', 30)
@@ -443,7 +447,7 @@ class MarketingActivityTest extends TestCase
 
         // per_page khusus tetap dihormati (whitelist 10/25/50/100).
         $this->actingAs($this->superadmin)
-            ->get(route('marketing.monitoring.index', ['per_page' => 10]))
+            ->get(route('shm.marketing.monitoring.index', ['per_page' => 10]))
             ->assertInertia(fn ($page) => $page->has('activities.data', 10));
     }
 
@@ -460,7 +464,7 @@ class MarketingActivityTest extends TestCase
         ]);
 
         $this->actingAs($this->superadmin)
-            ->get(route('marketing.monitoring.index', ['member_id' => $otherMember->id]))
+            ->get(route('shm.marketing.monitoring.index', ['member_id' => $otherMember->id]))
             ->assertInertia(fn ($page) => $page
                 ->has('activities.data', 1)
                 ->where('activities.data.0.member.id', $otherMember->id)
@@ -473,10 +477,10 @@ class MarketingActivityTest extends TestCase
         $this->member->forceFill(['latitude' => -6.7320, 'longitude' => 108.5520])->save();
 
         $this->actingAs($this->superadmin)
-            ->post(route('marketing.activities.store'), $this->checkInPayload());
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload());
 
         $this->actingAs($this->superadmin)
-            ->get(route('marketing.monitoring.index'))
+            ->get(route('shm.marketing.monitoring.index'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->where('activities.data.0.member', fn ($member) => $this->propLacksKey($member, 'latitude'))

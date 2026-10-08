@@ -37,6 +37,10 @@ class MarketingActivityController extends Controller
 
     /**
      * Aktivitas milik pengguna sendiri.
+     *
+     * Ticket 63: halaman dirender di bawah resources/js/Pages/Shm/ sehingga
+     * tampil dalam layout SHM; query, filter, pagination, dan ownership tidak
+     * berubah.
      */
     public function index(Request $request): Response
     {
@@ -51,7 +55,7 @@ class MarketingActivityController extends Controller
 
         $activities = $this->paginate($query, $request, $sortStatus);
 
-        return Inertia::render('Marketing/Activities/Index', [
+        return Inertia::render('Shm/Marketing/Activities/Index', [
             'activities' => $activities,
             'sort' => $sortStatus,
             'members' => $this->memberOptions(),
@@ -81,7 +85,7 @@ class MarketingActivityController extends Controller
 
         $activities = $this->paginate($query, $request, $sortStatus);
 
-        return Inertia::render('Marketing/Monitoring', [
+        return Inertia::render('Shm/Marketing/Monitoring', [
             'activities' => $activities,
             'sort' => $sortStatus,
             'members' => $this->memberOptions(),
@@ -106,7 +110,7 @@ class MarketingActivityController extends Controller
         );
 
         return redirect()
-            ->route('marketing.activities.show', $activity->id)
+            ->route('shm.marketing.activities.show', $activity->id)
             ->with('success', 'Check-in kunjungan berhasil dicatat pada '.$activity->checked_in_at->format('d/m/Y H:i').'.');
     }
 
@@ -119,7 +123,7 @@ class MarketingActivityController extends Controller
 
         $activity->load(['member:id,full_name,member_number,address,latitude,longitude']);
 
-        return Inertia::render('Marketing/Activities/Show', [
+        return Inertia::render('Shm/Marketing/Activities/Show', [
             'activity' => [
                 'id' => $activity->id,
                 'marketing_id' => $activity->marketing_id,

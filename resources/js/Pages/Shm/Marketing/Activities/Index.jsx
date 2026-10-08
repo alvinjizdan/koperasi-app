@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, router, useForm } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import ReportTable from '@/Components/Admin/ReportTable';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
@@ -37,8 +37,8 @@ function newIdempotencyKey() {
     return `mkt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export default function Index({ activities, sort, members, filters, can_monitor, flash }) {
-    const handleSort = useTableSort('marketing.activities.index');
+export default function Index({ activities, sort, members, filters, can_monitor, flash, shm }) {
+    const handleSort = useTableSort('shm.marketing.activities.index');
 
     const [memberId, setMemberId] = useState('');
     const [result, setResult] = useState('');
@@ -95,7 +95,7 @@ export default function Index({ activities, sort, members, filters, can_monitor,
                 notes: form.notes,
             });
 
-            form.post(route('marketing.activities.store'), {
+            form.post(route('shm.marketing.activities.store'), {
                 preserveScroll: true,
                 onSuccess: () => {
                     form.reset();
@@ -156,19 +156,18 @@ export default function Index({ activities, sort, members, filters, can_monitor,
             key: 'actions',
             label: 'Aksi',
             sortable: false,
-            render: (row) => (
-                <Link
-                    href={route('marketing.activities.show', row.id)}
-                    className="text-[11px] font-semibold text-emerald-700 hover:underline"
-                >
-                    Detail
-                </Link>
+            render: (row) => (                    <Link
+                        href={route('shm.marketing.activities.show', row.id)}
+                        className="text-[11px] font-semibold text-emerald-700 hover:underline"
+                    >
+                        Detail
+                    </Link>
             ),
         },
     ];
 
     return (
-        <AdminLayout title="Aktivitas Kunjungan" pageTitle="Aktivitas Kunjungan Marketing">
+        <ShmLayout title="Aktivitas Kunjungan" pageTitle="Aktivitas Kunjungan Marketing">
             <div className="space-y-6">
                 {flash?.success && (
                     <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-800">
@@ -255,7 +254,7 @@ export default function Index({ activities, sort, members, filters, can_monitor,
                         </PrimaryButton>
                         <SecondaryButton
                             type="button"
-                            onClick={() => router.get(route('marketing.activities.index'))}
+                            onClick={() => router.get(route('shm.marketing.activities.index'))}
                         >
                             Reset
                         </SecondaryButton>
@@ -269,7 +268,7 @@ export default function Index({ activities, sort, members, filters, can_monitor,
                         pagination={activities}
                         sort={sort}
                         onSort={handleSort}
-                        routeName="marketing.activities.index"
+                        routeName="shm.marketing.activities.index"
                         emptyIcon={ClipboardList}
                         emptyTitle="Belum ada aktivitas kunjungan"
                         emptyDescription="Gunakan form check-in di atas untuk mencatat kunjungan pertama."
@@ -278,13 +277,13 @@ export default function Index({ activities, sort, members, filters, can_monitor,
 
                 {can_monitor && (
                     <Link
-                        href={route('marketing.monitoring.index')}
+                        href={route('shm.marketing.monitoring.index')}
                         className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 hover:underline"
                     >
                         Lihat monitoring seluruh aktivitas Marketing
                     </Link>
                 )}
             </div>
-        </AdminLayout>
+        </ShmLayout>
     );
 }

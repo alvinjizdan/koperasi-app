@@ -17,7 +17,6 @@ import {
     Building2,
     ChevronDown,
     X,
-    Briefcase,
     Home,
 } from "lucide-react";
 
@@ -72,25 +71,12 @@ const navigationItems = [
         ],
     },
     {
-        name: "Marketing",
-        icon: Briefcase,
-        children: [
-            {
-                name: "Aktivitas Kunjungan",
-                route: "marketing.activities.index",
-                permission: "marketing.view",
-            },
-            {
-                name: "Monitoring Aktivitas",
-                route: "marketing.monitoring.index",
-                permission: "marketing.monitoring.view",
-            },
-        ],
-    },
-    {
-        // Ticket 48: SHM sudah punya shell dan navigasinya sendiri. Sidebar
-        // koperasi hanya menyediakan SATU pintu masuk ke aplikasi SHM supaya
-        // tidak ada dua daftar navigasi SHM yang bisa saling menyimpang.
+        // Ticket 63: modul Marketing (aktivitas kunjungan & monitoring) telah
+        // dipindahkan ke aplikasi SHM — lihat ShmSidebar (shm.marketing.*).
+        // Koperasi tidak lagi memiliki entry point operasional Marketing;
+        // satu-satunya rute marketing yang tersisa di koperasi adalah
+        // pembaruan lokasi anggota (marketing.member-location.update) yang
+        // dipakai halaman Anggota, bukan modul Marketing.
         name: "Aplikasi SHM",
         route: "shm.entry",
         icon: Home,

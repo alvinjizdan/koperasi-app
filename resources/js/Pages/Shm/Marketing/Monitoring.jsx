@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { router } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import ReportTable from '@/Components/Admin/ReportTable';
 import useTableSort from '@/hooks/useTableSort';
 import { formatDateTime } from '@/utils/format';
@@ -13,8 +13,8 @@ import { MapPin, Filter, Activity } from 'lucide-react';
  * Halaman ini memakai pagination server-side (whitelist per_page yang sama
  * dengan halaman lain) sehingga data tidak pernah diambil sekaligus.
  */
-export default function Monitoring({ activities, sort, members, marketers, filters, flash }) {
-    const handleSort = useTableSort('marketing.monitoring.index');
+export default function Monitoring({ activities, sort, members, marketers, filters, flash, shm }) {
+    const handleSort = useTableSort('shm.marketing.monitoring.index');
 
     const [marketingId, setMarketingId] = useState(filters.marketing_id || '');
     const [memberId, setMemberId] = useState(filters.member_id || '');
@@ -24,7 +24,7 @@ export default function Monitoring({ activities, sort, members, marketers, filte
     const applyFilters = (event) => {
         event.preventDefault();
         router.get(
-            route('marketing.monitoring.index'),
+            route('shm.marketing.monitoring.index'),
             {
                 marketing_id: marketingId || undefined,
                 member_id: memberId || undefined,
@@ -88,7 +88,7 @@ export default function Monitoring({ activities, sort, members, marketers, filte
     ];
 
     return (
-        <AdminLayout title="Monitoring Aktivitas" pageTitle="Monitoring Aktivitas Marketing">
+        <ShmLayout title="Monitoring Aktivitas" pageTitle="Monitoring Aktivitas Marketing">
             <div className="space-y-6">
                 <form
                     onSubmit={applyFilters}
@@ -169,13 +169,13 @@ export default function Monitoring({ activities, sort, members, marketers, filte
                         pagination={activities}
                         sort={sort}
                         onSort={handleSort}
-                        routeName="marketing.monitoring.index"
+                        routeName="shm.marketing.monitoring.index"
                         emptyIcon={Activity}
                         emptyTitle="Belum ada aktivitas"
                         emptyDescription="Belum ada kunjungan Marketing yang tercatat pada filter ini."
                     />
                 </div>
             </div>
-        </AdminLayout>
+        </ShmLayout>
     );
 }

@@ -9,6 +9,7 @@ import {
     FolderOpen,
     LayoutDashboard,
     LogOut,
+    MapPin,
     Receipt,
     ScrollText,
     UserRound,
@@ -107,10 +108,21 @@ const shmNavigation = [
     // (shm.approval.decide), sehingga tetap tersembunyi dari Marketing.
     // Ticket 57: `pendingKey` menautkan item ini ke jumlah pending pada prop
     // bersama `shm.pending_approvals`.
+    // Ticket 63: Marketing activities (aktivitas kunjungan) dipindahkan ke SHM.
     {
         name: "Marketing",
         icon: Briefcase,
         children: [
+            {
+                name: "Aktivitas Kunjungan",
+                route: "shm.marketing.activities.index",
+                permission: "marketing.view",
+            },
+            {
+                name: "Monitoring Aktivitas",
+                route: "shm.marketing.monitoring.index",
+                permission: "marketing.monitoring.view",
+            },
             {
                 name: "Approval",
                 route: "shm.approvals.index",

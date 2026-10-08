@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Link, useForm } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import PrimaryButton from '@/Components/PrimaryButton';
 import TextInput from '@/Components/TextInput';
 import InputLabel from '@/Components/InputLabel';
@@ -14,7 +14,7 @@ import { MapPin, ArrowLeft, CheckCircle2, AlertCircle, Info } from 'lucide-react
  * Kolom hasil sengaja berupa teks bebas: KSP belum menetapkan daftar hasil
  * kunjungan yang sah, sehingga sistem tidak improvised daftar status.
  */
-export default function Show({ activity, can_update_result, flash }) {
+export default function Show({ activity, can_update_result, flash, shm }) {
     const form = useForm({
         result: activity.result ?? '',
         notes: activity.notes ?? '',
@@ -30,11 +30,11 @@ export default function Show({ activity, can_update_result, flash }) {
 
     const handleSubmit = (event) => {
         event.preventDefault();
-        form.patch(route('marketing.activities.result.update', activity.id));
+        form.patch(route('shm.marketing.activities.result.update', activity.id));
     };
 
     return (
-        <AdminLayout title="Detail Aktivitas" pageTitle="Detail Aktivitas Kunjungan">
+        <ShmLayout title="Detail Aktivitas" pageTitle="Detail Aktivitas Kunjungan">
             <div className="space-y-6">
                 {flash?.success && (
                     <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-800">
@@ -50,7 +50,7 @@ export default function Show({ activity, can_update_result, flash }) {
                 )}
 
                 <Link
-                    href={route('marketing.activities.index')}
+                    href={route('shm.marketing.activities.index')}
                     className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900"
                 >
                     <ArrowLeft className="h-4 w-4" />
@@ -163,6 +163,6 @@ export default function Show({ activity, can_update_result, flash }) {
                     </div>
                 )}
             </div>
-        </AdminLayout>
+        </ShmLayout>
     );
 }

@@ -229,28 +229,16 @@ Route::middleware(['auth', 'verified', 'active.account'])->group(function () {
             ->name('export');
     });
 
-    // Modul Marketing: aktivitas/kunjungan Marketing.
-    // Route literal didaftarkan sebelum route parameter agar tidak tertelan
-    // wildcard. Pembatasan data "milik sendiri" ditegakkan di query controller.
+    // Modul Marketing: hanya titik lokasi anggota yang tetap di sini.
+    //
+    // Ticket 63: aktivitas/kunjungan Marketing (activities.index, store, show,
+    // result.update, monitoring.index) dipindahkan ke dalam boundary SHM di
+    // /shm/marketing dengan nama route shm.marketing.* — fungsi tersebut
+    // berelasi dengan data SHM (shm_applications.marketing_activity_id) dan
+    // ownership marketing_id yang sama dengan konteks SHM. Yang tersisa di
+    // koperasi hanya pembaruan lokasi anggota dari halaman detail anggota,
+    // yaitu fungsi koperasi-spesifik (KOPERASI-SPECIFIC).
     Route::prefix('marketing')->name('marketing.')->group(function () {
-        Route::middleware('permission:marketing.view')->group(function () {
-            Route::get('/', [MarketingActivityController::class, 'index'])->name('activities.index');
-            Route::get('/aktivitas/{activity}', [MarketingActivityController::class, 'show'])->name('activities.show');
-        });
-
-        Route::post('/aktivitas', [MarketingActivityController::class, 'store'])
-            ->middleware('permission:marketing.create')
-            ->name('activities.store');
-
-        Route::patch('/aktivitas/{activity}/hasil', [MarketingActivityController::class, 'updateResult'])
-            ->middleware('permission:marketing.result.update')
-            ->name('activities.result.update');
-
-        // Monitoring seluruh Marketing: permission terpisah, bukan oleh nama role.
-        Route::get('/monitoring', [MarketingActivityController::class, 'monitoring'])
-            ->middleware('permission:marketing.monitoring.view')
-            ->name('monitoring.index');
-
         // Titik lokasi anggota: hak akses terpisah dari hak akses anggota.
         Route::put('/anggota/{member}/lokasi', [MemberLocationController::class, 'update'])
             ->middleware('permission:marketing.member_location.update')
@@ -525,6 +513,44 @@ Route::prefix('shm')->name('shm.')->group(function () {
 
             Route::get('/approval/{application}', [ShmApprovalController::class, 'show'])
                 ->name('approvals.show');
+        });
+
+        // -----------------------------------------------------------------
+        // Modul Marketing (Ticket 63): aktivitas kunjungan dalam bounded context SHM.
+        //
+        // Fungsi Marketing (aktivitas kunjungan) dipindahkan dari aplikasi
+        // Koperasi ke aplikasi SHM karena data aktivitas (marketing_activities)
+        // sudah memiliki relasi kepemilikan (marketing_id) yang konsisten
+        // dengan ownership SHM, dan digunakan oleh shm_applications melalui
+        // shm_applications.marketing_activity_id.
+        //
+        // REUSE existing MarketingActivityController (index, store, show,
+        // updateResult, monitoring) — hanya komponen Inertia yang kini berada
+        // di resources/js/Pages/Shm/Marketing sehingga tampil dengan layout SHM.
+        // Permission existing (marketing.view, marketing.create,
+        // marketing.result.update, marketing.monitoring.view) tetap dipakai;
+        // tidak ada permission baru dan tidak ada perubahan ownership.
+        //
+        // Route literal (/marketing, /marketing/monitoring) didaftarkan sebelum
+        // route parameter (/marketing/{activity}) agar tidak tertelan wildcard.
+        // -----------------------------------------------------------------
+        // Monitoring seluruh Marketing: permission terpisah (marketing.monitoring.view),
+        // bukan oleh nama role, dan TIDAK disilangkan dengan marketing.view.
+        // Didaftarkan sebelum /marketing/{activity} agar tidak tertelan wildcard.
+        Route::get('/marketing/monitoring', [MarketingActivityController::class, 'monitoring'])
+            ->middleware('permission:marketing.monitoring.view')
+            ->name('marketing.monitoring.index');
+
+        Route::middleware('permission:marketing.view')->group(function () {
+            Route::get('/marketing', [MarketingActivityController::class, 'index'])
+                ->name('marketing.activities.index');
+            Route::post('/marketing', [MarketingActivityController::class, 'store'])
+                ->name('marketing.activities.store');
+            Route::get('/marketing/{activity}', [MarketingActivityController::class, 'show'])
+                ->name('marketing.activities.show');
+            Route::patch('/marketing/{activity}/hasil', [MarketingActivityController::class, 'updateResult'])
+                ->middleware('permission:marketing.result.update')
+                ->name('marketing.activities.result.update');
         });
 
         // -----------------------------------------------------------------
