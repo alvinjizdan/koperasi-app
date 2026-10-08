@@ -6,12 +6,15 @@ use App\Enums\ShmApplicationStatus;
 use App\Enums\ShmCreditCheckStatus;
 use App\Http\Controllers\Controller;
 use App\Models\ShmApplication;
+use App\Models\ShmApproval;
 use App\Models\ShmCreditCheck;
 use App\Models\ShmCustomer;
 use App\Models\ShmMemorandum;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -140,6 +143,9 @@ class ShmDashboardController extends Controller
             ])
             ->all();
 
+        // Ticket 59 - Marketing Operational Summary
+        $marketingSummary = $this->buildMarketingSummary($seesEverything, $userId);
+
         return Inertia::render('Shm/Dashboard', [
             'scope' => $seesEverything ? 'all' : 'own',
             'metrics' => [
@@ -166,14 +172,120 @@ class ShmDashboardController extends Controller
                     'completed' => (int) ($creditCheckCounts[ShmCreditCheckStatus::Completed->value] ?? 0),
                 ],
                 // Ticket 56: distribusi memorandum terakhir per pengajuan.
+                // Ticket 57: approval yang menunggu keputusan menurut
+                // ShmApproval.status = pending (bukan status pengajuan),
+                // scope-safe dan read-only. Hanya dikirim ke pengguna yang
+                // memang dapat mengakses antrean approval (permission
+                // existing); pengguna lain menerima null sehingga kartu
+                // tidak tampil dan angka tidak bocor.
+                'pending_approval' => Gate::allows('shm.approval.decide')
+                    ? ShmApproval::pendingCountForUser($seesEverything, $userId)
+                    : null,
                 'memorandum_distribution' => $memorandumTypes,
                 // Ticket 56: pengajuan terbaru yang visible (maks 5).
                 'recent_applications' => $recent,
+                'marketing_summary' => $marketingSummary,
             ],
             'flash' => [
                 'success' => session('success'),
                 'error' => session('error'),
             ],
         ]);
+    }
+
+    private function buildMarketingSummary(bool $seesEverything, int $userId): array
+    {
+        // Base applications with ownership
+        $appsBase = ShmApplication::query()
+            ->select('id', 'marketing_id', 'status', 'submitted_at')
+            ->when(! $seesEverything, fn (Builder $q) => $q->where('marketing_id', $userId));
+
+        // If no apps visible, still might need to handle? But "Marketing tanpa application tidak perlu ditampilkan" -
+        // but pending approval might be tied to applications. Let us get marketing IDs that have applications or have pending approvals.
+        $marketingIdsFromApps = (clone $appsBase)->distinct()->pluck('marketing_id')->all();
+
+        // Also get marketing IDs that have pending approvals (respecting ownership)
+        $pendingApprovalMarketingIds = ShmApproval::query()
+            ->where('status', ShmApproval::STATUS_PENDING)
+            ->join('shm_applications', 'shm_approvals.shm_application_id', '=', 'shm_applications.id')
+            ->when(! $seesEverything, fn (Builder $q) => $q->where('shm_applications.marketing_id', $userId))
+            ->distinct()
+            ->pluck('shm_applications.marketing_id')
+            ->all();
+
+        $allMarketingIds = array_unique(array_merge($marketingIdsFromApps, $pendingApprovalMarketingIds));
+
+        if (empty($allMarketingIds)) {
+            return [];
+        }
+
+        // Application aggregates per marketing
+        $appAgg = ShmApplication::query()
+            ->when(! $seesEverything, fn (Builder $q) => $q->where('marketing_id', $userId))
+            ->selectRaw('marketing_id')
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw('SUM(CASE WHEN submitted_at IS NOT NULL THEN 1 ELSE 0 END) as masuk')
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as credit_checking', [ShmApplicationStatus::CreditChecking->value])
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as memorandum', [ShmApplicationStatus::Memorandum->value])
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as approval', [ShmApplicationStatus::Approval->value])
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as approved', [ShmApplicationStatus::Approved->value])
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as rejected', [ShmApplicationStatus::Rejected->value])
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as document_check', [ShmApplicationStatus::DocumentCheck->value])
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as ready_for_disbursement', [ShmApplicationStatus::ReadyForDisbursement->value])
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as disbursed', [ShmApplicationStatus::Disbursed->value])
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as completed', [ShmApplicationStatus::Completed->value])
+            ->groupBy('marketing_id')
+            ->get()
+            ->keyBy('marketing_id');
+
+        // Pending approval aggregates per marketing
+        $pendingAgg = ShmApproval::query()
+            ->selectRaw('shm_applications.marketing_id, COUNT(*) as pending_count')
+            ->where('shm_approvals.status', ShmApproval::STATUS_PENDING)
+            ->join('shm_applications', 'shm_approvals.shm_application_id', '=', 'shm_applications.id')
+            ->when(! $seesEverything, fn (Builder $q) => $q->where('shm_applications.marketing_id', $userId))
+            ->groupBy('shm_applications.marketing_id')
+            ->get()
+            ->keyBy('marketing_id');
+
+        // Marketing names
+        $names = User::query()
+            ->whereIn('id', $allMarketingIds)
+            ->pluck('name', 'id');
+
+        // Merge
+        $result = collect($allMarketingIds)
+            ->map(function (int $marketingId) use ($appAgg, $pendingAgg, $names) {
+                $appRow = $appAgg->get($marketingId);
+                $pendingRow = $pendingAgg->get($marketingId);
+
+                return [
+                    'marketing_id' => $marketingId,
+                    'marketing_name' => $names[$marketingId] ?? '-',
+                    'total' => (int) ($appRow?->total ?? 0),
+                    'masuk' => (int) ($appRow?->masuk ?? 0),
+                    'credit_checking' => (int) ($appRow?->credit_checking ?? 0),
+                    'memorandum' => (int) ($appRow?->memorandum ?? 0),
+                    'approval' => (int) ($appRow?->approval ?? 0),
+                    'approved' => (int) ($appRow?->approved ?? 0),
+                    'rejected' => (int) ($appRow?->rejected ?? 0),
+                    'document_check' => (int) ($appRow?->document_check ?? 0),
+                    'ready_for_disbursement' => (int) ($appRow?->ready_for_disbursement ?? 0),
+                    'disbursed' => (int) ($appRow?->disbursed ?? 0),
+                    'completed' => (int) ($appRow?->completed ?? 0),
+                    'pending_approval' => (int) ($pendingRow?->pending_count ?? 0),
+                ];
+            })
+            ->filter(fn ($item) => $item['total'] > 0 || $item['pending_approval'] > 0) // only show if has data
+            ->sort(function ($a, $b) {
+                if ($a['total'] !== $b['total']) {
+                    return $b['total'] <=> $a['total']; // desc
+                }
+                return Str::lower($a['marketing_name']) <=> Str::lower($b['marketing_name']); // asc
+            })
+            ->values()
+            ->all();
+
+        return $result;
     }
 }

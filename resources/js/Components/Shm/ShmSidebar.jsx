@@ -105,6 +105,8 @@ const shmNavigation = [
     // endpoint dan workflow existing; tidak ada workflow kedua. Menu hanya
     // tampil bagi pemegang permission approval yang sudah ada
     // (shm.approval.decide), sehingga tetap tersembunyi dari Marketing.
+    // Ticket 57: `pendingKey` menautkan item ini ke jumlah pending pada prop
+    // bersama `shm.pending_approvals`.
     {
         name: "Marketing",
         icon: Briefcase,
@@ -113,6 +115,7 @@ const shmNavigation = [
                 name: "Approval",
                 route: "shm.approvals.index",
                 permission: "shm.approval.decide",
+                pendingKey: "approvals",
             },
         ],
     },
@@ -173,10 +176,36 @@ const isItemActive = (item) =>
         : route().current(item.route);
 
 /**
+ * Ticket 57: badge jumlah pending untuk child yang menautkan `pendingKey`.
+ *
+ * Aturan tampil:
+ * - hanya bila angka adalah bilangan bulat >= 1 (0, undefined, null, teks,
+ *   dan negatif tidak pernah dirender);
+ * - server hanya mengirim angka ke pengguna yang memegang permission yang
+ *   relevan, sehingga badge tidak pernah bocor ke pengguna lain.
+ */
+function renderPendingBadge(child, pendingCounts) {
+    const count = pendingCounts?.[child.pendingKey];
+
+    if (!child.pendingKey || !Number.isInteger(count) || count < 1) {
+        return null;
+    }
+
+    return (
+        <span
+            className="inline-flex min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+            title={`${count} approval menunggu keputusan`}
+        >
+            {count}
+        </span>
+    );
+}
+
+/**
  * Satu item navigasi SHM: link langsung, dropdown tersedia, atau penanda
  * "Segera" yang tidak dapat dinavigasi.
  */
-function ShmNavItem({ item, open, onToggle, variant = "desktop", onNavigate }) {
+function ShmNavItem({ item, open, onToggle, variant = "desktop", onNavigate, pendingCounts }) {
     const Icon = item.icon;
     const isActive = isItemActive(item);
     const isMobile = variant === "mobile";
@@ -224,13 +253,14 @@ function ShmNavItem({ item, open, onToggle, variant = "desktop", onNavigate }) {
                                     : route(child.route)
                             }
                             onClick={onNavigate}
-                            className={`block rounded-md px-3 py-1.5 text-[13px] transition-colors duration-150 ${
+                            className={`flex items-center justify-between gap-2 rounded-md px-3 py-1.5 text-[13px] transition-colors duration-150 ${
                                 isChildActive(child)
                                     ? "bg-slate-800/80 font-semibold text-indigo-300"
                                     : "text-slate-400 hover:bg-slate-800/60 hover:text-white"
                             }`}
                         >
-                            {child.name}
+                            <span>{child.name}</span>
+                            {renderPendingBadge(child, pendingCounts)}
                         </Link>
                     ) : (
                         <span
@@ -360,10 +390,16 @@ function ShmUserFooter({ onNavigate }) {
 }
 
 export default function ShmSidebar({ mobileOpen, setMobileOpen }) {
-    const { auth, url } = usePage().props;
+    const { auth, url, shm } = usePage().props;
     const permissions = auth?.permissions ?? [];
     const hasPermission = (permission) =>
         !permission || permissions.includes(permission);
+
+    // Ticket 57: jumlah approval pending (ShmApproval.status = pending) dari
+    // prop Inertia bersama `shm.pending_approvals`. Server menghitungnya
+    // scope-safe hanya untuk pengguna yang memegang shm.approval.decide;
+    // pengguna lain selalu menerima undefined/null, sehingga badge tidak
+    // pernah muncul. 0 dan nilai tidak valid tidak menampilkan badge.
 
     // Saring child tanpa permission lalu buang parent yang tidak menyisakan
     // child. Item "Segera" tidak punya route sehingga tidak pernah bergantung
@@ -431,6 +467,7 @@ export default function ShmSidebar({ mobileOpen, setMobileOpen }) {
                         key={item.name}
                         item={item}
                         variant={variant}
+                        pendingCounts={shm?.pending_approvals}
                         onNavigate={
                             variant === "mobile"
                                 ? () => setMobileOpen(false)

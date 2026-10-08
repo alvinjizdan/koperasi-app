@@ -45,8 +45,13 @@ const DECISION_LABELS = {
  *
  * Tidak ada kolom nominal karena tabel pengajuan SHM memang tidak memiliki
  * kolom finansial; tidak ada data yang dikarang.
+ *
+ * Ticket 58: ringkasan antrean approval PER MARKETING ditampilkan di atas
+ * daftar ini. Source of truth-nya adalah ShmApproval.status = pending yang
+ * di-aggregate per marketing_id (T58), scope-safe dan read-only; aksi
+ * tetap ke halaman approval existing (shm.approvals.index).
  */
-export default function Index({ approvals, sort, filters, statuses, types, flash }) {
+export default function Index({ approvals, sort, filters, statuses, types, pending_count, marketing_queue, flash }) {
     const handleSort = useTableSort('shm.approvals.index');
 
     const [search, setSearch] = useState(filters.search || '');
@@ -166,14 +171,121 @@ export default function Index({ approvals, sort, filters, statuses, types, flash
     return (
         <ShmLayout title="Approval">
             <div className="space-y-6">
-                <div>
-                    <h1 className="text-xl font-semibold text-gray-800">Approval</h1>
-                    <p className="text-sm text-gray-500">
-                        Pengajuan pada tahap keputusan approval. Keputusan memakai workflow
-                        yang sudah ada; tidak ada approval berjenjang, pagu nominal, atau
-                        aturan baru pada modul ini.
-                    </p>
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                        <h1 className="text-xl font-semibold text-gray-800">Approval</h1>
+                        <p className="text-sm text-gray-500">
+                            Pengajuan pada tahap keputusan approval. Keputusan memakai workflow
+                            yang sudah ada; tidak ada approval berjenjang, pagu nominal, atau
+                            aturan baru pada modul ini.
+                        </p>
+                    </div>
+                    {/* Ticket 57: penekanan pekerjaan pending. Angka berasal dari
+                        ShmApproval.status = pending (source of truth existing),
+                        scope-safe, read-only; klik mengarah ke filter bawaan
+                        "Menunggu Keputusan" — tanpa endpoint atau action baru. */}
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                            Menunggu Keputusan
+                        </p>
+                        <p className="mt-0.5 flex items-baseline gap-1">
+                            <span className="text-2xl font-bold text-amber-900">
+                                {typeof pending_count === 'number' && pending_count >= 0
+                                    ? pending_count
+                                    : 0}
+                            </span>
+                            <span className="text-xs text-amber-700">pengajuan</span>
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setStatus('approval');
+                                setSearch('');
+                                setType('all');
+                                router.get(
+                                    route('shm.approvals.index'),
+                                    {},
+                                    { preserveState: true, replace: true },
+                                );
+                            }}
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 underline-offset-2 transition-colors hover:text-amber-950 hover:underline"
+                        >
+                            Lihat antrean pending
+                        </button>
+                    </div>
                 </div>
+
+                {/* Ticket 58: ringkasan antrean approval per marketing. */}
+                {typeof marketing_queue === 'object' && marketing_queue !== null && (
+                    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+                        <div className="mb-4 flex items-center justify-between">
+                            <h2 className="flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                                <Gavel className="h-4 w-4" />
+                                Antrean Approval per Marketing
+                            </h2>
+                            <Link
+                                href={route('shm.approvals.index')}
+                                className="text-xs font-semibold text-indigo-600 hover:underline"
+                            >
+                                Buka antrean
+                            </Link>
+                        </div>
+
+                        {marketing_queue.length === 0 ? (
+                            <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center">
+                                <p className="text-sm text-slate-500">
+                                    Tidak ada approval pending.
+                                </p>
+                            </div>
+                        ) : (
+                            <ReportTable
+                                columns={[
+                                    {
+                                        key: 'name',
+                                        label: 'Marketing',
+                                        sortable: false,
+                                        render: (row) => (
+                                            <span className="font-medium text-slate-800">
+                                                {row.name}
+                                            </span>
+                                        ),
+                                    },
+                                    {
+                                        key: 'pending_count',
+                                        label: 'Pending Approval',
+                                        sortable: false,
+                                        align: 'right',
+                                        render: (row) => (
+                                            <span className="font-semibold text-slate-900">
+                                                {row.pending_count}
+                                            </span>
+                                        ),
+                                    },
+                                    {
+                                        key: 'action',
+                                        label: 'Aksi',
+                                        sortable: false,
+                                        render: () => (
+                                            <Link
+                                                href={route('shm.approvals.index')}
+                                                className="text-xs font-semibold text-indigo-600 hover:underline"
+                                            >
+                                                Lihat Antrean
+                                            </Link>
+                                        ),
+                                    },
+                                ]}
+                                rows={marketing_queue}
+                                sort={null}
+                                onSort={() => {}}
+                                routeName="shm.approvals.index"
+                                emptyIcon={Gavel}
+                                emptyTitle="Tidak ada approval pending"
+                                emptyDescription="Tidak ada approval yang menunggu keputusan pada cakupan data Anda."
+                            />
+                        )}
+                    </div>
+                )}
 
                 {flash?.success && (
                     <div className="rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">

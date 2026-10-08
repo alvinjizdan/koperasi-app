@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use App\Enums\ShmApplicationStatus;
 use App\Models\AuditLog;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\ShmApplication;
+use App\Models\ShmApproval;
 use App\Models\ShmCustomer;
 use App\Models\ShmMemorandum;
 use App\Models\User;
@@ -312,5 +314,308 @@ class ShmDashboardTest extends TestCase
             0,
             'Dashboard tidak boleh menulis audit log.'
         );
+    }
+
+    // -----------------------------------------------------------------
+    // F. Ticket 57 — pending approval di dashboard
+    // -----------------------------------------------------------------
+
+    /** Fixture pengajuan tahap approval MELALUI endpoint workflow existing,
+     * mengikuti state machine: submit → credit checking → memorandum → approval.
+     */
+    private function pendingApproval(User $owner): ShmApplication
+    {
+        $application = $this->createApplicationFor($owner);
+
+        $this->actingAs($owner)
+            ->post(route('shm.applications.submit', $application->id))
+            ->assertSessionHasNoErrors();
+        $this->actingAs($owner)
+            ->post(route('shm.applications.start-credit-checking', $application->id))
+            ->assertSessionHasNoErrors();
+        $this->actingAs($owner)
+            ->post(route('shm.applications.start-memorandum', $application->id))
+            ->assertSessionHasNoErrors();
+        $this->actingAs($owner)
+            ->post(route('shm.applications.start-approval', $application->id))
+            ->assertSessionHasNoErrors();
+
+        return $application->refresh();
+    }
+
+    public function test_pending_approval_metric_counts_pending_status_only(): void
+    {
+        $approved = $this->pendingApproval($this->marketing);
+        $rejected = $this->pendingApproval($this->marketing);
+        $this->pendingApproval($this->marketing);
+
+        $this->actingAs($this->admin)
+            ->post(route('shm.applications.approve', $approved->id))
+            ->assertSessionHasNoErrors();
+        $this->actingAs($this->admin)
+            ->post(route('shm.applications.reject', $rejected->id))
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($this->admin)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('metrics.pending_approval', 1));
+    }
+
+    public function test_pending_approval_metric_follows_ownership_scope(): void
+    {
+        $this->pendingApproval($this->marketing);
+        $this->pendingApproval($this->otherMarketing);
+
+        $this->actingAs($this->marketing)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('metrics.pending_approval', null)
+            );
+
+        $adminOwn = $this->pendingApproval($this->admin);
+
+        // Admin punya view_all + approval.decide: seluruh 3 pending.
+        $this->actingAs($this->admin)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('metrics.pending_approval', 3));
+
+        // Superadmin bypass: angka yang sama.
+        $this->actingAs($this->superadmin)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('metrics.pending_approval', 3));
+
+        // Pemegang decide tanpa view_all hanya melihat miliknya sendiri.
+        $approver = User::factory()->create(['email_verified_at' => now()]);
+        $role = Role::query()->create([
+            'name' => 'approver-dashboard-'.uniqid(),
+            'display_name' => 'Approver Dashboard',
+            'is_system' => false,
+        ]);
+        $role->permissions()->attach(
+            Permission::query()->whereIn('name', [
+                'shm.view', 'shm.create', 'shm.submit', 'shm.memorandum.update', 'shm.approval.decide',
+            ])->pluck('id')
+        );
+        $approver->roles()->attach($role->id);
+        $own = $this->pendingApproval($approver);
+
+        $this->actingAs($approver)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('metrics.pending_approval', 1));
+    }
+
+    public function test_pending_approval_not_exposed_to_users_without_decide_permission(): void
+    {
+        $this->pendingApproval($this->marketing);
+
+        // Marketing hanya memegang shm.view: angka tidak dikirim (null).
+        $this->actingAs($this->marketing)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('metrics.pending_approval', null)
+            );
+    }
+
+    public function test_opening_dashboard_does_not_mutate_pending_approvals(): void
+    {
+        $application = $this->pendingApproval($this->marketing);
+        $approvalId = ShmApproval::query()
+            ->where('shm_application_id', $application->id)
+            ->value('id');
+        $statusBefore = ShmApproval::query()->value('status', $approvalId);
+
+        $this->actingAs($this->admin)->get(route('shm.dashboard'))->assertOk();
+
+        $this->assertSame(
+            $statusBefore,
+            ShmApproval::query()->whereKey($approvalId)->value('status')
+        );
+        $this->assertSame(1, ShmApproval::query()->count());
+    }
+
+    // -----------------------------------------------------------------
+    // G. Ticket 59 — Marketing Operational Summary
+    // -----------------------------------------------------------------
+
+    public function test_marketing_summary_shows_all_marketing_with_view_all(): void
+    {
+        $this->application($this->marketing);
+        $this->application($this->otherMarketing);
+
+        $this->actingAs($this->admin)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('metrics.marketing_summary', 2)
+            );
+    }
+
+    public function test_marketing_summary_restricted_user_sees_only_themselves(): void
+    {
+        $this->application($this->marketing);
+        $this->application($this->otherMarketing);
+
+        $this->actingAs($this->marketing)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('metrics.marketing_summary', 1)
+                ->where('metrics.marketing_summary.0.marketing_id', $this->marketing->id)
+            );
+    }
+
+    public function test_marketing_summary_restricted_user_cannot_see_other_marketing(): void
+    {
+        $this->application($this->marketing);
+        $this->application($this->otherMarketing);
+
+        $this->actingAs($this->marketing)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('metrics.marketing_summary', 1)
+                ->where('metrics.marketing_summary.0.marketing_id', $this->marketing->id)
+            );
+    }
+
+    public function test_marketing_summary_counts_total_correctly(): void
+    {
+        $this->application($this->marketing);
+        $this->application($this->marketing);
+        $this->application($this->marketing, submitted: false);
+
+        $this->actingAs($this->marketing)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('metrics.marketing_summary.0.total', 3)
+                ->where('metrics.marketing_summary.0.masuk', 2)
+            );
+    }
+
+    public function test_marketing_summary_counts_masuk_using_submitted_at_not_null(): void
+    {
+        $this->application($this->marketing); // submitted
+        $this->application($this->marketing, submitted: false); // not submitted
+
+        $this->actingAs($this->marketing)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('metrics.marketing_summary.0.masuk', 1)
+            );
+    }
+
+    public function test_marketing_summary_counts_all_statuses_correctly(): void
+    {
+        $this->atStage($this->marketing, ShmApplicationStatus::CreditChecking);
+        $this->atStage($this->marketing, ShmApplicationStatus::Memorandum);
+        $this->atStage($this->marketing, ShmApplicationStatus::Approval);
+        $this->atStage($this->marketing, ShmApplicationStatus::Approved);
+        $this->atStage($this->marketing, ShmApplicationStatus::Rejected, ['approved_at' => null, 'rejected_at' => now()]);
+        $this->atStage($this->marketing, ShmApplicationStatus::DocumentCheck);
+        $this->atStage($this->marketing, ShmApplicationStatus::ReadyForDisbursement);
+        $this->atStage($this->marketing, ShmApplicationStatus::Disbursed, ['disbursed_at' => now()]);
+        $this->atStage($this->marketing, ShmApplicationStatus::Completed, ['disbursed_at' => now(), 'completed_at' => now()]);
+
+        $this->actingAs($this->marketing)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(function ($page) {
+                $summary = $page->toArray()['props']['metrics']['marketing_summary'][0] ?? [];
+                $this->assertSame(9, $summary['total'] ?? 0);
+                $this->assertSame(9, $summary['masuk'] ?? 0);
+                $this->assertSame(1, $summary['credit_checking'] ?? 0);
+                $this->assertSame(1, $summary['memorandum'] ?? 0);
+                $this->assertSame(1, $summary['approval'] ?? 0);
+                $this->assertSame(1, $summary['approved'] ?? 0);
+                $this->assertSame(1, $summary['rejected'] ?? 0);
+                $this->assertSame(1, $summary['document_check'] ?? 0);
+                $this->assertSame(1, $summary['ready_for_disbursement'] ?? 0);
+                $this->assertSame(1, $summary['disbursed'] ?? 0);
+                $this->assertSame(1, $summary['completed'] ?? 0);
+            });
+    }
+
+    public function test_marketing_without_application_not_shown(): void
+    {
+        $this->actingAs($this->marketing)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('metrics.marketing_summary', 0)
+            );
+    }
+
+    public function test_marketing_summary_pending_approval_uses_pending_status(): void
+    {
+        $approved = $this->pendingApproval($this->marketing);
+        $this->pendingApproval($this->marketing);
+
+        $this->actingAs($this->admin)
+            ->post(route('shm.applications.approve', $approved->id))
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($this->admin)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(function ($page) {
+                $summaries = collect($page->toArray()['props']['metrics']['marketing_summary'] ?? []);
+                $summary = $summaries->firstWhere('marketing_id', $this->marketing->id);
+                $this->assertSame(2, $summary['total'] ?? 0);
+                $this->assertSame(1, $summary['pending_approval'] ?? 0);
+            });
+    }
+
+    public function test_marketing_summary_pending_approval_follows_ownership(): void
+    {
+        $this->pendingApproval($this->marketing);
+        $this->pendingApproval($this->otherMarketing);
+
+        $this->actingAs($this->marketing)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(function ($page) {
+                $summaries = collect($page->toArray()['props']['metrics']['marketing_summary'] ?? []);
+                $this->assertCount(1, $summaries);
+                $this->assertSame($this->marketing->id, $summaries[0]['marketing_id']);
+                $this->assertSame(1, $summaries[0]['pending_approval'] ?? 0);
+            });
+    }
+
+    public function test_marketing_summary_restricted_user_not_exposed_other_marketing_pending(): void
+    {
+        $this->pendingApproval($this->otherMarketing);
+        $this->pendingApproval($this->otherMarketing);
+
+        $this->actingAs($this->marketing)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('metrics.marketing_summary', 0)
+            );
+    }
+
+    public function test_marketing_summary_does_not_mutate_data(): void
+    {
+        $app = $this->application($this->marketing);
+        $pending = $this->pendingApproval($this->marketing);
+        $appCount = ShmApplication::query()->count();
+        $appStatus = $app->status;
+        $pendingCount = ShmApproval::query()->count();
+        $pendingStatus = $pending->approvals()->first()->status;
+
+        $this->actingAs($this->admin)->get(route('shm.dashboard'))->assertOk();
+
+        $this->assertSame($appCount, ShmApplication::query()->count());
+        $this->assertSame($appStatus, $app->fresh()->status);
+        $this->assertSame($pendingCount, ShmApproval::query()->count());
+        $this->assertSame($pendingStatus, $pending->approvals()->first()->fresh()->status);
     }
 }

@@ -2,7 +2,9 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\ShmApproval;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -41,6 +43,23 @@ class HandleInertiaRequests extends Middleware
                     ? $user->effectivePermissions()->pluck('name')->all()
                     : [],
             ],
+            // Ticket 57: jumlah approval pending untuk badge sidebar, dihitung
+            // scope-safe HANYA untuk pengguna yang memegang permission approval
+            // existing (shm.approval.decide) atau superadmin — pengguna lain
+            // tidak menerima angkanya sama sekali, sehingga jumlah pending
+            // tidak bisa dipakai untuk memindai data orang lain. Satu query
+            // COUNT per request, tidak memuat baris, tanpa cache/counter.
+            'shm' => $user !== null
+                && ($user->isSuperadmin() || Gate::allows('shm.approval.decide'))
+                ? [
+                    'pending_approvals' => [
+                        'approvals' => ShmApproval::pendingCountForUser(
+                            $user->isSuperadmin() || Gate::allows('shm.view_all'),
+                            (int) $user->id,
+                        ),
+                    ],
+                ]
+                : null,
         ];
     }
 }

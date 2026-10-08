@@ -19,17 +19,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
-/**
- * Ticket 54 - Modul Approval operasional.
- *
- * Menguji halaman daftar dan detail approval yang membaca struktur existing
- * (shm_approvals, workflow ShmApplicationStatus, permission
- * shm.approval.decide, audit existing). Keputusan tetap dikirim ke endpoint
- * pengajuan yang sudah ada sehingga state machine tidak berubah.
- *
- * Yang TIDAK diuji di sini karena bukan bagian ticket: approval berjenjang,
- * pagu nominal, scoring, status baru, atau transisi baru.
- */
+/** @todo remove this marker before commit */
 class ShmApprovalTest extends TestCase
 {
     use RefreshDatabase;
@@ -727,5 +717,380 @@ class ShmApprovalTest extends TestCase
         $this->assertContains('approval.decide', $actions);
         $this->assertNotContains('approval.view', $actions);
         $this->assertNotContains('approval.hierarchy', $actions);
+    }
+
+    // -----------------------------------------------------------------
+    // F. Ticket 57 — pending approval visibility
+    // -----------------------------------------------------------------
+
+    /**
+     * Memasukkan pengajuan ke tahap approval MELALUI endpoint workflow
+     * existing (bukan update status langsung) sehingga baris ShmApproval
+     * pending yang dibuat ShmWorkflowService::startApproval ikut tercipta.
+     * Transisi mengikuti state machine existing: submit → credit checking →
+     * memorandum → approval, dijalankan oleh pemilik pengajuan (owner).
+     */
+    private function pendingApprovalApplication(User $owner): ShmApplication
+    {
+        $application = $this->createApplicationFor($owner);
+
+        $this->actingAs($owner)
+            ->post(route('shm.applications.submit', $application->id))
+            ->assertSessionHasNoErrors();
+        $this->actingAs($owner)
+            ->post(route('shm.applications.start-credit-checking', $application->id))
+            ->assertSessionHasNoErrors();
+        $this->actingAs($owner)
+            ->post(route('shm.applications.start-memorandum', $application->id))
+            ->assertSessionHasNoErrors();
+        $this->actingAs($owner)
+            ->post(route('shm.applications.start-approval', $application->id))
+            ->assertSessionHasNoErrors();
+
+        return $application->refresh();
+    }
+
+    public function test_entering_approval_stage_creates_pending_approval_row(): void
+    {
+        $application = $this->pendingApprovalApplication($this->marketing);
+
+        $this->assertSame(ShmApplicationStatus::Approval, $application->status);
+        $this->assertSame(
+            1,
+            ShmApproval::query()->where('shm_application_id', $application->id)->count()
+        );
+        $this->assertSame(
+            ShmApproval::STATUS_PENDING,
+            ShmApproval::query()->where('shm_application_id', $application->id)->value('status')
+        );
+    }
+
+    public function test_pending_count_counts_only_pending_status(): void
+    {
+        $pending = $this->pendingApprovalApplication($this->marketing);
+        $approved = $this->pendingApprovalApplication($this->marketing);
+        $rejected = $this->pendingApprovalApplication($this->marketing);
+
+        $this->actingAs($this->admin)
+            ->post(route('shm.applications.approve', $approved->id), ['notes' => 'Ok'])
+            ->assertSessionHasNoErrors();
+        $this->actingAs($this->admin)
+            ->post(route('shm.applications.reject', $rejected->id), ['notes' => 'Tidak'])
+            ->assertSessionHasNoErrors();
+
+        // Hanya status pending yang dihitung; approved dan rejected tidak.
+        $this->assertSame(1, ShmApproval::pendingCountForUser(true, $this->admin->id));
+        $this->assertSame($pending->id, $pending->refresh()->id);
+    }
+
+    public function test_pending_count_respects_view_all_scope(): void
+    {
+        $this->pendingApprovalApplication($this->marketing);
+        $this->pendingApprovalApplication($this->otherMarketing);
+
+        // view_all melihat seluruh pending.
+        $this->assertSame(2, ShmApproval::pendingCountForUser(true, $this->admin->id));
+
+        // Tanpa view_all hanya milik sendiri.
+        $this->assertSame(1, ShmApproval::pendingCountForUser(false, $this->marketing->id));
+        $this->assertSame(1, ShmApproval::pendingCountForUser(false, $this->otherMarketing->id));
+    }
+
+    public function test_approval_page_shows_pending_count_and_scope(): void
+    {
+        $this->pendingApprovalApplication($this->marketing);
+        $this->pendingApprovalApplication($this->otherMarketing);
+
+        $this->actingAs($this->admin)
+            ->get(route('shm.approvals.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('pending_count', 2)
+            );
+
+        // Pemilik restricted (dengan permission decide) hanya melihat miliknya.
+        // shm.submit + shm.memorandum.update dibutuhkan agar fixture dapat
+        // menempuh state machine existing hingga tahap approval.
+        $approver = $this->userWithPermissions([
+            'shm.view', 'shm.create', 'shm.submit', 'shm.memorandum.update', 'shm.approval.decide',
+        ]);
+        $own = $this->pendingApprovalApplication($approver);
+
+        $this->actingAs($approver)
+            ->get(route('shm.approvals.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('pending_count', 1));
+    }
+
+    public function test_shared_pending_count_is_hidden_from_users_without_approval_permission(): void
+    {
+        $this->pendingApprovalApplication($this->marketing);
+
+        // Marketing/pengawas tanpa shm.approval.decide tidak menerima angka
+        // pending sama sekali (prop shm = null) — tidak bisa dipakai memindai.
+        $this->actingAs($this->marketing)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('shm', null));
+
+        $this->actingAs($this->pengawas)
+            ->get(route('shm.dashboard'))
+            ->assertForbidden();
+
+        // Pemegang permission menerima angka yang benar.
+        $this->actingAs($this->admin)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('shm.pending_approvals.approvals', 1)
+            );
+    }
+
+    public function test_opening_approval_pages_does_not_mutate_approvals_or_audit(): void
+    {
+        $application = $this->pendingApprovalApplication($this->marketing);
+        $approval = ShmApproval::query()->where('shm_application_id', $application->id)->firstOrFail();
+        $auditBefore = AuditLog::query()->count();
+
+        $this->actingAs($this->admin)->get(route('shm.approvals.index'))->assertOk();
+        $this->actingAs($this->admin)->get(route('shm.approvals.show', $application->id))->assertOk();
+        $this->actingAs($this->admin)->get(route('shm.dashboard'))->assertOk();
+
+        $approval->refresh();
+        $this->assertSame(ShmApproval::STATUS_PENDING, $approval->status);
+        $this->assertNull($approval->decided_by);
+        $this->assertNull($approval->decided_at);
+        $this->assertSame(1, ShmApproval::query()->where('shm_application_id', $application->id)->count());
+        $this->assertSame($auditBefore, AuditLog::query()->count());
+    }
+
+    public function test_deciding_pending_application_via_existing_workflow_still_works(): void
+    {
+        $application = $this->pendingApprovalApplication($this->marketing);
+
+        $this->actingAs($this->admin)
+            ->post(route('shm.applications.approve', $application->id), ['notes' => 'Setuju'])
+            ->assertSessionHasNoErrors();
+
+        // Baris pending yang sama di-update — tidak ada duplikasi.
+        $this->assertSame(
+            1,
+            ShmApproval::query()->where('shm_application_id', $application->id)->count()
+        );
+        $this->assertSame(
+            ShmApproval::STATUS_APPROVED,
+            ShmApproval::query()->where('shm_application_id', $application->id)->value('status')
+        );
+        $this->assertSame(0, ShmApproval::pendingCountForUser(true, $this->admin->id));
+
+        // Audit approval existing tetap tercatat.
+        $this->assertSame(1, AuditLog::query()->where('action', 'shm.application.approved')->count());
+    }
+
+    public function test_reentering_approval_stage_does_not_duplicate_pending_row(): void
+    {
+        $application = $this->pendingApprovalApplication($this->marketing);
+
+        $this->actingAs($this->admin)
+            ->post(route('shm.applications.reject', $application->id), ['notes' => 'Kurang'])
+            ->assertSessionHasNoErrors();
+        $this->actingAs($this->admin)
+            ->post(route('shm.applications.return-to-draft', $application->id))
+            ->assertSessionHasNoErrors();
+
+        // Putaran kedua mengikuti state machine existing dari draft.
+        $this->actingAs($this->marketing)
+            ->post(route('shm.applications.submit', $application->id))
+            ->assertSessionHasNoErrors();
+        $this->actingAs($this->marketing)
+            ->post(route('shm.applications.start-credit-checking', $application->id))
+            ->assertSessionHasNoErrors();
+        $this->actingAs($this->marketing)
+            ->post(route('shm.applications.start-memorandum', $application->id))
+            ->assertSessionHasNoErrors();
+        $this->actingAs($this->marketing)
+            ->post(route('shm.applications.start-approval', $application->id))
+            ->assertSessionHasNoErrors();
+
+        // firstOrCreate idempoten: tetap satu baris.
+        $this->assertSame(
+            1,
+            ShmApproval::query()->where('shm_application_id', $application->id)->count()
+        );
+        $this->assertSame(
+            ShmApproval::STATUS_PENDING,
+            ShmApproval::query()->where('shm_application_id', $application->id)->value('status')
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // G. Ticket 58 — ringkasan antrean approval per marketing
+    // -----------------------------------------------------------------
+
+    public function test_marketing_queue_grouped_aggregate_is_performed_in_database(): void
+    {
+        $this->pendingApprovalApplication($this->marketing);
+        $this->pendingApprovalApplication($this->marketing);
+        $this->pendingApprovalApplication($this->otherMarketing);
+
+        $result = ShmApproval::pendingCountByMarketing(true, $this->admin->id);
+
+        $byId = array_column($result, null, 'marketing_id');
+
+        $this->assertSame(2, $byId[$this->marketing->id]['pending_count']);
+        $this->assertSame(1, $byId[$this->otherMarketing->id]['pending_count']);
+        $this->assertSame($this->marketing->name, $byId[$this->marketing->id]['name']);
+        $this->assertSame($this->otherMarketing->name, $byId[$this->otherMarketing->id]['name']);
+    }
+
+    public function test_marketing_queue_does_not_count_approved_or_rejected(): void
+    {
+        $pending = $this->pendingApprovalApplication($this->marketing);
+        $approved = $this->pendingApprovalApplication($this->marketing);
+        $rejected = $this->pendingApprovalApplication($this->marketing);
+
+        $this->actingAs($this->admin)
+            ->post(route('shm.applications.approve', $approved->id))
+            ->assertSessionHasNoErrors();
+        $this->actingAs($this->admin)
+            ->post(route('shm.applications.reject', $rejected->id))
+            ->assertSessionHasNoErrors();
+
+        $result = ShmApproval::pendingCountByMarketing(true, $this->admin->id);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(1, $result[0]['pending_count']);
+        $this->assertSame($this->marketing->id, $result[0]['marketing_id']);
+    }
+
+    public function test_view_all_sees_all_marketing_with_pending(): void
+    {
+        $this->pendingApprovalApplication($this->marketing);
+        $this->pendingApprovalApplication($this->otherMarketing);
+        $this->pendingApprovalApplication($this->marketing);
+
+        $this->actingAs($this->admin)
+            ->get(route('shm.approvals.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('marketing_queue', 2)
+                ->where('marketing_queue.0.pending_count', 2)
+                ->where('marketing_queue.1.pending_count', 1)
+            );
+    }
+
+    public function test_restricted_marketing_sees_only_themselves(): void
+    {
+        $approver = $this->userWithPermissions([
+            'shm.view', 'shm.create', 'shm.submit', 'shm.memorandum.update', 'shm.approval.decide',
+        ]);
+
+        $this->pendingApprovalApplication($approver);
+        $this->pendingApprovalApplication($this->marketing);
+        $this->pendingApprovalApplication($this->otherMarketing);
+
+        $this->actingAs($approver)
+            ->get(route('shm.approvals.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('marketing_queue', 1)
+                ->where('marketing_queue.0.marketing_id', $approver->id)
+                ->where('marketing_queue.0.pending_count', 1)
+            );
+    }
+
+    public function test_restricted_marketing_cannot_learn_other_marketing_pending_count(): void
+    {
+        $approver = $this->userWithPermissions([
+            'shm.view', 'shm.create', 'shm.submit', 'shm.memorandum.update', 'shm.approval.decide',
+        ]);
+
+        $this->pendingApprovalApplication($this->marketing);
+        $this->pendingApprovalApplication($this->marketing);
+
+        $this->actingAs($approver)
+            ->get(route('shm.approvals.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('marketing_queue', 0)
+                ->where('marketing_queue', [])
+            );
+
+        $this->actingAs($approver)
+            ->get(route('shm.approvals.index'))
+            ->assertInertia(fn ($page) => $page->where('pending_count', 0));
+    }
+
+    public function test_marketing_without_permission_cannot_open_approval_with_queue(): void
+    {
+        $this->pendingApprovalApplication($this->marketing);
+
+        $this->actingAs($this->marketing)
+            ->get(route('shm.approvals.index'))
+            ->assertForbidden();
+
+        $this->actingAs($this->otherMarketing)
+            ->get(route('shm.approvals.index'))
+            ->assertForbidden();
+    }
+
+    public function test_marketing_with_pending_zero_shows_empty_state_not_other_marketing(): void
+    {
+        $approver = $this->userWithPermissions([
+            'shm.view', 'shm.create', 'shm.submit', 'shm.memorandum.update', 'shm.approval.decide',
+        ]);
+
+        $this->pendingApprovalApplication($this->marketing);
+        $this->pendingApprovalApplication($this->marketing);
+
+        $this->actingAs($approver)
+            ->get(route('shm.approvals.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('marketing_queue', 0)
+            );
+    }
+
+    public function test_opening_approval_page_with_queue_does_not_mutate(): void
+    {
+        $application = $this->pendingApprovalApplication($this->marketing);
+        $application2 = $this->pendingApprovalApplication($this->otherMarketing);
+        $approvalBefore = ShmApproval::query()
+            ->whereIn('shm_application_id', [$application->id, $application2->id])
+            ->get();
+
+        $auditBefore = AuditLog::query()->count();
+
+        $this->actingAs($this->admin)
+            ->get(route('shm.approvals.index'))
+            ->assertOk();
+
+        $this->actingAs($this->admin)
+            ->get(route('shm.approvals.index'))
+            ->assertInertia(fn ($page) => $page
+                ->has('marketing_queue', 2)
+            );
+
+        $approvalsAfter = ShmApproval::query()
+            ->whereIn('shm_application_id', [$application->id, $application2->id])
+            ->get();
+
+        $this->assertCount($approvalBefore->count(), $approvalsAfter);
+        $approvalsAfter->each(function (ShmApproval $approval) use ($approvalBefore): void {
+            $before = $approvalBefore->firstWhere('id', $approval->id);
+            $this->assertSame($before?->status ?? '', $approval->status);
+            $this->assertSame($before?->decided_by, $approval->decided_by);
+        });
+        $this->assertSame($auditBefore, AuditLog::query()->count());
+    }
+
+    public function test_marketing_queue_navigation_uses_existing_approval_route(): void
+    {
+        $this->pendingApprovalApplication($this->marketing);
+
+        $this->actingAs($this->admin)
+            ->get(route('shm.approvals.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->has('marketing_queue', 1));
     }
 }

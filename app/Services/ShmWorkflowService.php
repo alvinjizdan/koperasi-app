@@ -560,10 +560,38 @@ class ShmWorkflowService
 
     /**
      * Memorandum ke tahap approval.
+     *
+     * Ticket 57: memasuki tahap approval juga mendaftarkan baris keputusan
+     * pada shm_approvals dengan status pending — kontrak bawaan tabel ini
+     * sejak Ticket 44 (status default `pending`, decided_by nullable "selama
+     * pengajuan belum diputuskan"). Ini BUKAN workflow baru: state machine,
+     * transisi, dan audit tidak berubah; baris tersebut adalah source of
+     * truth yang sudah ditentukan ticket untuk visibility pending. Tidak ada
+     * pemanggil pembaca kolom status maupun workflow lain yang terdampak —
+     * keputusan tetap updateOrCreate baris yang sama.
      */
     public function startApproval(ShmApplication $application, int $actorId): ShmApplication
     {
-        return $this->transition($application, ShmApplicationStatus::Approval, $actorId);
+        return DbTransaction::run(function () use ($application, $actorId): ShmApplication {
+            $updated = $this->transition($application, ShmApplicationStatus::Approval, $actorId);
+
+            // Idempoten terhadap putar-putar tahap (return to draft lalu masuk
+            // approval lagi): baris yang sama di-reset ke pending beserta
+            // pembersihan jejak keputusan lama, karena keputusan sebelumnya
+            // sudah digugurkan oleh return-to-draft. Keputusan berikutnya
+            // tetap meng-update baris yang sama (approve/reject).
+            ShmApproval::query()->updateOrCreate(
+                ['shm_application_id' => $updated->id],
+                [
+                    'status' => ShmApproval::STATUS_PENDING,
+                    'decided_by' => null,
+                    'decided_at' => null,
+                    'notes' => null,
+                ],
+            );
+
+            return $updated;
+        });
     }
 
     /**

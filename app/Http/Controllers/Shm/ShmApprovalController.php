@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\BuildsAuditHistory;
 use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Controllers\Controller;
 use App\Models\ShmApplication;
+use App\Models\ShmApproval;
 use App\Models\ShmCustomer;
 use App\Models\ShmDocument;
 use App\Models\ShmMemorandum;
@@ -135,6 +136,26 @@ class ShmApprovalController extends Controller
             'filters' => $filters,
             'statuses' => $this->filterStatusOptions(),
             'types' => ShmMemorandum::typeLabels(),
+            // Ticket 57: jumlah approval pending (ShmApproval.status = pending)
+            // dalam cakupan kepemilikan yang sama dengan daftar ini. Satu query
+            // COUNT, tidak memuat barisnya; hanya dikirim ke pengguna yang sudah
+            // lolos middleware `shm.approval.decide`.
+            'pending_count' => ShmApproval::pendingCountForUser(
+                $this->canViewAllShm(),
+                (int) $request->user()->id
+            ),
+            // Ticket 58: ringkasan antrean approval PER MARKETING.
+            // Satu grouped aggregate (marketing_id + COUNT(*)) dari
+            // ShmApproval.status = pending yang bergabung dengan
+            // shm_applications untuk mendapatkan marketing_id masing-masing
+            // pengajuan. Tanpa shm.view_all, hasil hanya berisi
+            // marketing_id milik pengguna — sehingga tidak ada yang lain.
+            // Marketing dengan 0 pending tidak dimuat. Diurutkan
+            // pending_count DESC, nama ASC.
+            'marketing_queue' => ShmApproval::pendingCountByMarketing(
+                $this->canViewAllShm(),
+                (int) $request->user()->id
+            ),
             'flash' => [
                 'success' => session('success'),
                 'error' => session('error'),

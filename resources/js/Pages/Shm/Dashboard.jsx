@@ -223,6 +223,26 @@ export default function Dashboard({ scope, metrics, flash }) {
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    {/* Ticket 57: jumlah approval yang menunggu keputusan
+                        menurut ShmApproval.status = pending — bukan status
+                        pengajuan. Kartu clickable menuju antrean approval
+                        existing; hanya dirender untuk pengguna yang menerima
+                        angkanya (pemegang permission approval). */}
+                    {typeof metrics.pending_approval === "number" && (
+                        <Link
+                            href={route("shm.approvals.index")}
+                            className="block rounded-xl transition-transform active:scale-[0.99]"
+                        >
+                            <StatCard
+                                title="Pending Approval"
+                                value={metrics.pending_approval}
+                                icon={Gavel}
+                                tone="amber"
+                                statusNote="Klik untuk membuka antrean approval"
+                                scope="Dihitung dari keputusan approval yang belum diambil (ShmApproval pending)."
+                            />
+                        </Link>
+                    )}
                     <StatCard
                         title="Approval (menunggu)"
                         value={statusCount("approval")}
@@ -317,7 +337,62 @@ export default function Dashboard({ scope, metrics, flash }) {
                     </section>
                 </div>
 
-                {/* SECTION 4 — Recent applications */}
+                {/* SECTION 4 — Marketing Operational Summary */}
+                <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                        <h2 className="flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                            <ClipboardCheck className="h-4 w-4" />
+                            Marketing Operational Summary
+                        </h2>
+                    </div>
+
+                    {metrics.marketing_summary && metrics.marketing_summary.length > 0 ? (
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-slate-200 text-xs">
+                                <thead className="bg-slate-50">
+                                    <tr>
+                                        <th className="whitespace-nowrap px-2 py-2 text-left font-semibold text-slate-600">Marketing</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Total</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Masuk</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Credit Checking</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Memorandum</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Approval</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Approved</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Rejected</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Document Check</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Ready for Disbursement</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Disbursed</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Completed</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Pending Approval</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {metrics.marketing_summary.map((row) => (
+                                        <tr key={row.marketing_id} className="hover:bg-slate-50">
+                                            <td className="whitespace-nowrap px-2 py-2 text-left text-slate-700">{row.marketing_name}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right font-medium text-slate-900">{row.total}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.masuk}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.credit_checking}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.memorandum}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.approval}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.approved}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.rejected}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.document_check}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.ready_for_disbursement}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.disbursed}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.completed}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.pending_approval}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-500">Belum ada data operasional Marketing.</p>
+                    )}
+                </section>
+
+                {/* SECTION 5 — Recent applications */}
                 <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                         <h2 className="flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
