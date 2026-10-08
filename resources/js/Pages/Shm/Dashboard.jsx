@@ -76,9 +76,7 @@ const PIPELINE_LINKS = {
     disbursed: "shm.exports.pencairan",
 };
 
-/**
- * Link navigasi modul operasional existing.
- */
+/** Link navigasi modul operasional existing. */
 const NAVIGATION_LINKS = [
     { label: "Proses Marketing", route: "shm.applications.index" },
     { label: "Approval", route: "shm.approvals.index" },
@@ -87,6 +85,100 @@ const NAVIGATION_LINKS = [
     { label: "Data Nasabah Reject", route: "shm.exports.reject" },
     { label: "Data Nasabah Pencairan", route: "shm.exports.pencairan" },
 ];
+
+/** Label aksi drill-down bidang detail pengajuan. */
+const FIELD_LABELS = {
+    total: "Semua pengajuan",
+    masuk: "Pengajuan masuk (submitted_at terisi)",
+    credit_checking: "Tahap Credit Checking",
+    memorandum: "Tahap Memorandum",
+    approval: "Tahap Approval",
+    approved: "Pengajuan disetujui",
+    rejected: "Pengajuan ditolak",
+    document_check: "Tahap Pemeriksaan Dokumen",
+    ready_for_disbursement: "Siap Pencairan",
+    disbursed: "Pengajuan dicairkan",
+    completed: "Pengajuan selesai",
+    pending_approval: "Approval menunggu keputusan",
+};
+
+/**
+ * Aksi klik opsional yang dapat ditambahkan pada setiap baris ringkasan
+ * Marketing. Nilai `null` berarti baris tersebut tetap hanya summary tanpa
+ * tombol aksi tambahan. Saat diisi, button memiliki aksi public affordance
+ * (`Lihat Aplikasi`) yang mengarah ke list pengajuan dengan filter
+ * `marketing_id` yang sesuai.
+ */
+const DRILL_DOWN_ACTIONS = {
+    total: {
+        label: "Lihat Aplikasi",
+        route: "shm.applications.index",
+        params: (row) => ({ marketing_id: row.marketing_id }),
+    },
+    credit_checking: {
+        route: "shm.applications.index",
+        params: (row) => ({
+            marketing_id: row.marketing_id,
+            status: "credit_checking",
+        }),
+    },
+    memorandum: {
+        route: "shm.applications.index",
+        params: (row) => ({
+            marketing_id: row.marketing_id,
+            status: "memorandum",
+        }),
+    },
+    approval: {
+        route: "shm.applications.index",
+        params: (row) => ({
+            marketing_id: row.marketing_id,
+            status: "approval",
+        }),
+    },
+    approved: {
+        route: "shm.applications.index",
+        params: (row) => ({
+            marketing_id: row.marketing_id,
+            status: "approved",
+        }),
+    },
+    rejected: {
+        route: "shm.applications.index",
+        params: (row) => ({
+            marketing_id: row.marketing_id,
+            status: "rejected",
+        }),
+    },
+    document_check: {
+        route: "shm.applications.index",
+        params: (row) => ({
+            marketing_id: row.marketing_id,
+            status: "document_check",
+        }),
+    },
+    ready_for_disbursement: {
+        route: "shm.applications.index",
+        params: (row) => ({
+            marketing_id: row.marketing_id,
+            status: "ready_for_disbursement",
+        }),
+    },
+    disbursed: {
+        route: "shm.applications.index",
+        params: (row) => ({
+            marketing_id: row.marketing_id,
+            status: "disbursed",
+        }),
+    },
+    completed: {
+        route: "shm.applications.index",
+        params: (row) => ({
+            marketing_id: row.marketing_id,
+            status: "completed",
+        }),
+    },
+};
 
 /**
  * Dashboard aplikasi SHM (Ticket 48, ditingkatkan Ticket 56).
@@ -158,6 +250,46 @@ export default function Dashboard({ scope, metrics, flash }) {
             >
                 {inner}
             </div>
+        );
+    };
+
+    const renderDrillDown = (row) => {
+        const action = DRILL_DOWN_ACTIONS.total;
+
+        return (
+            <Link
+                key={`${action.route}-${row.marketing_id}`}
+                href={route(action.route, action.params(row))}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700"
+            >
+                <ClipboardCheck className="h-3.5 w-3.5" />
+                {action.label}
+                <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
+            </Link>
+        );
+    };
+
+    const renderStatusCell = (row, statusKey) => {
+        const count = row[statusKey] ?? 0;
+        const action = DRILL_DOWN_ACTIONS[statusKey];
+
+        if (count === 0 || !action) {
+            return (
+                <td className="whitespace-nowrap px-2 py-2 text-right text-slate-500">
+                    {count}
+                </td>
+            );
+        }
+
+        return (
+            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">
+                <Link
+                    href={route(action.route, action.params(row))}
+                    className="font-semibold text-indigo-600 hover:text-indigo-700 hover:underline"
+                >
+                    {count}
+                </Link>
+            </td>
         );
     };
 
@@ -351,44 +483,90 @@ export default function Dashboard({ scope, metrics, flash }) {
                             <table className="min-w-full divide-y divide-slate-200 text-xs">
                                 <thead className="bg-slate-50">
                                     <tr>
-                                        <th className="whitespace-nowrap px-2 py-2 text-left font-semibold text-slate-600">Marketing</th>
-                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Total</th>
-                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Masuk</th>
-                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Credit Checking</th>
-                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Memorandum</th>
-                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Approval</th>
-                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Approved</th>
-                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Rejected</th>
-                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Document Check</th>
-                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Ready for Disbursement</th>
-                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Disbursed</th>
-                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Completed</th>
-                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">Pending Approval</th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-left font-semibold text-slate-600">
+                                            Marketing
+                                        </th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">
+                                            Total
+                                        </th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">
+                                            Masuk
+                                        </th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">
+                                            Credit Checking
+                                        </th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">
+                                            Memorandum
+                                        </th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">
+                                            Approval
+                                        </th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">
+                                            Approved
+                                        </th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">
+                                            Rejected
+                                        </th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">
+                                            Document Check
+                                        </th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">
+                                            Ready for Disbursement
+                                        </th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">
+                                            Disbursed
+                                        </th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">
+                                            Completed
+                                        </th>
+                                        <th className="whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600">
+                                            Pending Approval
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {metrics.marketing_summary.map((row) => (
-                                        <tr key={row.marketing_id} className="hover:bg-slate-50">
-                                            <td className="whitespace-nowrap px-2 py-2 text-left text-slate-700">{row.marketing_name}</td>
-                                            <td className="whitespace-nowrap px-2 py-2 text-right font-medium text-slate-900">{row.total}</td>
-                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.masuk}</td>
-                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.credit_checking}</td>
-                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.memorandum}</td>
-                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.approval}</td>
-                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.approved}</td>
-                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.rejected}</td>
-                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.document_check}</td>
-                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.ready_for_disbursement}</td>
-                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.disbursed}</td>
-                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.completed}</td>
-                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">{row.pending_approval}</td>
+                                        <tr
+                                            key={row.marketing_id}
+                                            className="hover:bg-slate-50"
+                                        >
+                                            <td className="whitespace-nowrap px-2 py-2 text-left text-slate-700">
+                                                {row.marketing_name}
+                                            </td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right font-medium text-slate-900">
+                                                {row.total}
+                                            </td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">
+                                                {row.masuk}
+                                            </td>
+                                            {renderStatusCell(row, "credit_checking")}
+                                            {renderStatusCell(row, "memorandum")}
+                                            {renderStatusCell(row, "approval")}
+                                            {renderStatusCell(row, "approved")}
+                                            {renderStatusCell(row, "rejected")}
+                                            {renderStatusCell(row, "document_check")}
+                                            {renderStatusCell(row, "ready_for_disbursement")}
+                                            {renderStatusCell(row, "disbursed")}
+                                            {renderStatusCell(row, "completed")}
+                                            <td className="whitespace-nowrap px-2 py-2 text-right text-slate-700">
+                                                {row.pending_approval}
+                                            </td>
+                                            <td className="-whitespace-nowrap px-2 py-2">
+                                                {DRILL_DOWN_ACTIONS.total && (
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        {renderDrillDown(row)}
+                                                    </div>
+                                                )}
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
                     ) : (
-                        <p className="text-sm text-gray-500">Belum ada data operasional Marketing.</p>
+                        <p className="text-sm text-gray-500">
+                            Belum ada data operasional Marketing.
+                        </p>
                     )}
                 </section>
 
