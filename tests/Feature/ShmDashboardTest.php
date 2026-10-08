@@ -602,6 +602,64 @@ class ShmDashboardTest extends TestCase
             );
     }
 
+    /**
+     * T61-FIX — query ambil marketing dengan pending approval melakukan JOIN
+     * ke shm_applications, yang juga memiliki kolom `status`.
+     *
+     * Kondisi pending HARUS merujuk shm_approvals.status; status pengajuan
+     * tidak boleh ikut mengendalikan hitungan pending approval, dan pembukaan
+     * dashboard tidak boleh melempar SQLSTATE[42702] (ambiguous column).
+     */
+    public function test_pending_approval_join_filters_approval_status_not_application_status(): void
+    {
+        // Marketing A: baris approval tetap pending, sementara status
+        // pengajuan dipaksa keluar dari tahap approval. Hitungan pending
+        // tetap 1 karena hanya shm_approvals.status yang menentukan.
+        $ownApplication = $this->pendingApproval($this->marketing);
+        $ownApplication->forceFill(['status' => ShmApplicationStatus::Submitted])->save();
+
+        // Marketing B: approval sudah diputuskan (approved), tetapi status
+        // pengajuan dipaksa kembali ke tahap approval. TIDAK dihitung pending.
+        $otherApplication = $this->pendingApproval($this->otherMarketing);
+        $this->actingAs($this->admin)
+            ->post(route('shm.applications.approve', $otherApplication->id))
+            ->assertSessionHasNoErrors();
+        $otherApplication->forceFill(['status' => ShmApplicationStatus::Approval])->save();
+
+        // Pembukaan dashboard menjalankan query JOIN distinct per marketing:
+        // harus 200 tanpa SQLSTATE[42702], dengan hasil bisnis yang benar.
+        $this->actingAs($this->admin)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(function ($page) {
+                $summaries = collect($page->toArray()['props']['metrics']['marketing_summary'] ?? []);
+
+                $own = $summaries->firstWhere('marketing_id', $this->marketing->id);
+                $other = $summaries->firstWhere('marketing_id', $this->otherMarketing->id);
+
+                // Pending approval hanya ditentukan shm_approvals.status = pending.
+                $this->assertSame(1, $own['pending_approval'] ?? 0);
+                $this->assertNotNull($other);
+                $this->assertSame(0, $other['pending_approval'] ?? 0);
+                // Grouping per marketing tetap benar: baris lain tetap ada
+                // karena jumlah pengajunya > 0.
+                $this->assertSame(1, $other['total'] ?? 0);
+                $this->assertSame(1, $own['total'] ?? 0);
+            });
+
+        // Restricted user: query JOIN yang sama tetap dibatasi ownership.
+        $this->actingAs($this->marketing)
+            ->get(route('shm.dashboard'))
+            ->assertOk()
+            ->assertInertia(function ($page) {
+                $summaries = collect($page->toArray()['props']['metrics']['marketing_summary'] ?? []);
+
+                $this->assertCount(1, $summaries);
+                $this->assertSame($this->marketing->id, $summaries[0]['marketing_id']);
+                $this->assertSame(1, $summaries[0]['pending_approval'] ?? 0);
+            });
+    }
+
     public function test_marketing_summary_does_not_mutate_data(): void
     {
         $app = $this->application($this->marketing);

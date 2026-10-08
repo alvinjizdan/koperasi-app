@@ -206,7 +206,7 @@ class ShmDashboardController extends Controller
 
         // Also get marketing IDs that have pending approvals (respecting ownership)
         $pendingApprovalMarketingIds = ShmApproval::query()
-            ->where('status', ShmApproval::STATUS_PENDING)
+            ->where('shm_approvals.status', ShmApproval::STATUS_PENDING)
             ->join('shm_applications', 'shm_approvals.shm_application_id', '=', 'shm_applications.id')
             ->when(! $seesEverything, fn (Builder $q) => $q->where('shm_applications.marketing_id', $userId))
             ->distinct()
@@ -281,6 +281,7 @@ class ShmDashboardController extends Controller
                 if ($a['total'] !== $b['total']) {
                     return $b['total'] <=> $a['total']; // desc
                 }
+
                 return Str::lower($a['marketing_name']) <=> Str::lower($b['marketing_name']); // asc
             })
             ->values()
