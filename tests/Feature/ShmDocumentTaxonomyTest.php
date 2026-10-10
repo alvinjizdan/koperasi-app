@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\ShmApplicationStatus;
 use App\Models\AuditLog;
+use App\Models\Role;
 use App\Models\ShmApplication;
 use App\Models\ShmCustomer;
 use App\Models\ShmDocument;
@@ -29,7 +30,9 @@ class ShmDocumentTaxonomyTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $marketing;
+
     private ShmCustomer $customer;
 
     protected function setUp(): void
@@ -47,7 +50,7 @@ class ShmDocumentTaxonomyTest extends TestCase
     private function userWithRole(string $roleName): User
     {
         $user = User::factory()->create(['email_verified_at' => now()]);
-        $user->roles()->attach(\App\Models\Role::query()->where('name', $roleName)->value('id'));
+        $user->roles()->attach(Role::query()->where('name', $roleName)->value('id'));
 
         return $user;
     }
@@ -175,7 +178,7 @@ class ShmDocumentTaxonomyTest extends TestCase
     // B. Completeness semantics tidak berubah
     // -----------------------------------------------------------------
 
-    public function test_documentsComplete_semantics_unchanged(): void
+    public function test_documents_complete_semantics_unchanged(): void
     {
         $application = $this->createApplicationFor($this->marketing);
 
@@ -365,7 +368,7 @@ class ShmDocumentTaxonomyTest extends TestCase
 
     public function test_no_new_application_status_introduced(): void
     {
-        $cases = \App\Enums\ShmApplicationStatus::cases();
+        $cases = ShmApplicationStatus::cases();
         $values = array_column($cases, 'value');
 
         $this->assertNotContains('document_requirement', $values);

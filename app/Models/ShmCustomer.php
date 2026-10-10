@@ -68,6 +68,16 @@ class ShmCustomer extends Model
     }
 
     /**
+     * Record Pinjaman SHM milik nasabah ini (Ticket 64).
+     *
+     * @return HasMany<ShmLoan, $this>
+     */
+    public function loans(): HasMany
+    {
+        return $this->hasMany(ShmLoan::class);
+    }
+
+    /**
      * Apakah titik lokasi nasabah sudah terisi?
      *
      * Lokasi boleh kosong; tidak ada koordinat pengganti yang dibuat otomatis.

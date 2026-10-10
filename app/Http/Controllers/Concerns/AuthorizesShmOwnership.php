@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Concerns;
 
 use App\Models\ShmApplication;
+use App\Models\ShmLoanApplication;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 
@@ -31,6 +32,21 @@ trait AuthorizesShmOwnership
      * Pastikan pengguna berhak membuka pengajuan ini.
      */
     protected function authorizeShmOwnership(Request $request, ShmApplication $application): void
+    {
+        abort_if(
+            ! $this->canViewAllShm() && $application->marketing_id !== $request->user()->id,
+            403,
+            'Pengajuan ini bukan milik Anda.'
+        );
+    }
+
+    /**
+     * Ticket 68 — pastikan pengguna berhak membuka/mengelola Pengajuan
+     * Pinjaman SHM (ShmLoanApplication). Aturan IDENTIK dengan pengajuan
+     * legacy: tanpa `shm.view_all`, hanya pengajuan milik sendiri; server-
+     * side, bukan menyembunyikan tombol di UI.
+     */
+    protected function authorizeLoanOwnership(Request $request, ShmLoanApplication $application): void
     {
         abort_if(
             ! $this->canViewAllShm() && $application->marketing_id !== $request->user()->id,

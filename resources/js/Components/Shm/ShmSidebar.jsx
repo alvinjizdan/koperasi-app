@@ -3,6 +3,7 @@ import { Link, usePage } from "@inertiajs/react";
 import { ScrollArea } from "@/Components/ui/scroll-area";
 import {
     Briefcase,
+    Calculator,
     ChevronDown,
     ClipboardCheck,
     FileText,
@@ -129,6 +130,45 @@ const shmNavigation = [
                 permission: "shm.approval.decide",
                 pendingKey: "approvals",
             },
+        ],
+    },
+    // Ticket 64/65/66: modul finansial SHM — Pinjaman yang TERPISAH dari modul
+    // Pinjaman koperasi. Memakai permission `shm.view` yang sudah ada (tidak ada
+    // permission baru) dan hanya menampilkan data domain `shm_loan_*`.
+    // Modul Simpanan SHM dihapus pada Ticket 65 (tidak diperlukan).
+    //
+    // Ticket 66: struktur menu Pinjaman sesuai target product scope — item
+    // yang halamannya BELUM dibangun (Jaminan, Pembayaran/Angsuran, Pelunasan,
+    // Laporan) TIDAK diberi `route`, sehingga dirender sebagai baris statis
+    // yang tidak pernah menjadi tautan mati.
+    {
+        name: "Pinjaman",
+        icon: Calculator,
+        children: [
+            {
+                name: "Pengajuan Pinjaman",
+                route: "shm.loans.pengajuan",
+                permission: "shm.view",
+            },
+            {
+                name: "Daftar Pengajuan",
+                route: "shm.loans.pengajuan.daftar",
+                permission: "shm.view",
+            },
+            {
+                name: "Daftar Pinjaman",
+                route: "shm.loans.index",
+                permission: "shm.view",
+            },
+            {
+                name: "Simulasi Pinjaman",
+                route: "shm.loans.simulation",
+                permission: "shm.view",
+            },
+            { name: "Jaminan" },
+            { name: "Pembayaran / Angsuran" },
+            { name: "Pelunasan" },
+            { name: "Laporan" },
         ],
     },
     // Ticket 55: modul Export kini operasional sebagai pemantauan data

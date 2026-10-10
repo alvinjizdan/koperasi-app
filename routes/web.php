@@ -32,6 +32,7 @@ use App\Http\Controllers\Shm\ShmDashboardController;
 use App\Http\Controllers\Shm\ShmDocumentsController;
 use App\Http\Controllers\Shm\ShmEntryController;
 use App\Http\Controllers\Shm\ShmExportController;
+use App\Http\Controllers\Shm\ShmLoanController;
 use App\Http\Controllers\Shm\ShmLoginController;
 use App\Http\Controllers\Shm\ShmMemorandumController;
 use App\Http\Controllers\UserController;
@@ -552,6 +553,92 @@ Route::prefix('shm')->name('shm.')->group(function () {
                 ->middleware('permission:marketing.result.update')
                 ->name('marketing.activities.result.update');
         });
+
+        // -----------------------------------------------------------------
+        // Modul Finansial SHM (Ticket 64): Pinjaman SHM.
+        //
+        // Domain finansial SHM TERPISAH dari modul Pinjaman koperasi:
+        // tabel `shm_loan_*` tidak berelasi ke `members`, `saving_products`,
+        // `savings_accounts`, `loans`, maupun `installment_*`. Nasabah SHM
+        // tidak otomatis menjadi anggota koperasi sehingga tidak ada foreign
+        // key atau logika konversi ke arah sana.
+        //
+        // Modul Simpanan SHM dihapus pada Ticket 65 (tidak diperlukan).
+        //
+        // Route literal (/pinjaman/produk, /pinjaman/simulasi,
+        // /pinjaman/pengajuan) didaftarkan sebelum route parameter ({loan})
+        // agar tidak tertelan wildcard. Permission `shm.view` yang sudah ada dipakai untuk
+        // seluruh halaman; tidak ada permission baru, dan halaman bersifat
+        // baca (tulis transaksi/pinjaman = PENDING BUSINESS CONFIRMATION).
+        // -----------------------------------------------------------------
+        Route::middleware('permission:shm.view')->group(function () {
+            // Master produk Pinjaman SHM.
+            Route::get('/pinjaman/produk', [ShmLoanController::class, 'products'])
+                ->name('loans.products.index');
+
+            // Simulasi Pinjaman SHM + ekspor PDF hasil simulasi.
+            // Keduanya menerima input yang sama (`run=1` menandai submit)
+            // sehingga PDF selalu identik dengan hasil di layar.
+            Route::get('/pinjaman/simulasi', [ShmLoanController::class, 'simulation'])
+                ->name('loans.simulation');
+            Route::get('/pinjaman/simulasi/pdf', [ShmLoanController::class, 'simulationPdf'])
+                ->name('loans.simulation.pdf');
+
+            // Halaman Pengajuan Pinjaman (Ticket 66): SATU halaman dengan 11
+            // section accordion. Ticket 67 menambahkan persistence (POST),
+            // detail tersimpan, dan export PDF — seluruhnya route literal
+            // SEBELUM /pinjaman/{loan} agar tidak tertelan wildcard.
+            Route::get('/pinjaman/pengajuan', [ShmLoanController::class, 'pengajuan'])
+                ->name('loans.pengajuan');
+            // Ticket 68 — daftar (literal, SEBELUM /pengajuan/{application}).
+            Route::get('/pinjaman/pengajuan/daftar', [ShmLoanController::class, 'daftar'])
+                ->name('loans.pengajuan.daftar');
+            Route::post('/pinjaman/pengajuan', [ShmLoanController::class, 'store'])
+                ->name('loans.pengajuan.store');
+            Route::get('/pinjaman/pengajuan/{application}', [ShmLoanController::class, 'pengajuanShow'])
+                ->name('loans.pengajuan.show');
+            Route::get('/pinjaman/pengajuan/{application}/pdf', [ShmLoanController::class, 'applicationPdf'])
+                ->name('loans.pengajuan.pdf');
+
+            // Daftar record pinjaman SHM + detail pinjaman.
+            Route::get('/pinjaman', [ShmLoanController::class, 'index'])
+                ->name('loans.index');
+            Route::get('/pinjaman/{loan}', [ShmLoanController::class, 'show'])
+                ->name('loans.show');
+        });
+
+        // -----------------------------------------------------------------
+        // Ticket 68 — edit/update Pengajuan Pinjaman & Ajukan Approval.
+        //
+        // Permission mengikuti pola pengajuan legacy (shm.applications.*):
+        // update = `shm.update`, submit/ajukan = `shm.submit` — keduanya sudah
+        // ada (marketing punya keduanya); TANPA permission baru. Keputusan
+        // approve/reject TIDAK punya endpoint baru di sini: tetap memakai
+        // shm.applications.approve/reject existing dengan
+        // `shm.approval.decide`.
+        // -----------------------------------------------------------------
+        Route::get('/pinjaman/pengajuan/{application}/edit', [ShmLoanController::class, 'edit'])
+            ->middleware('permission:shm.update')
+            ->name('loans.pengajuan.edit');
+        Route::put('/pinjaman/pengajuan/{application}', [ShmLoanController::class, 'update'])
+            ->middleware('permission:shm.update')
+            ->name('loans.pengajuan.update');
+        Route::post('/pinjaman/pengajuan/{application}/ajukan-approval', [ShmLoanController::class, 'submitApproval'])
+            ->middleware('permission:shm.submit')
+            ->name('loans.pengajuan.submit-approval');
+
+        // -----------------------------------------------------------------
+        // Ticket 69 — Pencairan Pengajuan yang approval-nya DISETUJUI.
+        //
+        // Permission `shm.disburse` existing ("Menandai pengajuan sebagai
+        // dicairkan") — tanpa permission baru; marketing sengaja tidak
+        // memilikinya (batas kewenangan pencairan). Ownership tetap di
+        // AuthorizesShmOwnership; guard approval/idempotency ada di
+        // ShmLoanDisbursementService (server-side).
+        // -----------------------------------------------------------------
+        Route::post('/pinjaman/pengajuan/{application}/pencairan', [ShmLoanController::class, 'disburse'])
+            ->middleware('permission:shm.disburse')
+            ->name('loans.pengajuan.disburse');
 
         // -----------------------------------------------------------------
         // Modul Export — pemantauan data operasional (Ticket 55).
