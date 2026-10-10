@@ -3,19 +3,58 @@ import { Head, Link } from '@inertiajs/react';
 import ShmLayout from '@/Layouts/ShmLayout';
 import ReportTable from '@/Components/Admin/ReportTable';
 import { formatDate, formatDateTime, formatRupiah } from '@/utils/format';
-import { ArrowLeft, Calculator } from 'lucide-react';
+import {
+    ArrowLeft,
+    Building2,
+    Calculator,
+    CalendarCheck,
+    FileText,
+    History,
+    Landmark,
+    User,
+} from 'lucide-react';
 
 const PERIOD_LABEL = { yearly: 'tahun', monthly: 'bulan' };
 
+/** Label status pengajuan asal (vocabulary existing, tanpa status baru). */
+const APPLICATION_STATUS_LABEL = {
+    pending: 'Menunggu',
+    approved: 'Disetujui',
+    rejected: 'Ditolak',
+};
+
+/** Baris definisi konsisten untuk seluruh section. */
+function Field({ label, children }) {
+    return (
+        <div>
+            <dt className="text-xs text-gray-500">{label}</dt>
+            <dd className="font-medium">{children ?? '-'}</dd>
+        </div>
+    );
+}
+
 /**
- * Detail record Pinjaman SHM (Ticket 64).
+ * Detail record Pinjaman SHM (Ticket 64, diperluas Ticket 70).
  *
- * Tabel angsuran hanya ditampilkan bila record menyimpan pilihan eksplisit
- * metode & periode rate. Tanpa keduanya, formula angsuran SHM masih PENDING
- * BUSINESS CONFIRMATION sehingga tidak ada jadwal yang boleh dirender.
+ * Ticket 70 menambahkan layer MONITORING setelah pencairan: data nasabah SHM
+ * lengkap, pengajuan asal, ringkasan pencairan, jaminan/barang agunan, dan
+ * garis waktu dari audit trail existing.
+ *
+ * SELURUH angka berasal dari record yang sudah tersimpan — tidak ada
+ * perhitungan bunga, jadwal angsuran, nominal angsuran, maupun pelunasan di
+ * ticket ini. Tabel angsuran hanya tetap ditampilkan bila record memang
+ * menyimpan pilihan eksplisit metode & periode rate (perilaku Ticket 64);
+ * tanpa keduanya formula SHM masih PENDING BUSINESS CONFIRMATION.
+ *
+ * Periode rate TIDAK pernah diasumsikan: hanya tampil bila record
+ * menyimpannya.
  */
 export default function Show({ loan, result }) {
     const rows = result?.rows ?? [];
+    const application = loan.application ?? null;
+    const timeline = loan.timeline ?? [];
+    const jaminan = loan.jaminan ?? [];
+    const agunan = loan.agunan ?? [];
 
     const columns = [
         { key: 'period', label: 'No', align: 'center', render: (row) => row.period },
@@ -45,6 +84,60 @@ export default function Show({ loan, result }) {
         },
     ];
 
+    const jaminanColumns = [
+        {
+            key: 'jenis',
+            label: 'Jenis',
+            sortable: false,
+            render: (row) => row.jenis,
+        },
+        {
+            key: 'nama',
+            label: 'Nama',
+            sortable: false,
+            render: (row) => row.nama,
+        },
+        {
+            key: 'tanggal',
+            label: 'Tanggal',
+            sortable: false,
+            render: (row) => (row.tanggal ? formatDate(row.tanggal) : '-'),
+        },
+        {
+            key: 'nilai_perkiraan',
+            label: 'Nilai Perkiraan',
+            sortable: false,
+            align: 'right',
+            render: (row) => formatRupiah(row.nilai_perkiraan),
+        },
+        {
+            key: 'status_pengikatan',
+            label: 'Status Pengikatan',
+            sortable: false,
+            render: (row) => row.status_pengikatan || '-',
+        },
+        {
+            key: 'nilai_hak_tanggungan',
+            label: 'Hak Tanggungan',
+            sortable: false,
+            align: 'right',
+            render: (row) => formatRupiah(row.nilai_hak_tanggungan),
+        },
+    ];
+
+    const agunanColumns = [
+        { key: 'jenis', label: 'Jenis Barang', sortable: false, render: (row) => row.jenis },
+        { key: 'nomor', label: 'No. Barang', sortable: false, render: (row) => row.nomor || '-' },
+        { key: 'tahun', label: 'Tahun', sortable: false, render: (row) => row.tahun || '-' },
+        {
+            key: 'nilai',
+            label: 'Nilai Perkiraan',
+            sortable: false,
+            align: 'right',
+            render: (row) => formatRupiah(row.nilai),
+        },
+    ];
+
     return (
         <ShmLayout title={`Pinjaman ${loan.loan_number}`}>
             <Head title={`Pinjaman ${loan.loan_number}`} />
@@ -66,7 +159,15 @@ export default function Show({ loan, result }) {
                             {loan.customer?.name} &middot; {loan.product?.name}
                         </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {application && (
+                            <Link href={route('shm.loans.pengajuan.show', application.id)}>
+                                <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                                    <FileText className="h-4 w-4" />
+                                    Lihat Pengajuan
+                                </span>
+                            </Link>
+                        )}
                         <Link href={route('shm.loans.simulation')}>
                             <span className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100">
                                 <Calculator className="h-4 w-4" />
@@ -86,118 +187,274 @@ export default function Show({ loan, result }) {
                 </div>
 
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                    <section className="rounded-lg bg-white p-5 shadow lg:col-span-1">
-                        <h2 className="mb-3 text-sm font-semibold uppercase text-slate-600">
+                    {/* 1. Informasi Pinjaman */}
+                    <section className="rounded-lg bg-white p-5 shadow">
+                        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                            <Landmark className="h-4 w-4 text-slate-400" />
                             Informasi Pinjaman
                         </h2>
                         <dl className="space-y-3 text-sm">
-                            <div>
-                                <dt className="text-xs text-gray-500">No. Pinjaman</dt>
-                                <dd className="font-medium">{loan.loan_number}</dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs text-gray-500">Nasabah SHM</dt>
-                                <dd className="font-medium">{loan.customer?.name}</dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs text-gray-500">Produk Pinjaman</dt>
-                                <dd className="font-medium">{loan.product?.name}</dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs text-gray-500">Plafon</dt>
-                                <dd className="text-lg font-semibold text-indigo-700">
+                            <Field label="No. Pinjaman">{loan.loan_number}</Field>
+                            <Field label="Status">
+                                <span
+                                    className={`rounded-full px-2 py-1 text-xs font-medium ${
+                                        loan.status === 'active'
+                                            ? 'bg-emerald-50 text-emerald-700'
+                                            : 'bg-slate-100 text-slate-600'
+                                    }`}
+                                >
+                                    {loan.status === 'active' ? 'Berjalan' : 'Ditutup'}
+                                </span>
+                            </Field>
+                            <Field label="Produk Pinjaman">{loan.product?.name}</Field>
+                            <Field label="Plafon">
+                                <span className="text-lg font-semibold text-indigo-700">
                                     {formatRupiah(loan.principal)}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs text-gray-500">Tenor</dt>
-                                <dd className="font-medium">{loan.tenor_months} bulan</dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs text-gray-500">Bunga / Jasa</dt>
-                                <dd className="font-medium">
-                                    {Number(loan.rate_percent)}%
-                                    {loan.rate_period
-                                        ? ` per ${PERIOD_LABEL[loan.rate_period]}`
-                                        : ' — periode rate belum dipilih'}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs text-gray-500">Saldo Pokok</dt>
-                                <dd className="font-medium">{formatRupiah(loan.outstanding)}</dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs text-gray-500">Lokasi</dt>
-                                <dd>{loan.location || '-'}</dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs text-gray-500">Tujuan Pinjaman</dt>
-                                <dd>{loan.purpose || '-'}</dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs text-gray-500">Dicairkan</dt>
-                                <dd>{loan.disbursed_at ? formatDate(loan.disbursed_at) : '-'}</dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs text-gray-500">Terdaftar</dt>
-                                <dd>{formatDateTime(loan.created_at)}</dd>
-                            </div>
+                                </span>
+                            </Field>
+                            <Field label="Tenor">{loan.tenor_months} bulan</Field>
+                            <Field label="Bunga / Jasa">
+                                {Number(loan.rate_percent)}%
+                                {loan.rate_period
+                                    ? ` per ${PERIOD_LABEL[loan.rate_period]}`
+                                    : ' — periode rate belum dipilih'}
+                            </Field>
+                            {loan.calculation_method && (
+                                <Field label="Metode Perhitungan">
+                                    {loan.calculation_method}
+                                </Field>
+                            )}
+                            <Field label="Saldo Pokok">
+                                {formatRupiah(loan.outstanding)}
+                            </Field>
+                            <Field label="Lokasi">{loan.location}</Field>
+                            <Field label="Tujuan Pinjaman">{loan.purpose}</Field>
+                            {loan.note && <Field label="Catatan">{loan.note}</Field>}
+                            <Field label="Terdaftar">
+                                {formatDateTime(loan.created_at)}
+                            </Field>
                         </dl>
                     </section>
 
-                    <section className="space-y-4 lg:col-span-2">
-                        <h2 className="text-sm font-semibold uppercase text-slate-600">
-                            Tabel Angsuran
-                        </h2>
+                    <section className="space-y-6 lg:col-span-2">
+                        {/* 2. Data Customer */}
+                        <section className="rounded-lg bg-white p-5 shadow">
+                            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                                <User className="h-4 w-4 text-slate-400" />
+                                Data Nasabah SHM
+                            </h2>
+                            <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                                <Field label="No. Nasabah">
+                                    {loan.customer?.customer_number}
+                                </Field>
+                                <Field label="Nama">{loan.customer?.name}</Field>
+                                <Field label="NIK">{loan.customer?.nik}</Field>
+                                <Field label="Telepon">{loan.customer?.phone}</Field>
+                                <Field label="Alamat">{loan.customer?.address}</Field>
+                                <Field label="Terdaftar">
+                                    {loan.customer?.registered_at
+                                        ? formatDate(loan.customer.registered_at)
+                                        : '-'}
+                                </Field>
+                            </dl>
+                            <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                                Data nasabah diambil dari master Nasabah SHM
+                                (shm_customers) dan tidak dicampur dengan data
+                                anggota koperasi.
+                            </p>
+                        </section>
 
-                        {result ? (
-                            <>
-                                <div className="flex flex-wrap gap-4 rounded-lg bg-white p-4 text-sm shadow">
-                                    <div>
-                                        <p className="text-xs text-gray-500">Metode</p>
-                                        <p className="font-medium">
-                                            {result.method === 'flat'
-                                                ? 'Bunga flat'
-                                                : result.method === 'effective'
-                                                  ? 'Bunga efektif'
-                                                  : 'Anuitas'}
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <p className="text-xs text-gray-500">Total jasa</p>
-                                        <p className="font-medium">
-                                            {formatRupiah(result.total_interest)}
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <p className="text-xs text-gray-500">
-                                            Total kewajiban
-                                        </p>
-                                        <p className="font-medium">
-                                            {formatRupiah(result.total_obligation)}
-                                        </p>
-                                    </div>
-                                </div>
+                        {/* 3. Informasi Pengajuan */}
+                        <section className="rounded-lg bg-white p-5 shadow">
+                            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                                <FileText className="h-4 w-4 text-slate-400" />
+                                Informasi Pengajuan
+                            </h2>
+                            {application ? (
+                                <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                                    <Field label="No. Pengajuan">
+                                        <Link
+                                            href={route(
+                                                'shm.loans.pengajuan.show',
+                                                application.id,
+                                            )}
+                                            className="text-indigo-600 hover:underline"
+                                        >
+                                            {application.application_number}
+                                        </Link>
+                                    </Field>
+                                    <Field label="Tanggal Pengajuan">
+                                        {application.application_date
+                                            ? formatDate(application.application_date)
+                                            : '-'}
+                                    </Field>
+                                    <Field label="Tujuan Pengajuan">
+                                        {application.purpose}
+                                    </Field>
+                                    <Field label="Status Pengajuan">
+                                        {APPLICATION_STATUS_LABEL[application.status] ??
+                                            application.status}
+                                    </Field>
+                                    <Field label="Plafon Diajukan">
+                                        {formatRupiah(application.principal)}
+                                    </Field>
+                                    <Field label="Tenor Diajukan">
+                                        {application.tenor_months} bulan
+                                    </Field>
+                                </dl>
+                            ) : (
+                                <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
+                                    Pinjaman ini tidak berasal dari alur
+                                    pencairan pengajuan, sehingga tidak ada
+                                    pengajuan yang dapat dirujuk.
+                                </p>
+                            )}
+                        </section>
 
-                                <ReportTable
-                                    columns={columns}
-                                    rows={rows}
-                                    emptyTitle="Belum ada jadwal angsuran"
-                                    emptyDescription="Jadwal angsuran akan tampil di sini."
-                                />
-                            </>
-                        ) : (
-                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                                Formula angsuran pinjaman ini belum ditentukan.
-                                Metode (flat / efektif / anuitas) dan periode rate
-                                (per bulan / per tahun) adalah{' '}
-                                <strong>PENDING BUSINESS CONFIRMATION</strong>, sehingga
-                                tabel angsuran tidak ditampilkan. Rate tersimpan pada
-                                record ini: <strong>{Number(loan.rate_percent)}%</strong>.
-                            </div>
-                        )}
+                        {/* 4. Informasi Pencairan */}
+                        <section className="rounded-lg bg-white p-5 shadow">
+                            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                                <CalendarCheck className="h-4 w-4 text-slate-400" />
+                                Informasi Pencairan
+                            </h2>
+                            <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                                <Field label="Status Pencairan">
+                                    {loan.disbursement?.disbursed_at
+                                        ? 'Sudah dicairkan'
+                                        : 'Belum dicairkan'}
+                                </Field>
+                                <Field label="Tanggal Pencairan">
+                                    {loan.disbursement?.disbursed_at
+                                        ? formatDate(loan.disbursement.disbursed_at)
+                                        : '-'}
+                                </Field>
+                                <Field label="No. Pinjaman">
+                                    {loan.disbursement?.loan_number}
+                                </Field>
+                                <Field label="Nilai Dicairkan">
+                                    {formatRupiah(loan.disbursement?.principal)}
+                                </Field>
+                            </dl>
+                        </section>
+
+                        {/* 5. Jaminan & Barang Agunan */}
+                        <section className="rounded-lg bg-white p-5 shadow">
+                            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                                <Building2 className="h-4 w-4 text-slate-400" />
+                                Jaminan
+                            </h2>
+
+                            <h3 className="mb-2 text-xs font-semibold text-slate-500">
+                                Jaminan Pinjaman
+                            </h3>
+                            <ReportTable
+                                columns={jaminanColumns}
+                                rows={jaminan}
+                                emptyTitle="Belum ada jaminan"
+                                emptyDescription="Jaminan yang tersimpan pada pengajuan akan tampil di sini."
+                            />
+
+                            <h3 className="mb-2 mt-5 text-xs font-semibold text-slate-500">
+                                Barang Agunan Kredit
+                            </h3>
+                            <ReportTable
+                                columns={agunanColumns}
+                                rows={agunan}
+                                emptyTitle="Belum ada barang agunan"
+                                emptyDescription="Barang agunan yang tersimpan pada pengajuan akan tampil di sini."
+                            />
+                        </section>
+
+                        {/* 6. Timeline / Aktivitas */}
+                        <section className="rounded-lg bg-white p-5 shadow">
+                            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                                <History className="h-4 w-4 text-slate-400" />
+                                Timeline Aktivitas
+                            </h2>
+                            {timeline.length > 0 ? (
+                                <ol className="space-y-3">
+                                    {timeline.map((entry, index) => (
+                                        <li
+                                            key={`${entry.action}-${index}`}
+                                            className="flex items-start gap-3 border-l-2 border-indigo-100 pl-3"
+                                        >
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-sm text-slate-700">
+                                                    {entry.description || entry.action}
+                                                </p>
+                                                <p className="text-xs text-slate-400">
+                                                    {entry.actor
+                                                        ? `${entry.actor} · `
+                                                        : ''}
+                                                    {formatDateTime(entry.created_at)}
+                                                </p>
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ol>
+                            ) : (
+                                <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
+                                    Belum ada catatan aktivitas untuk pinjaman ini.
+                                </p>
+                            )}
+                        </section>
                     </section>
                 </div>
+
+                {/* Tabel Angsuran — perilaku Ticket 64 yang sudah ada. */}
+                <section className="rounded-lg bg-white p-5 shadow">
+                    <h2 className="mb-3 text-sm font-semibold uppercase text-slate-600">
+                        Tabel Angsuran
+                    </h2>
+
+                    {result ? (
+                        <>
+                            <div className="flex flex-wrap gap-4 rounded-lg bg-white p-4 text-sm shadow">
+                                <div>
+                                    <p className="text-xs text-gray-500">Metode</p>
+                                    <p className="font-medium">
+                                        {result.method === 'flat'
+                                            ? 'Bunga flat'
+                                            : result.method === 'effective'
+                                              ? 'Bunga efektif'
+                                              : 'Anuitas'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-500">Total jasa</p>
+                                    <p className="font-medium">
+                                        {formatRupiah(result.total_interest)}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-500">
+                                        Total kewajiban
+                                    </p>
+                                    <p className="font-medium">
+                                        {formatRupiah(result.total_obligation)}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <ReportTable
+                                columns={columns}
+                                rows={rows}
+                                emptyTitle="Belum ada jadwal angsuran"
+                                emptyDescription="Jadwal angsuran akan tampil di sini."
+                            />
+                        </>
+                    ) : (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                            Formula angsuran pinjaman ini belum ditentukan.
+                            Metode (flat / efektif / anuitas) dan periode rate
+                            (per bulan / per tahun) adalah{' '}
+                            <strong>PENDING BUSINESS CONFIRMATION</strong>,
+                            sehingga tabel angsuran tidak ditampilkan. Rate
+                            tersimpan pada record ini:{' '}
+                            <strong>{Number(loan.rate_percent)}%</strong>.
+                        </div>
+                    )}
+                </section>
             </div>
         </ShmLayout>
     );

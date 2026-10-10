@@ -4,7 +4,7 @@ import ShmLayout from '@/Layouts/ShmLayout';
 import ReportTable from '@/Components/Admin/ReportTable';
 import PrimaryButton from '@/Components/PrimaryButton';
 import useTableSort from '@/hooks/useTableSort';
-import { formatRupiah } from '@/utils/format';
+import { formatRupiah, formatDate } from '@/utils/format';
 import { Calculator, Search } from 'lucide-react';
 
 /**
@@ -49,12 +49,27 @@ export default function Index({ loans, sort, filters }) {
         {
             key: 'customer',
             label: 'Nasabah SHM',
-            render: (row) => row.customer?.name || '-',
+            sortable: false,
+            render: (row) => (
+                <div>
+                    <p className="font-medium text-slate-700">{row.customer?.name || '-'}</p>
+                    {row.customer?.customer_number && (
+                        <p className="text-xs text-slate-400">{row.customer.customer_number}</p>
+                    )}
+                </div>
+            ),
         },
         {
             key: 'product',
             label: 'Produk',
+            sortable: false,
             render: (row) => row.product?.name || '-',
+        },
+        {
+            key: 'disbursed_at',
+            label: 'Tanggal Pencairan',
+            sortable: true,
+            render: (row) => (row.disbursed_at ? formatDate(row.disbursed_at) : '-'),
         },
         {
             key: 'principal',
@@ -93,6 +108,20 @@ export default function Index({ loans, sort, filters }) {
                 </span>
             ),
         },
+        {
+            key: 'action',
+            label: 'Aksi',
+            sortable: false,
+            align: 'right',
+            render: (row) => (
+                <Link
+                    href={route('shm.loans.show', row.id)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                >
+                    Detail
+                </Link>
+            ),
+        },
     ];
 
     return (
@@ -124,7 +153,7 @@ export default function Index({ loans, sort, filters }) {
                             type="text"
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
-                            placeholder="No. pinjaman, nasabah, produk, atau tujuan"
+                            placeholder="No. pinjaman, nasabah, no. nasabah, produk, atau tujuan"
                             className="mt-1 block w-72 rounded-lg border border-slate-300 px-3 py-2 text-sm"
                         />
                     </div>

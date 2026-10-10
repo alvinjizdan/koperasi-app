@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Shm\LoanSimulationRequest;
 use App\Http\Requests\Shm\StoreShmLoanApplicationRequest;
 use App\Http\Requests\Shm\UpdateShmLoanApplicationRequest;
+use App\Models\AuditLog;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
@@ -114,9 +115,20 @@ class ShmLoanController extends Controller
         ];
 
         $query = ShmLoan::query()
-            ->with(['customer', 'product'])
+            ->with([
+                'customer:id,customer_number,name',
+                'product:id,code,name',
+            ])
             ->search($filters['search'])
             ->status($filters['status']);
+
+        // Ticket 70 — scope kepemilikan di QUERY (server-side), bukan hanya
+        // dengan menyembunyikan baris di UI. Kepemilikan mengikuti pengajuan
+        // asal pencairan; tanpa `shm.view_all` pengguna hanya melihat pinjaman
+        // hasil pengajuan miliknya sendiri.
+        if (! $this->canViewAllShm()) {
+            $query->ownedBy((int) $request->user()->id);
+        }
 
         $sortStatus = $this->applySorting($query, $request, [
             'loan_number' => 'loan_number',
@@ -124,6 +136,7 @@ class ShmLoanController extends Controller
             'tenor_months' => 'tenor_months',
             'rate_percent' => 'rate_percent',
             'status' => 'status',
+            'disbursed_at' => 'disbursed_at',
             'created_at' => 'created_at',
         ], [['created_at', 'desc']]);
 
@@ -147,9 +160,22 @@ class ShmLoanController extends Controller
      * periode rate. Tanpa keduanya, formula SHM masih PENDING dan tidak ada
      * jadwal yang boleh ditampilkan.
      */
-    public function show(ShmLoan $loan): Response
+    public function show(Request $request, ShmLoan $loan): Response
     {
-        $loan->load(['customer', 'product']);
+        // Ticket 70 — otorisasi SEBELUM detail dikembalikan. Ownership
+        // mengikuti pengajuan asal pencairan (AuthorizesShmOwnership).
+        $this->authorizeLoanRecordOwnership($request, $loan);
+
+        // Relasi di-eager-load sekali di sini sehingga seluruh section detail
+        // (nasabah, pengajuan, jaminan, barang agunan) tidak menghasilkan
+        // query per baris (tanpa N+1).
+        $loan->load([
+            'customer',
+            'product',
+            'application.customer',
+            'application.collaterals',
+            'application.assets',
+        ]);
 
         $result = null;
 
@@ -164,7 +190,7 @@ class ShmLoanController extends Controller
         }
 
         return Inertia::render('Shm/Loans/Show', [
-            'loan' => $this->presentLoan($loan),
+            'loan' => $this->presentLoanDetail($loan),
             'result' => $result,
         ]);
     }
@@ -799,6 +825,119 @@ class ShmLoanController extends Controller
                 'name' => $loan->product?->name,
             ],
         ];
+    }
+
+    /**
+     * Ticket 70 — bentuk data detail pinjaman untuk halaman Show.
+     *
+     * Membangun di atas presentLoan() lalu menambahkan section monitoring
+     * yang tidak dibutuhkan oleh halaman daftar: data nasabah SHM lengkap,
+     * pengajuan asal pencairan, ringkasan pencairan, serta jaminan dan
+     * barang agunan yang tersimpan pada pengajuan tersebut.
+     *
+     * SELURUH nilai berasal dari record yang SUDAH tersimpan — tidak ada
+     * perhitungan baru. Rate tampil apa adanya (2%); periode rate dan metode
+     * angsuran hanya ditampilkan bila record memang menyimpannya, karena
+     * keduanya masih PENDING BUSINESS CONFIRMATION dan sistem tidak boleh
+     * mengasumsikan per-bulanan/per-tahunan maupun flat/efektif/anuitas.
+     *
+     * Nasabah selalu diambil dari `shm_customers` — tidak pernah `members` —
+     * sehingga data koperasi dan data SHM tidak pernah tercampur.
+     *
+     * @return array<string, mixed>
+     */
+    private function presentLoanDetail(ShmLoan $loan): array
+    {
+        $application = $loan->application;
+        $customer = $loan->customer;
+
+        return array_merge($this->presentLoan($loan), [
+            'customer' => [
+                'id' => $customer?->id,
+                'customer_number' => $customer?->customer_number,
+                'name' => $customer?->name,
+                'nik' => $customer?->nik,
+                'phone' => $customer?->phone,
+                'address' => $customer?->address,
+                'is_active' => $customer?->is_active,
+                'registered_at' => $customer?->created_at?->format('Y-m-d'),
+            ],
+            // Pengajuan asal pencairan (Ticket 69). NULL bila pinjaman dibuat
+            // di luar alur pencairan pengajuan.
+            'application' => $application === null ? null : [
+                'id' => $application->id,
+                'application_number' => $application->application_number,
+                'application_date' => $application->application_date?->format('Y-m-d'),
+                'purpose' => $application->purpose,
+                'principal' => $application->principal,
+                'tenor_months' => $application->tenor_months,
+                'status' => $application->status,
+            ],
+            // Informasi pencairan — seluruhnya dari record pinjaman ini.
+            'disbursement' => [
+                'loan_number' => $loan->loan_number,
+                'disbursed_at' => $loan->disbursed_at?->format('Y-m-d'),
+                'principal' => $loan->principal,
+                'status' => $loan->status,
+            ],
+            // Jaminan & barang agunan mengikuti pengajuan asal; daftar bebas
+            // yang sudah tersimpan. TIDAK ada master collateral baru (T70).
+            'jaminan' => $application?->collaterals?->map(fn ($collateral): array => [
+                'tanggal' => $collateral->collateral_date?->format('Y-m-d'),
+                'jenis' => $collateral->collateral_type,
+                'nama' => $collateral->collateral_name,
+                'keterangan' => $collateral->notes,
+                'nilai_perkiraan' => $collateral->estimated_value,
+                'status_pengikatan' => $collateral->binding_status,
+                'tanggal_pengikatan' => $collateral->binding_date?->format('Y-m-d'),
+                'nilai_hak_tanggungan' => $collateral->rights_value,
+            ])->all() ?? [],
+            'agunan' => $application?->assets?->map(fn ($asset): array => [
+                'jenis' => $asset->asset_type,
+                'nomor' => $asset->asset_number,
+                'tahun' => $asset->asset_year,
+                'nilai' => $asset->estimated_value,
+            ])->all() ?? [],
+            // Garis waktu: MEMBACA audit trail existing, bukan membuat event.
+            'timeline' => $this->loanTimeline($application),
+        ]);
+    }
+
+    /**
+     * Ticket 70 — garis waktu aktivitas pinjaman dari audit trail EXISTING.
+     *
+     * Hanya membaca baris `audit_logs` yang memang sudah ditulis oleh modul
+     * pengajuan dan pencairan; tidak ada event audit baru yang dibuat dan
+     * tidak ada schema baru. Karena satu pengajuan hanya pernah menghasilkan
+     * satu pinjaman, jejak audit pengajuan asal adalah jejak yang sah untuk
+     * pinjaman ini.
+     *
+     * Pinjaman tanpa pengajuan asal (`shm_loan_application_id` NULL) tidak
+     * memiliki jejak yang dapat dirujuk dengan aman, sehingga daftarnya
+     * kosong — bukan ditempeli riwayat karangan.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function loanTimeline(?ShmLoanApplication $application): array
+    {
+        if ($application === null) {
+            return [];
+        }
+
+        return AuditLog::query()
+            ->where('object_type', ShmLoanApplication::class)
+            ->where('object_id', $application->id)
+            ->with('actor:id,name')
+            ->orderByDesc('created_at')
+            ->limit(20)
+            ->get()
+            ->map(fn (AuditLog $log): array => [
+                'action' => $log->action,
+                'description' => $log->description,
+                'actor' => $log->actor?->name,
+                'created_at' => $log->created_at,
+            ])
+            ->all();
     }
 
     /**

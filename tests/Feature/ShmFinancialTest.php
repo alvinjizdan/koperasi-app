@@ -9,6 +9,7 @@ use App\Models\SavingProduct;
 use App\Models\SavingsAccount;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
+use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
 use App\Services\Shm\ShmLoanSimulationService;
@@ -202,7 +203,25 @@ class ShmFinancialTest extends TestCase
 
     public function test_authorized_users_can_open_all_shm_financial_pages(): void
     {
-        $loan = ShmLoan::factory()->create();
+        // Ticket 70 — kepemilikan pinjaman mengikuti pengajuan asal
+        // pencairannya, sehingga fixture dibuat memiliki pemilik (marketing)
+        // agar ketiga user yang diuji berada dalam lingkup yang sah.
+        $application = ShmLoanApplication::query()->create([
+            'application_number' => 'APP-FIN-0001',
+            'shm_customer_id' => ShmCustomer::factory()->create()->id,
+            'shm_loan_product_id' => ShmLoanProduct::factory()->create()->id,
+            'application_date' => now()->toDateString(),
+            'principal' => 10_000_000,
+            'tenor_months' => 12,
+            'status' => 'pending',
+            'marketing_id' => $this->marketing->id,
+        ]);
+
+        $loan = ShmLoan::factory()->create([
+            'shm_loan_application_id' => $application->id,
+            'shm_customer_id' => $application->shm_customer_id,
+            'shm_loan_product_id' => $application->shm_loan_product_id,
+        ]);
 
         $pages = [
             ['shm.loans.products.index', []],

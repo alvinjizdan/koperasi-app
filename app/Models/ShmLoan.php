@@ -153,10 +153,14 @@ class ShmLoan extends Model
     }
 
     /**
-     * Scope pencarian nomor pinjaman / nasabah / produk / tujuan.
+     * Scope pencarian nomor pinjaman / nasabah (nama & nomor) / produk / tujuan.
      *
      * Memakai `like` agar konsisten dengan scope pencarian master data lain
      * dan tetap berjalan pada SQLite yang dipakai test suite.
+     *
+     * Pencarian nasabah hanya menyentuh `shm_customers` — tidak pernah
+     * `members` — sehingga nomor/kode nasabah koperasi tidak pernah cocok
+     * dengan pinjaman SHM.
      *
      * @param  Builder<$this>  $query
      * @return Builder<$this>
@@ -173,8 +177,30 @@ class ShmLoan extends Model
             $q->where('loan_number', 'like', $term)
                 ->orWhere('purpose', 'like', $term)
                 ->orWhere('location', 'like', $term)
-                ->orWhereHas('customer', fn (Builder $customer) => $customer->where('name', 'like', $term))
+                ->orWhereHas('customer', fn (Builder $customer) => $customer
+                    ->where('name', 'like', $term)
+                    ->orWhere('customer_number', 'like', $term))
                 ->orWhereHas('product', fn (Builder $product) => $product->where('name', 'like', $term));
         });
+    }
+
+    /**
+     * Ticket 70 — scope kepemilikan pinjaman untuk halaman daftar.
+     *
+     * Kepemilikan mengikuti PENGAJUAN asal pencairan
+     * (`shm_loan_applications.marketing_id`) karena `shm_loans` tidak
+     * memiliki kolom `marketing_id` sendiri. Pinjaman tanpa pengajuan asal
+     * (`shm_loan_application_id` NULL) tidak berada dalam lingkup kepemilikan
+     * siapa pun sehingga hanya pemegang `shm.view_all` yang melihatnya.
+     *
+     * @param  Builder<$this>  $query
+     * @return Builder<$this>
+     */
+    public function scopeOwnedBy(Builder $query, int $marketingId): Builder
+    {
+        return $query->whereHas(
+            'application',
+            fn (Builder $application) => $application->where('marketing_id', $marketingId),
+        );
     }
 }
