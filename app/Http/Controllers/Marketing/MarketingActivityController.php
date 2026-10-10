@@ -6,7 +6,7 @@ use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Marketing\StoreMarketingActivityRequest;
 use App\Models\MarketingActivity;
-use App\Models\Member;
+use App\Models\ShmCustomer;
 use App\Models\User;
 use App\Services\MarketingActivityService;
 use App\Support\Distance;
@@ -48,7 +48,7 @@ class MarketingActivityController extends Controller
 
         $sortStatus = $this->applySorting($query, $request, [
             'checked_in_at' => 'checked_in_at',
-            'member' => 'member_id',
+            'customer' => 'shm_customer_id',
             'result' => 'result',
             'created_at' => 'created_at',
         ], [['checked_in_at', 'desc']]);
@@ -58,7 +58,7 @@ class MarketingActivityController extends Controller
         return Inertia::render('Shm/Marketing/Activities/Index', [
             'activities' => $activities,
             'sort' => $sortStatus,
-            'members' => $this->memberOptions(),
+            'customers' => $this->customerOptions(),
             'filters' => $this->filters($request),
             'can_monitor' => Gate::allows('marketing.monitoring.view'),
             'flash' => [
@@ -77,7 +77,7 @@ class MarketingActivityController extends Controller
 
         $sortStatus = $this->applySorting($query, $request, [
             'checked_in_at' => 'checked_in_at',
-            'member' => 'member_id',
+            'customer' => 'shm_customer_id',
             'marketing' => 'marketing_id',
             'result' => 'result',
             'created_at' => 'created_at',
@@ -88,7 +88,7 @@ class MarketingActivityController extends Controller
         return Inertia::render('Shm/Marketing/Monitoring', [
             'activities' => $activities,
             'sort' => $sortStatus,
-            'members' => $this->memberOptions(),
+            'customers' => $this->customerOptions(),
             'marketers' => $this->marketerOptions($request),
             'filters' => $this->filters($request),
             'flash' => [
@@ -121,7 +121,10 @@ class MarketingActivityController extends Controller
     {
         $this->authorizeView($request, $activity);
 
-        $activity->load(['member:id,full_name,member_number,address,latitude,longitude']);
+        $activity->load([
+            'customer:id,customer_number,name,address,latitude,longitude',
+            'marketing:id,name',
+        ]);
 
         return Inertia::render('Shm/Marketing/Activities/Show', [
             'activity' => [
@@ -132,17 +135,22 @@ class MarketingActivityController extends Controller
                 'longitude' => $activity->longitude,
                 'result' => $activity->result,
                 'notes' => $activity->notes,
-                'member' => [
-                    'id' => $activity->member->id,
-                    'full_name' => $activity->member->full_name,
-                    'member_number' => $activity->member->member_number,
-                    'address' => $activity->member->address,
+                'marketing' => [
+                    'id' => $activity->marketing->id,
+                    'name' => $activity->marketing->name,
                 ],
-                // Jarak hanya informasi, bukan syarat check-in.
+                'customer' => [
+                    'id' => $activity->customer->id,
+                    'customer_number' => $activity->customer->customer_number,
+                    'name' => $activity->customer->name,
+                    'address' => $activity->customer->address,
+                ],
+                // Jarak hanya informasi, bukan syarat check-in. Titik pembanding
+                // adalah lokasi tersimpan pada nasabah SHM, bukan pada anggota.
                 'distance_meters' => Gate::allows('marketing.member_location.view')
                 ? Distance::betweenInMeters(
-                    $activity->member->latitude === null ? null : (float) $activity->member->latitude,
-                    $activity->member->longitude === null ? null : (float) $activity->member->longitude,
+                    $activity->customer->latitude === null ? null : (float) $activity->customer->latitude,
+                    $activity->customer->longitude === null ? null : (float) $activity->customer->longitude,
                     $activity->latitude === null ? null : (float) $activity->latitude,
                     $activity->longitude === null ? null : (float) $activity->longitude,
                 )
@@ -183,7 +191,7 @@ class MarketingActivityController extends Controller
     private function scopedQuery(Request $request): Builder
     {
         $query = MarketingActivity::query()->with([
-            'member:id,full_name,member_number',
+            'customer:id,customer_number,name',
             'marketing:id,name',
         ]);
 
@@ -192,13 +200,13 @@ class MarketingActivityController extends Controller
             $query->where('marketing_id', $request->user()->id);
         }
 
-        $memberId = $request->input('member_id');
+        $customerId = $request->input('shm_customer_id');
         $marketingId = $request->input('marketing_id');
         $dateFrom = $request->input('date_from');
         $dateTo = $request->input('date_to');
 
         return $query
-            ->when($memberId, fn ($q) => $q->where('member_id', (int) $memberId))
+            ->when($customerId, fn ($q) => $q->where('shm_customer_id', (int) $customerId))
             ->when($marketingId, fn ($q) => $q->where('marketing_id', (int) $marketingId))
             ->when($dateFrom, fn ($q) => $q->where('checked_in_at', '>=', Carbon::parse($dateFrom)->startOfDay()))
             ->when($dateTo, fn ($q) => $q->where('checked_in_at', '<=', Carbon::parse($dateTo)->endOfDay()));
@@ -219,10 +227,10 @@ class MarketingActivityController extends Controller
                 // Lokasi hanya dikirim ke halaman yang memang membutuhkannya.
                 'latitude' => $activity->latitude,
                 'longitude' => $activity->longitude,
-                'member' => [
-                    'id' => $activity->member?->id,
-                    'full_name' => $activity->member?->full_name,
-                    'member_number' => $activity->member?->member_number,
+                'customer' => [
+                    'id' => $activity->customer?->id,
+                    'customer_number' => $activity->customer?->customer_number,
+                    'name' => $activity->customer?->name,
                 ],
                 'marketing' => [
                     'id' => $activity->marketing?->id,
@@ -239,7 +247,7 @@ class MarketingActivityController extends Controller
     private function filters(Request $request): array
     {
         return [
-            'member_id' => $request->input('member_id', ''),
+            'shm_customer_id' => $request->input('shm_customer_id', ''),
             'marketing_id' => $request->input('marketing_id', ''),
             'date_from' => $request->input('date_from', ''),
             'date_to' => $request->input('date_to', ''),
@@ -247,23 +255,26 @@ class MarketingActivityController extends Controller
     }
 
     /**
-     * Pilihan anggota untuk form check-in dan filter.
+     * Pilihan nasabah SHM untuk form check-in dan filter (Ticket 71).
      *
-     * Koordinat anggota TIDAK ikut dikirim ke halaman aktivitas; halaman detail
-     * anggota yang terpisah dengan permission sendiri.
+     * Sumbernya HANYA `shm_customers` — anggota koperasi tidak pernah muncul
+     * di sini. Hanya nasabah aktif yang dapat dipilih, mengikuti daftar pilihan
+     * nasabah pada modul pengajuan/dokumen SHM. Koordinat nasabah TIDAK ikut
+     * dikirim ke halaman daftar; koordinat hanya dibaca saat halaman detail.
      *
      * @return Collection<int, array<string, mixed>>
      */
-    private function memberOptions(): mixed
+    private function customerOptions(): mixed
     {
-        return Member::query()
-            ->orderBy('full_name')
-            ->limit(500)
-            ->get(['id', 'full_name', 'member_number'])
-            ->map(fn (Member $member) => [
-                'id' => $member->id,
-                'full_name' => $member->full_name,
-                'member_number' => $member->member_number,
+        return ShmCustomer::query()
+            ->active()
+            ->orderBy('name')
+            ->limit(200)
+            ->get(['id', 'customer_number', 'name'])
+            ->map(fn (ShmCustomer $customer) => [
+                'id' => $customer->id,
+                'customer_number' => $customer->customer_number,
+                'name' => $customer->name,
             ]);
     }
 

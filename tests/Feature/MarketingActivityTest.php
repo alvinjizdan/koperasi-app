@@ -6,11 +6,13 @@ use App\Models\AuditLog;
 use App\Models\MarketingActivity;
 use App\Models\Member;
 use App\Models\Role;
+use App\Models\ShmCustomer;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -22,6 +24,12 @@ use Tests\TestCase;
  * Ticket 63: halaman aktivitas/monitoring kini dirutekan melalui
  * shm.marketing.* (bounded context SHM); titik lokasi anggota tetap memakai
  * marketing.member-location.update di konteks koperasi.
+ *
+ * Ticket 71: subjek kunjungan HANYA Nasabah SHM (`shm_customers`). Kolom
+ * member_id sudah dihapus dari marketing_activities dan tidak ada fallback ke
+ * anggota koperasi; tes bagian bawah membatasi batas domain tersebut sementara
+ * tes titik lokasi anggota di atasnya tetap menjamin modul Koperasi tidak
+ * berubah.
  */
 class MarketingActivityTest extends TestCase
 {
@@ -32,6 +40,8 @@ class MarketingActivityTest extends TestCase
     private User $marketing;
 
     private Member $member;
+
+    private ShmCustomer $customer;
 
     protected function setUp(): void
     {
@@ -45,6 +55,7 @@ class MarketingActivityTest extends TestCase
 
         $this->marketing = $this->userWithRole('marketing');
         $this->member = Member::factory()->create();
+        $this->customer = ShmCustomer::factory()->create();
     }
 
     private function userWithRole(string $roleName): User
@@ -63,7 +74,7 @@ class MarketingActivityTest extends TestCase
     private function checkInPayload(array $overrides = []): array
     {
         return array_merge([
-            'member_id' => $this->member->id,
+            'shm_customer_id' => $this->customer->id,
             'latitude' => -6.7320000,
             'longitude' => 108.5520000,
             'result' => 'Kunjungan pertama',
@@ -172,7 +183,9 @@ class MarketingActivityTest extends TestCase
         $activity = MarketingActivity::query()->firstOrFail();
 
         $this->assertSame($this->marketing->id, $activity->marketing_id);
-        $this->assertSame($this->member->id, $activity->member_id);
+        $this->assertSame($this->customer->id, $activity->shm_customer_id);
+        // Relasi kunjungan menyelesaikan ke Nasabah SHM, bukan ke anggota.
+        $this->assertTrue($activity->customer->is($this->customer));
         $this->assertNotNull($activity->checked_in_at);
         $this->assertEqualsWithDelta(-6.7320, (float) $activity->latitude, 0.0001);
         $this->assertEqualsWithDelta(108.5520, (float) $activity->longitude, 0.0001);
@@ -217,14 +230,14 @@ class MarketingActivityTest extends TestCase
         $this->assertSame(0, MarketingActivity::query()->count());
     }
 
-    /** 10. Anggota tujuan harus benar-benar ada. */
-    public function test_check_in_requires_existing_member(): void
+    /** 10. Nasabah SHM tujuan harus benar-benar ada di shm_customers. */
+    public function test_check_in_requires_existing_shm_customer(): void
     {
         $this->actingAs($this->marketing)
             ->post(route('shm.marketing.activities.store'), $this->checkInPayload([
-                'member_id' => 999999,
+                'shm_customer_id' => 999999,
             ]))
-            ->assertSessionHasErrors('member_id');
+            ->assertSessionHasErrors('shm_customer_id');
 
         $this->assertSame(0, MarketingActivity::query()->count());
     }
@@ -413,7 +426,7 @@ class MarketingActivityTest extends TestCase
 
         $this->actingAs($this->marketing)->post(route('shm.marketing.activities.store'), $this->checkInPayload());
         $this->actingAs($other)->post(route('shm.marketing.activities.store'), $this->checkInPayload([
-            'member_id' => Member::factory()->create()->id,
+            'shm_customer_id' => ShmCustomer::factory()->create()->id,
         ]));
 
         $this->actingAs($this->superadmin)
@@ -431,7 +444,7 @@ class MarketingActivityTest extends TestCase
         foreach (range(1, 30) as $index) {
             MarketingActivity::query()->create([
                 'marketing_id' => $this->marketing->id,
-                'member_id' => $this->member->id,
+                'shm_customer_id' => $this->customer->id,
                 'checked_in_at' => now(),
                 'latitude' => -6.7320,
                 'longitude' => 108.5520,
@@ -451,30 +464,30 @@ class MarketingActivityTest extends TestCase
             ->assertInertia(fn ($page) => $page->has('activities.data', 10));
     }
 
-    /** 23. Filter anggota bekerja pada monitoring. */
-    public function test_monitoring_filter_by_member_works(): void
+    /** 23. Filter nasabah SHM bekerja pada monitoring. */
+    public function test_monitoring_filter_by_customer_works(): void
     {
-        $otherMember = Member::factory()->create();
+        $otherCustomer = ShmCustomer::factory()->create();
 
         MarketingActivity::query()->create([
-            'marketing_id' => $this->marketing->id, 'member_id' => $this->member->id, 'checked_in_at' => now(),
+            'marketing_id' => $this->marketing->id, 'shm_customer_id' => $this->customer->id, 'checked_in_at' => now(),
         ]);
         MarketingActivity::query()->create([
-            'marketing_id' => $this->marketing->id, 'member_id' => $otherMember->id, 'checked_in_at' => now(),
+            'marketing_id' => $this->marketing->id, 'shm_customer_id' => $otherCustomer->id, 'checked_in_at' => now(),
         ]);
 
         $this->actingAs($this->superadmin)
-            ->get(route('shm.marketing.monitoring.index', ['member_id' => $otherMember->id]))
+            ->get(route('shm.marketing.monitoring.index', ['shm_customer_id' => $otherCustomer->id]))
             ->assertInertia(fn ($page) => $page
                 ->has('activities.data', 1)
-                ->where('activities.data.0.member.id', $otherMember->id)
+                ->where('activities.data.0.customer.id', $otherCustomer->id)
             );
     }
 
-    /** 24. Lokasi anggota tidak ikut dikirim ke halaman monitoring. */
-    public function test_monitoring_does_not_leak_member_coordinates(): void
+    /** 24. Lokasi nasabah SHM tidak ikut dikirim ke halaman monitoring. */
+    public function test_monitoring_does_not_leak_customer_coordinates(): void
     {
-        $this->member->forceFill(['latitude' => -6.7320, 'longitude' => 108.5520])->save();
+        $this->customer->forceFill(['latitude' => -6.7320, 'longitude' => 108.5520])->save();
 
         $this->actingAs($this->superadmin)
             ->post(route('shm.marketing.activities.store'), $this->checkInPayload());
@@ -483,7 +496,86 @@ class MarketingActivityTest extends TestCase
             ->get(route('shm.marketing.monitoring.index'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->where('activities.data.0.member', fn ($member) => $this->propLacksKey($member, 'latitude'))
+                ->where('activities.data.0.customer', fn ($customer) => $this->propLacksKey($customer, 'latitude'))
+            );
+    }
+
+    // ---------------------------------------------------------------------
+    // Batas domain: Nasabah SHM, bukan anggota koperasi (Ticket 71)
+    // ---------------------------------------------------------------------
+
+    /** 24a. Skema aktivitas tidak lagi menyimpan rujukan ke anggota koperasi. */
+    public function test_activity_schema_has_no_cooperative_member_reference(): void
+    {
+        $this->assertFalse(Schema::hasColumn('marketing_activities', 'member_id'));
+        $this->assertTrue(Schema::hasColumn('marketing_activities', 'shm_customer_id'));
+    }
+
+    /** 24b. Check-in dapat dibuat tanpa anggota koperasi apa pun. */
+    public function test_check_in_does_not_require_cooperative_member(): void
+    {
+        // Payload tidak memuat anggota sama sekali — cukup nasabah SHM.
+        $this->actingAs($this->marketing)
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload())
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('marketing_activities', [
+            'marketing_id' => $this->marketing->id,
+            'shm_customer_id' => $this->customer->id,
+        ]);
+    }
+
+    /** 24c. Id anggota koperasi tidak dapat dipakai sebagai nasabah SHM. */
+    public function test_koperasi_member_id_cannot_be_used_as_shm_customer(): void
+    {
+        $member = Member::factory()->create();
+
+        // Dua master memakai sekuens id sendiri-sendiri; pastikan id anggota
+        // ini memang tidak terdaftar di shm_customers.
+        ShmCustomer::query()->whereKey($member->id)->delete();
+        $this->assertNull(ShmCustomer::query()->find($member->id));
+
+        $this->actingAs($this->marketing)
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload([
+                'shm_customer_id' => $member->id,
+            ]))
+            ->assertSessionHasErrors('shm_customer_id');
+
+        $this->assertSame(0, MarketingActivity::query()->count());
+    }
+
+    /** 24d. Pilihan nasabah pada halaman aktivitas bersumber dari shm_customers. */
+    public function test_activity_customer_selector_reads_from_shm_customers(): void
+    {
+        $this->actingAs($this->marketing)
+            ->get(route('shm.marketing.activities.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Shm/Marketing/Activities/Index')
+                ->has('customers', 1)
+                ->where('customers.0.id', $this->customer->id)
+                ->where('customers.0.customer_number', $this->customer->customer_number)
+                ->where('customers.0.name', $this->customer->name)
+            );
+    }
+
+    /** 24e. Detail aktivitas menyelesaikan Nasabah SHM, bukan anggota. */
+    public function test_activity_detail_resolves_shm_customer(): void
+    {
+        $this->actingAs($this->marketing)
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload());
+
+        $activity = MarketingActivity::query()->firstOrFail();
+
+        $this->actingAs($this->marketing)
+            ->get(route('shm.marketing.activities.show', $activity->id))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Shm/Marketing/Activities/Show')
+                ->where('activity.customer.id', $this->customer->id)
+                ->where('activity.customer.customer_number', $this->customer->customer_number)
+                ->where('activity.customer.name', $this->customer->name)
+                ->where('activity.marketing.name', $this->marketing->name)
             );
     }
 

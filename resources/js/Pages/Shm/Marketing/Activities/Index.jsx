@@ -37,17 +37,17 @@ function newIdempotencyKey() {
     return `mkt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export default function Index({ activities, sort, members, filters, can_monitor, flash, shm }) {
+export default function Index({ activities, sort, customers, filters, can_monitor, flash, shm }) {
     const handleSort = useTableSort('shm.marketing.activities.index');
 
-    const [memberId, setMemberId] = useState('');
+    const [customerId, setCustomerId] = useState('');
     const [result, setResult] = useState('');
     const [notes, setNotes] = useState('');
     const [locating, setLocating] = useState(false);
     const [locationError, setLocationError] = useState('');
 
     const form = useForm({
-        member_id: '',
+        shm_customer_id: '',
         latitude: '',
         longitude: '',
         result: '',
@@ -78,8 +78,8 @@ export default function Index({ activities, sort, members, filters, can_monitor,
     const handleCheckIn = async (event) => {
         event.preventDefault();
 
-        if (!form.member_id) {
-            setLocationError('Pilih anggota tujuan kunjungan terlebih dahulu.');
+        if (!form.shm_customer_id) {
+            setLocationError('Pilih nasabah SHM tujuan kunjungan terlebih dahulu.');
             return;
         }
 
@@ -100,7 +100,7 @@ export default function Index({ activities, sort, members, filters, can_monitor,
                 onSuccess: () => {
                     form.reset();
                     form.setData('idempotency_key', newIdempotencyKey());
-                    setMemberId('');
+                    setCustomerId('');
                     setResult('');
                     setNotes('');
                 },
@@ -124,12 +124,12 @@ export default function Index({ activities, sort, members, filters, can_monitor,
             render: (row) => formatDateTime(row.checked_in_at),
         },
         {
-            key: 'member',
-            label: 'Anggota',
+            key: 'customer',
+            label: 'Nasabah SHM',
             render: (row) => (
                 <div>
-                    <p className="font-semibold text-slate-800">{row.member?.full_name ?? '-'}</p>
-                    <p className="text-[11px] text-slate-400">{row.member?.member_number ?? '-'}</p>
+                    <p className="font-semibold text-slate-800">{row.customer?.name ?? '-'}</p>
+                    <p className="text-[11px] text-slate-400">{row.customer?.customer_number ?? '-'}</p>
                 </div>
             ),
         },
@@ -197,20 +197,20 @@ export default function Index({ activities, sort, members, filters, can_monitor,
 
                     <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <div>
-                            <InputLabel htmlFor="member_id" value="Anggota Tujuan" />
+                            <InputLabel htmlFor="shm_customer_id" value="Nasabah SHM Tujuan" />
                             <select
-                                id="member_id"
-                                value={memberId}
+                                id="shm_customer_id"
+                                value={customerId}
                                 onChange={(event) => {
-                                    setMemberId(event.target.value);
-                                    form.setData('member_id', event.target.value);
+                                    setCustomerId(event.target.value);
+                                    form.setData('shm_customer_id', event.target.value);
                                 }}
                                 className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                             >
-                                <option value="">-- Pilih anggota --</option>
-                                {members.map((member) => (
-                                    <option key={member.id} value={member.id}>
-                                        {member.full_name} ({member.member_number})
+                                <option value="">-- Pilih nasabah --</option>
+                                {customers.map((customer) => (
+                                    <option key={customer.id} value={customer.id}>
+                                        {customer.name} ({customer.customer_number})
                                     </option>
                                 ))}
                             </select>

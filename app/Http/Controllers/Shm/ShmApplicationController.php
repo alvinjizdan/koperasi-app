@@ -757,7 +757,7 @@ class ShmApplicationController extends Controller
             ->when($ownerId !== null, static fn ($query) => $query->where('marketing_id', $ownerId))
             ->orderByDesc('checked_in_at')
             ->limit(50)
-            ->get(['id', 'member_id', 'checked_in_at', 'result']);
+            ->get(['id', 'shm_customer_id', 'checked_in_at', 'result']);
 
         return $activities->map(static fn (MarketingActivity $activity): array => [
             'id' => $activity->id,

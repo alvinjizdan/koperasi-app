@@ -128,12 +128,12 @@ class Member extends Model
     {
         return $this->hasMany(Loan::class);
     }
-
-    /**
-     * Aktivitas kunjungan Marketing terhadap anggota ini.
-     */
-    public function marketingActivities(): HasMany
-    {
-        return $this->hasMany(MarketingActivity::class);
-    }
 }
+
+/*
+ * Ticket 71: relasi marketingActivities() DIHAPUS. Aktivitas/kunjungan
+ * Marketing kini berada penuh di domain SHM dan menunjuk ke `shm_customers`
+ * (shm_customer_id), sehingga anggota koperasi tidak lagi memiliki relasi ke
+ * marketing_activities. Relasi tersebut tidak dipakai di mana pun dan akan
+ * rusak setelah kolom member_id dihapus.
+ */

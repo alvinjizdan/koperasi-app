@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Models\MarketingActivity;
-use App\Models\Member;
+use App\Models\ShmCustomer;
 use App\Support\DbTransaction;
 
 /**
@@ -26,7 +26,7 @@ class MarketingActivityService
      * sudah terdaftar, transaksi sebelumnya dikembalikan tanpa dampak ganda,
      * termasuk ketika request yang sama tiba bersamaan.
      *
-     * @param  array{member_id: int, latitude: numeric, longitude: numeric, result?: ?string, notes?: ?string, idempotency_key?: ?string}  $data
+     * @param  array{shm_customer_id: int, latitude: numeric, longitude: numeric, result?: ?string, notes?: ?string, idempotency_key?: ?string}  $data
      */
     public function checkIn(array $data, int $marketingId): MarketingActivity
     {
@@ -51,11 +51,13 @@ class MarketingActivityService
                 }
             }
 
-            $member = Member::query()->findOrFail($data['member_id']);
+            // Tujuan kunjungan SELALU nasabah SHM; findOrFail menolak id yang
+            // tidak ada tanpa fallback apa pun ke anggota koperasi.
+            $customer = ShmCustomer::query()->findOrFail($data['shm_customer_id']);
 
             $activity = MarketingActivity::create([
                 'marketing_id' => $marketingId,
-                'member_id' => $member->id,
+                'shm_customer_id' => $customer->id,
                 // Waktu sistem, bukan input pengguna.
                 'checked_in_at' => now(),
                 'latitude' => $data['latitude'],
@@ -69,12 +71,12 @@ class MarketingActivityService
                 'marketing.activity.checked_in',
                 MarketingActivity::class,
                 $activity->id,
-                $member->full_name,
+                $customer->name,
                 sprintf('Check-in kunjungan Marketing pada %s.', $activity->checked_in_at->format('Y-m-d H:i:s')),
                 [
                     'marketing_id' => $marketingId,
-                    'member_id' => $member->id,
-                    'member_number' => $member->member_number,
+                    'shm_customer_id' => $customer->id,
+                    'customer_number' => $customer->customer_number,
                     'checked_in_at' => $activity->checked_in_at->format('Y-m-d H:i:s'),
                     // Koordinat dicatat pada audit karena merupakan jejak
                     // lokasi yang dapat ditelusuri.
@@ -116,7 +118,7 @@ class MarketingActivityService
                 'marketing.activity.result_updated',
                 MarketingActivity::class,
                 $locked->id,
-                $locked->member?->full_name,
+                $locked->customer?->name,
                 'Hasil dan catatan kunjungan diperbarui.',
                 [
                     'marketing_id' => $locked->marketing_id,

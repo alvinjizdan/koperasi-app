@@ -13,11 +13,11 @@ import { MapPin, Filter, Activity } from 'lucide-react';
  * Halaman ini memakai pagination server-side (whitelist per_page yang sama
  * dengan halaman lain) sehingga data tidak pernah diambil sekaligus.
  */
-export default function Monitoring({ activities, sort, members, marketers, filters, flash, shm }) {
+export default function Monitoring({ activities, sort, customers, marketers, filters, flash, shm }) {
     const handleSort = useTableSort('shm.marketing.monitoring.index');
 
     const [marketingId, setMarketingId] = useState(filters.marketing_id || '');
-    const [memberId, setMemberId] = useState(filters.member_id || '');
+    const [customerId, setCustomerId] = useState(filters.shm_customer_id || '');
     const [dateFrom, setDateFrom] = useState(filters.date_from || '');
     const [dateTo, setDateTo] = useState(filters.date_to || '');
 
@@ -27,7 +27,7 @@ export default function Monitoring({ activities, sort, members, marketers, filte
             route('shm.marketing.monitoring.index'),
             {
                 marketing_id: marketingId || undefined,
-                member_id: memberId || undefined,
+                shm_customer_id: customerId || undefined,
                 date_from: dateFrom || undefined,
                 date_to: dateTo || undefined,
             },
@@ -42,12 +42,12 @@ export default function Monitoring({ activities, sort, members, marketers, filte
             render: (row) => row.marketing?.name ?? '-',
         },
         {
-            key: 'member',
-            label: 'Anggota',
+            key: 'customer',
+            label: 'Nasabah SHM',
             render: (row) => (
                 <div>
-                    <p className="font-semibold text-slate-800">{row.member?.full_name ?? '-'}</p>
-                    <p className="text-[11px] text-slate-400">{row.member?.member_number ?? '-'}</p>
+                    <p className="font-semibold text-slate-800">{row.customer?.name ?? '-'}</p>
+                    <p className="text-[11px] text-slate-400">{row.customer?.customer_number ?? '-'}</p>
                 </div>
             ),
         },
@@ -115,16 +115,16 @@ export default function Monitoring({ activities, sort, members, marketers, filte
                             </select>
                         </div>
                         <div>
-                            <label className="text-xs font-semibold text-slate-700">Anggota</label>
+                            <label className="text-xs font-semibold text-slate-700">Nasabah SHM</label>
                             <select
-                                value={memberId}
-                                onChange={(event) => setMemberId(event.target.value)}
+                                value={customerId}
+                                onChange={(event) => setCustomerId(event.target.value)}
                                 className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                             >
-                                <option value="">Semua Anggota</option>
-                                {members.map((member) => (
-                                    <option key={member.id} value={member.id}>
-                                        {member.full_name} ({member.member_number})
+                                <option value="">Semua Nasabah</option>
+                                {customers.map((customer) => (
+                                    <option key={customer.id} value={customer.id}>
+                                        {customer.name} ({customer.customer_number})
                                     </option>
                                 ))}
                             </select>

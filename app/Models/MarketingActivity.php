@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
- * Satu aktivitas/kunjungan Marketing kepada seorang anggota.
+ * Satu aktivitas/kunjungan Marketing kepada seorang nasabah SHM.
  *
  * Baris ini dibuat HANYA ketika Marketing melakukan check-in. Tidak ada
  * pencatatan lokasi berkala atau pelacakan perjalanan.
@@ -19,7 +19,7 @@ use Illuminate\Support\Carbon;
  *
  * @property int $id
  * @property int $marketing_id
- * @property int $member_id
+ * @property int $shm_customer_id
  * @property Carbon $checked_in_at
  * @property string|null $latitude
  * @property string|null $longitude
@@ -33,7 +33,7 @@ class MarketingActivity extends Model
 
     protected $fillable = [
         'marketing_id',
-        'member_id',
+        'shm_customer_id',
         'checked_in_at',
         'latitude',
         'longitude',
@@ -63,13 +63,16 @@ class MarketingActivity extends Model
     }
 
     /**
-     * Anggota yang menjadi tujuan kunjungan.
+     * Nasabah SHM yang menjadi tujuan kunjungan.
      *
-     * @return BelongsTo<Member, $this>
+     * Ticket 71: subjek kunjungan HANYA dari `shm_customers`, tidak pernah
+     * dari anggota koperasi (`members`).
+     *
+     * @return BelongsTo<ShmCustomer, $this>
      */
-    public function member(): BelongsTo
+    public function customer(): BelongsTo
     {
-        return $this->belongsTo(Member::class);
+        return $this->belongsTo(ShmCustomer::class, 'shm_customer_id');
     }
 
     /**

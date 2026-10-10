@@ -6,7 +6,13 @@ use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * Check-in kunjungan Marketing.
+ * Check-in kunjungan Marketing (Ticket 71 — subjek dari `shm_customers`).
+ *
+ * Tujuan kunjungan HANYA nasabah SHM: `shm_customer_id` wajib menunjuk baris
+ * yang benar-benar ada di `shm_customers`. Karena `members` dan
+ * `shm_customers` adalah dua master terpisah dengan id masing-masing, id
+ * anggota koperasi otomatis ditolak oleh aturan exists ini — tanpa fallback
+ * dan tanpa konversi apa pun ke nasabah SHM.
  *
  * Yang SENGAJA tidak ada di aturan ini:
  * - marketing_id: selalu berasal dari pengguna yang login, tidak pernah dari
@@ -30,7 +36,7 @@ class StoreMarketingActivityRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'member_id' => ['required', 'integer', 'exists:members,id'],
+            'shm_customer_id' => ['required', 'integer', 'exists:shm_customers,id'],
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
             'result' => ['nullable', 'string', 'max:100'],
@@ -45,8 +51,8 @@ class StoreMarketingActivityRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'member_id.required' => 'Anggota tujuan kunjungan wajib dipilih.',
-            'member_id.exists' => 'Anggota tujuan kunjungan tidak ditemukan.',
+            'shm_customer_id.required' => 'Nasabah SHM tujuan kunjungan wajib dipilih.',
+            'shm_customer_id.exists' => 'Nasabah SHM tujuan kunjungan tidak ditemukan.',
             'latitude.required' => 'Lokasi check-in tidak ditemukan. Izinkan akses lokasi pada browser lalu coba lagi.',
             'longitude.required' => 'Lokasi check-in tidak ditemukan. Izinkan akses lokasi pada browser lalu coba lagi.',
             'latitude.between' => 'Koordinat lintang di luar rentang yang valid.',

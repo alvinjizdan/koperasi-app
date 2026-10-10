@@ -62,13 +62,21 @@ export default function Show({ activity, can_update_result, flash, shm }) {
                     <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <div>
                             <dt className="text-[11px] uppercase tracking-wider text-slate-400">
-                                Anggota
+                                Nasabah SHM
                             </dt>
                             <dd className="mt-0.5 text-sm font-semibold text-slate-800">
-                                {activity.member.full_name}
+                                {activity.customer.name}
                             </dd>
                             <dd className="text-[11px] text-slate-400">
-                                {activity.member.member_number}
+                                {activity.customer.customer_number}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt className="text-[11px] uppercase tracking-wider text-slate-400">
+                                Marketing / PIC
+                            </dt>
+                            <dd className="mt-0.5 text-sm font-semibold text-slate-800">
+                                {activity.marketing?.name || '-'}
                             </dd>
                         </div>
                         <div>
@@ -84,7 +92,7 @@ export default function Show({ activity, can_update_result, flash, shm }) {
                                 Alamat (tetap terpisah dari titik lokasi)
                             </dt>
                             <dd className="mt-0.5 text-sm text-slate-700">
-                                {activity.member.address || 'Belum diisi'}
+                                {activity.customer.address || 'Belum diisi'}
                             </dd>
                         </div>
                         <div className="sm:col-span-2">
@@ -103,7 +111,7 @@ export default function Show({ activity, can_update_result, flash, shm }) {
                         {activity.distance_meters !== null && (
                             <div className="sm:col-span-2">
                                 <dt className="text-[11px] uppercase tracking-wider text-slate-400">
-                                    Jarak dari titik lokasi anggota
+                                    Jarak dari titik lokasi nasabah
                                 </dt>
                                 <dd className="mt-0.5 flex items-center gap-1 text-sm text-slate-700">
                                     <Info className="h-4 w-4 text-slate-400" />
