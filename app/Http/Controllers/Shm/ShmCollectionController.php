@@ -1,0 +1,408 @@
+<?php
+
+namespace App\Http\Controllers\Shm;
+
+use App\Http\Controllers\Concerns\AuthorizesShmOwnership;
+use App\Http\Controllers\Concerns\InteractsWithSorting;
+use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
+use App\Models\ShmLoan;
+use App\Models\ShmLoanApplication;
+use App\Models\ShmLoanInstallment;
+use App\Models\ShmLoanPayment;
+use App\Models\ShmLoanPaymentAllocation;
+use App\Models\ShmLoanProduct;
+use App\Services\Shm\ShmCollectionQueryService;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Inertia\Inertia;
+use Inertia\Response;
+
+/**
+ * Ticket 90 — Collection monitoring & work queue (READ-ONLY).
+ *
+ * Halaman kerja operator collection: daftar pinjaman dengan tunggakan
+ * aktual + detail monitoring satu pinjaman. SELURUH route di controller ini
+ * GET — tidak ada POST/PUT/PATCH/DELETE sama sekali: tidak ada pembayaran,
+ * perubahan angsuran/pinjaman/nasabah, settlement, maupun perubahan status
+ * yang dapat diluncurkan dari halaman Collection.
+ *
+ * Kelayakan, agregat, dan ringkasan tunggakan ada di
+ * ShmCollectionQueryService (sumber tunggal predikat). Controller hanya:
+ * otorisasi (permission route `shm.view` + ownership identik modul pinjaman),
+ * parsing filter, sorting whitelist, pagination, dan presentasi props.
+ *
+ * Business rule yang masih PENDING (penalty, collector, cadence, escalation,
+ * kunjungan, notification) TIDAK direpresentasikan sebagai fitur apa pun di
+ * sini — tidak ada stage/score/prioritas yang dikarang.
+ */
+class ShmCollectionController extends Controller
+{
+    use AuthorizesShmOwnership;
+    use InteractsWithSorting;
+
+    public function __construct(private readonly ShmCollectionQueryService $collections) {}
+
+    /**
+     * Daftar work queue Collection (server-side: search/filter/sort/paging).
+     *
+     * Default urutan: tunggakan TERAWAL lebih dulu (oldest overdue first) —
+     * monitoring murni, tanpa priority score karena aturannya belum ada.
+     */
+    public function index(Request $request): Response
+    {
+        $filters = [
+            'search' => $request->filled('search')
+                ? trim((string) $request->input('search'))
+                : null,
+            'product_id' => $request->filled('product_id')
+                ? (int) $request->input('product_id')
+                : null,
+            'min_days_overdue' => $this->daysOverdueFilter($request->input('min_days_overdue')),
+            'max_days_overdue' => $this->daysOverdueFilter($request->input('max_days_overdue')),
+        ];
+
+        $query = $this->collections->candidates($filters);
+
+        // Ownership identik dengan modul pinjaman SHM (server-side, bukan
+        // sekadar menyembunyikan baris di UI): tanpa `shm.view_all` pengguna
+        // hanya melihat pinjaman hasil pengajuan miliknya sendiri.
+        if (! $this->canViewAllShm()) {
+            $query->ownedBy((int) $request->user()->id);
+        }
+
+        $sortStatus = $this->applySorting($query, $request, [
+            'loan_number' => 'shm_loans.loan_number',
+            'principal' => 'shm_loans.principal',
+            'disbursed_at' => 'shm_loans.disbursed_at',
+            'earliest_overdue_due_date' => 'earliest_overdue_due_date',
+            'overdue_installments_count' => 'overdue_installments_count',
+            'outstanding_principal' => 'outstanding_principal_sum',
+            'outstanding_interest' => 'outstanding_interest_sum',
+        ], [['earliest_overdue_due_date', 'asc']]);
+
+        $loans = $query->paginate($this->resolvePerPage($request))
+            ->withQueryString()
+            ->through(fn (ShmLoan $loan): array => $this->presentCollectionRow($loan));
+
+        return Inertia::render('Shm/Collection/Index', [
+            'loans' => $loans,
+            'sort' => $sortStatus,
+            'filters' => [
+                'search' => $filters['search'] ?? '',
+                'product_id' => $filters['product_id'],
+                'min_days_overdue' => $filters['min_days_overdue'],
+                'max_days_overdue' => $filters['max_days_overdue'],
+            ],
+            'products' => ShmLoanProduct::query()
+                ->orderBy('name')
+                ->get(['id', 'code', 'name']),
+            'today' => today()->toDateString(),
+        ]);
+    }
+
+    /**
+     * Detail monitoring satu pinjaman tunggakan: nasabah, pinjaman,
+     * ringkasan tunggakan, jadwal angsuran (presentation state derived),
+     * riwayat pembayaran, dan timeline audit yang SUDAH ada.
+     *
+     * Read-only: method ini tidak pernah menulis data maupun audit.
+     */
+    public function show(Request $request, ShmLoan $loan): Response
+    {
+        // Ownership DULU — kelayakan Collection tidak pernah membocorkan
+        // keberadaan pinjaman milik marketing lain.
+        $this->authorizeLoanRecordOwnership($request, $loan);
+
+        // Hanya kandidat Collection yang punya halaman detail: closed,
+        // belum cair, maupun tunggakan yang sudah lunas seluruhnya (404).
+        abort_unless(
+            $this->collections->isCandidate($loan),
+            404,
+            'Pinjaman ini tidak memiliki tunggakan pada Collection.'
+        );
+
+        // Eager loading sekali jalan: jadwal (terurut), riwayat pembayaran
+        // + alokasinya, dan relasi presentasi — tanpa N+1.
+        $loan->load([
+            'customer:id,customer_number,name,nik,phone,address,is_active,member_id',
+            'customer.member:id,full_name,member_number',
+            'product:id,code,name',
+            'installments' => fn ($installments) => $installments->orderBy('installment_number'),
+            'payments.allocations',
+        ]);
+
+        return Inertia::render('Shm/Collection/Show', [
+            'collection' => $this->presentCollectionDetail($loan),
+            'timeline' => $this->collectionTimeline($loan),
+            'today' => today()->toDateString(),
+        ]);
+    }
+
+    /**
+     * Satu baris work queue — seluruh angka dari agregat server-side yang
+     * sudah dipilih di query (bukan hasil hitung ulang di frontend).
+     *
+     * @return array<string, mixed>
+     */
+    private function presentCollectionRow(ShmLoan $loan): array
+    {
+        $earliest = $loan->getAttribute('earliest_overdue_due_date');
+        // Aggregate date mentah bisa berbentuk 'Y-m-d H:i:s' (SQLite) maupun
+        // 'Y-m-d' (PostgreSQL) — dinormalkan ke tanggal ISO props.
+        $earliestOrNull = $earliest !== null
+            ? Carbon::parse((string) $earliest)->toDateString()
+            : null;
+        $outstandingPrincipal = (float) $loan->getAttribute('outstanding_principal_sum');
+        $outstandingInterest = (float) $loan->getAttribute('outstanding_interest_sum');
+        $lastPaymentDate = $loan->getAttribute('last_payment_date');
+
+        return [
+            'id' => $loan->id,
+            'loan_number' => $loan->loan_number,
+            'principal' => (float) $loan->principal,
+            'disbursed_at' => $loan->disbursed_at?->toDateString(),
+            'status' => $loan->status,
+            'customer' => [
+                'id' => $loan->customer?->id,
+                'customer_number' => $loan->customer?->customer_number,
+                'name' => $loan->customer?->name,
+                'nik' => $loan->customer?->nik,
+            ],
+            'product' => [
+                'id' => $loan->product?->id,
+                'code' => $loan->product?->code,
+                'name' => $loan->product?->name,
+            ],
+            'earliest_overdue_due_date' => $earliestOrNull,
+            // Days overdue = hari ini − jatuh tempo overdue terawal; tanpa
+            // penalty/grace period (PENDING), murni selisih tanggal.
+            'days_overdue' => $earliestOrNull !== null
+                ? (int) Carbon::parse($earliestOrNull)->diffInDays(today(), true)
+                : 0,
+            'overdue' => [
+                'installments_count' => (int) $loan->getAttribute('overdue_installments_count'),
+                'outstanding_principal' => round($outstandingPrincipal, 2),
+                'outstanding_interest' => round($outstandingInterest, 2),
+                'total_outstanding' => round($outstandingPrincipal + $outstandingInterest, 2),
+            ],
+            'last_payment_date' => $lastPaymentDate !== null
+                ? Carbon::parse((string) $lastPaymentDate)->toDateString()
+                : null,
+        ];
+    }
+
+    /**
+     * Payload detail Collection (ringkasan + jadwal + riwayat pembayaran).
+     *
+     * @return array<string, mixed>
+     */
+    private function presentCollectionDetail(ShmLoan $loan): array
+    {
+        $today = today();
+
+        return [
+            'loan' => [
+                'id' => $loan->id,
+                'loan_number' => $loan->loan_number,
+                'status' => $loan->status,
+                'principal' => (float) $loan->principal,
+                'tenor_months' => $loan->tenor_months,
+                'rate_percent' => (float) $loan->rate_percent,
+                'rate_period' => $loan->rate_period,
+                'calculation_method' => $loan->calculation_method,
+                'disbursed_at' => $loan->disbursed_at?->toDateString(),
+                'first_due_date' => $loan->first_due_date?->toDateString(),
+                'purpose' => $loan->purpose,
+                'location' => $loan->location,
+                'product' => [
+                    'id' => $loan->product?->id,
+                    'code' => $loan->product?->code,
+                    'name' => $loan->product?->name,
+                ],
+                'customer' => [
+                    'id' => $loan->customer?->id,
+                    'customer_number' => $loan->customer?->customer_number,
+                    'name' => $loan->customer?->name,
+                    'nik' => $loan->customer?->nik,
+                    'phone' => $loan->customer?->phone,
+                    'address' => $loan->customer?->address,
+                    'is_active' => $loan->customer?->is_active,
+                    // Kaitan ke anggota koperasi lewat relasi existing
+                    // (ShmCustomer::member) — tanpa konversi/efek samping.
+                    // Nama anggota memakai kolom `full_name` (bukan `name`
+                    // — tabel members tidak punya kolom `name`).
+                    'member' => $loan->customer?->member !== null
+                        ? [
+                            'id' => $loan->customer->member->id,
+                            'member_number' => $loan->customer->member->member_number,
+                            'name' => $loan->customer->member->full_name,
+                        ]
+                        : null,
+                ],
+            ],
+            // Ringkasan dari service — predikat & formula yang SAMA dengan
+            // daftar, sehingga angka detail tidak pernah menyimpang.
+            'overdue' => $this->collections->overdueSummary($loan->installments),
+            'schedule' => $loan->installments
+                ->map(fn (ShmLoanInstallment $installment): array => $this->presentInstallment($installment, $today))
+                ->values()
+                ->all(),
+            'payments' => $loan->payments
+                ->map(fn (ShmLoanPayment $payment): array => $this->presentCollectionPayment($payment))
+                ->values()
+                ->all(),
+        ];
+    }
+
+    /**
+     * Satu baris jadwal angsuran.
+     *
+     * `state` adalah presentation state yang DERIVED dari amounts +
+     * tanggal (paid / overdue / partial / scheduled). TIDAK ada status DB
+     * baru — enum angsuran tetap hanya scheduled|paid; status lanjutan
+     * (partially_paid, overdue) masih PENDING BUSINESS CONFIRMATION.
+     *
+     * @return array<string, mixed>
+     */
+    private function presentInstallment(ShmLoanInstallment $installment, Carbon $today): array
+    {
+        $outstandingPrincipal = (float) $installment->outstandingPrincipal();
+        $outstandingInterest = (float) $installment->outstandingInterest();
+        $outstandingTotal = round($outstandingPrincipal + $outstandingInterest, 2);
+
+        $state = match (true) {
+            $outstandingTotal <= 0 => 'paid',
+            $this->collections->isOverdueInstallment($installment, $today) => 'overdue',
+            (float) $installment->paid_amount > 0 => 'partial',
+            default => 'scheduled',
+        };
+
+        return [
+            'installment_number' => $installment->installment_number,
+            'due_date' => $installment->due_date?->format('Y-m-d'),
+            'principal_amount' => (float) $installment->principal_amount,
+            'interest_amount' => (float) $installment->interest_amount,
+            'paid_principal_amount' => (float) $installment->paid_principal_amount,
+            'paid_interest_amount' => (float) $installment->paid_interest_amount,
+            'outstanding_principal' => round($outstandingPrincipal, 2),
+            'outstanding_interest' => round($outstandingInterest, 2),
+            'outstanding_total' => $outstandingTotal,
+            'state' => $state,
+            'overdue_days' => $state === 'overdue'
+                ? (int) $installment->due_date->diffInDays($today, true)
+                : null,
+        ];
+    }
+
+    /**
+     * Satu baris riwayat pembayaran — agregat alokasi dari baris yang sudah
+     * dimuat (eager `payments.allocations`), bukan query per pembayaran.
+     *
+     * `allocated_penalty` selalu 0 selama formula penalty masih PENDING;
+     * kolomnya ditampilkan apa adanya, bukan dihitung sendiri.
+     *
+     * @return array<string, mixed>
+     */
+    private function presentCollectionPayment(ShmLoanPayment $payment): array
+    {
+        $allocations = $payment->allocations;
+        $amount = (float) $payment->amount;
+
+        $allocatedPrincipal = (float) $allocations->sum(
+            fn (ShmLoanPaymentAllocation $allocation): float => (float) $allocation->principal_amount,
+        );
+        $allocatedInterest = (float) $allocations->sum(
+            fn (ShmLoanPaymentAllocation $allocation): float => (float) $allocation->interest_amount,
+        );
+        $allocatedPenalty = (float) $allocations->sum(
+            fn (ShmLoanPaymentAllocation $allocation): float => (float) $allocation->penalty_amount,
+        );
+        $allocatedTotal = (float) $allocations->sum(
+            fn (ShmLoanPaymentAllocation $allocation): float => (float) $allocation->total_amount,
+        );
+
+        return [
+            'id' => $payment->id,
+            'payment_reference' => $payment->payment_reference,
+            'payment_date' => $payment->payment_date?->format('Y-m-d'),
+            'amount' => round($amount, 2),
+            'status' => $payment->status,
+            'allocated_principal' => round($allocatedPrincipal, 2),
+            'allocated_interest' => round($allocatedInterest, 2),
+            'allocated_penalty' => round($allocatedPenalty, 2),
+            'allocated_total' => round($allocatedTotal, 2),
+            'unallocated' => round($amount - $allocatedTotal, 2),
+        ];
+    }
+
+    /**
+     * Garis waktu read-only dari data audit YANG SUDAH ADA: riwayat
+     * pengajuan asal, event pinjaman (jadwal dll.), dan event pembayaran.
+     *
+     * Tidak pernah menulis audit — GET Collection tidak menghasilkan
+     * mutation apa pun.
+     *
+     * @return array<int, array{id: int, action: string, description: string|null, actor: string|null, created_at: Carbon|null}>
+     */
+    private function collectionTimeline(ShmLoan $loan): array
+    {
+        $applicationId = $loan->shm_loan_application_id;
+        $paymentIds = $loan->payments->pluck('id');
+
+        return AuditLog::query()
+            ->with('actor:id,name')
+            ->where(function (Builder $query) use ($loan, $applicationId, $paymentIds): void {
+                $query
+                    ->where(fn (Builder $loanEvents) => $loanEvents
+                        ->where('object_type', ShmLoan::class)
+                        ->where('object_id', $loan->id))
+                    ->when(
+                        $applicationId !== null,
+                        fn (Builder $events) => $events->orWhere(fn (Builder $applicationEvents) => $applicationEvents
+                            ->where('object_type', ShmLoanApplication::class)
+                            ->where('object_id', $applicationId)),
+                    )
+                    ->when(
+                        $paymentIds->isNotEmpty(),
+                        fn (Builder $events) => $events->orWhere(fn (Builder $paymentEvents) => $paymentEvents
+                            ->where('object_type', ShmLoanPayment::class)
+                            ->whereIn('object_id', $paymentIds)),
+                    );
+            })
+            ->orderByDesc('created_at')
+            ->limit(30)
+            ->get()
+            ->map(fn (AuditLog $log): array => [
+                'id' => $log->id,
+                'action' => $log->action,
+                'description' => $log->description,
+                'actor' => $log->actor?->name,
+                'created_at' => $log->created_at,
+            ])
+            ->all();
+    }
+
+    /**
+     * Parsing input rentang days overdue: hanya bilangan bulat ≥ 0 yang
+     * diterima, selain itu diabaikan (null = tanpa filter).
+     *
+     * Ini murni parsing input — bukan penetapan aturan bisnis; angka
+     * rentangnya dikirim operator, bukan ditentukan sistem.
+     */
+    private function daysOverdueFilter(mixed $value): ?int
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        if ($value === '' || ! ctype_digit($value)) {
+            return null;
+        }
+
+        return (int) $value;
+    }
+}

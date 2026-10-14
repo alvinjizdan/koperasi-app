@@ -26,6 +26,7 @@ use App\Http\Controllers\SavingsTransactionController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Shm\ShmApplicationController;
 use App\Http\Controllers\Shm\ShmApprovalController;
+use App\Http\Controllers\Shm\ShmCollectionController;
 use App\Http\Controllers\Shm\ShmCreditCheckController;
 use App\Http\Controllers\Shm\ShmCustomerController;
 use App\Http\Controllers\Shm\ShmDashboardController;
@@ -646,6 +647,21 @@ Route::prefix('shm')->name('shm.')->group(function () {
                 ->name('loans.pelunasan.policies.index');
             Route::get('/pinjaman/pelunasan/{loan}', [ShmLoanSettlementController::class, 'show'])
                 ->name('loans.pelunasan.show');
+
+            // -----------------------------------------------------------------
+            // Ticket 90 — Collection monitoring & work queue (READ-ONLY).
+            //
+            // Hanya GET: daftar work queue + detail monitoring satu pinjaman
+            // tunggakan. Tidak ada route tulis di sini — pembayaran, penalty,
+            // collector, escalation, dan kunjungan masih PENDING BUSINESS
+            // CONFIRMATION, sehingga tidak ada action yang boleh ditawarkan.
+            // Permission `shm.view` existing (tanpa permission baru);
+            // ownership mengikuti modul pinjaman (authorizeLoanRecordOwnership).
+            // -----------------------------------------------------------------
+            Route::get('/collection', [ShmCollectionController::class, 'index'])
+                ->name('collection.index');
+            Route::get('/collection/{loan}', [ShmCollectionController::class, 'show'])
+                ->name('collection.show');
 
             Route::get('/pinjaman/{loan}', [ShmLoanController::class, 'show'])
                 ->name('loans.show');

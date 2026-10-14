@@ -90,7 +90,9 @@ const shmNavigation = [
 
     // --- Admin: Kelengkapan Dokumen (Ticket 50) ---
     // Parent Admin kini operasional karena memiliki anak yang dapat dinavigasi.
-    // Export dan Collection tetap placeholder.
+    // Export dan Collection (Ticket 90) juga operasional; menu Collection
+    // hanya menampilkan Monitoring/Detail read-only — action Collection lain
+    // masih PENDING sehingga tidak ditampilkan sebagai menu.
     {
         name: "Admin",
         icon: FolderOpen,
@@ -233,10 +235,12 @@ const shmNavigation = [
     {
         name: "Collection",
         icon: Receipt,
-        isReleased: false,
         children: [
-            { name: "History Pembayaran dan Rincian Pelunasan" },
-            { name: "Pengajuan Potongan Pelunasan" },
+            {
+                name: "Monitoring",
+                route: "shm.collection.index",
+                permission: "shm.view",
+            },
         ],
     },
 ];
