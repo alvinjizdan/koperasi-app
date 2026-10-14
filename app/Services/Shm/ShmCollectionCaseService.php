@@ -29,6 +29,11 @@ use Illuminate\Validation\ValidationException;
  * - Lifecycle: 5 status contract T91 dengan tabel transisi
  *   `ShmCollectionCase::ALLOWED_TRANSITIONS`; RESOLVED tidak dapat dibuka
  *   kembali; tanpa automatic resolution/escalation di T92.
+ * - Guard finansial resolusi (Ticket 95): transisi → RESOLVED hanya bila
+ *   sisa tunggakan overdue pinjaman = 0 (agregat server-side dari kolom
+ *   persisted — contract T91 Rule 10 `resolution_condition`). Pembayaran,
+ *   alokasi, dan aktivitas TIDAK PERNAH mengubah status case otomatis;
+ *   resolusi selalu aksi eksplisit pemilik.
  * - Otorisasi mutation = Marketing PEMILIK case/pinjaman secara eksplisit —
  *   tanpa fallback admin maupun `shm.view_all` (otorisasi teknis BM/PD =
  *   PENDING BUSINESS CONFIRMATION, lihat laporan T92).
@@ -37,8 +42,10 @@ use Illuminate\Validation\ValidationException;
  *   (mengikuti konvensi penamaan audit `shm.*` yang sudah dipakai modul SHM).
  *
  * YANG SENGAJA TIDAK ADA (bukan kelalaian): automatic resolution berdasarkan
- * outstanding/pembayaran/settlement, automatic escalation, assignment
- * algorithm, role Collector, detail Promise-to-Pay, penalty, notification,
+ * outstanding/pembayaran/settlement (Ticket 95 hanya menambahkan guard
+ * sebaliknya — resolusi MANUSIA DITOLAK selama outstanding > 0; readiness
+ * bukan auto-resolve), automatic escalation, assignment algorithm,
+ * role Collector, detail Promise-to-Pay, penalty, notification,
  * scheduler/job — semuanya ticket terpisah atau PENDING BUSINESS CONFIRMATION.
  */
 class ShmCollectionCaseService
@@ -137,16 +144,19 @@ class ShmCollectionCaseService
     }
 
     /**
-     * Transisi status lifecycle case — guard transisi + timestamp + audit
-     * dalam satu transaksi.
+     * Transisi status lifecycle case — guard transisi + guard finansial
+     * resolusi + timestamp + audit dalam satu transaksi.
      *
      * Transisi hanya diizinkan mengikuti `ShmCollectionCase::ALLOWED_TRANSITIONS`
      * (baseline T92). Transisi keluar dari RESOLVED selalu ditolak (tanpa
-     * reopening di T92). `reason` TIDAK menjadi kolom — dicatat pada audit
-     * changes agar konteks perubahan terlacak.
+     * reopening). Sejak Ticket 95 target RESOLVED dijaga guard finansial
+     * server-side: sisa tunggakan overdue harus 0 (guardResolutionCleared).
+     * `reason` TIDAK menjadi kolom — dicatat pada audit changes agar konteks
+     * perubahan terlacak.
      *
      * @throws ValidationException bila actor bukan pemilik case, status target
-     *                             tidak dikenal, atau transisi tidak diizinkan
+     *                             tidak dikenal, transisi tidak diizinkan, atau
+     *                             resolusi diminta saat tunggakan masih ada
      */
     public function transition(ShmCollectionCase $case, string $toStatus, int $actorId, ?string $reason = null): ShmCollectionCase
     {
@@ -178,6 +188,15 @@ class ShmCollectionCaseService
                         )
                         : sprintf('Transisi status Collection tidak diizinkan: %s → %s.', $fromStatus, $toStatus),
                 ]);
+            }
+
+            if ($toStatus === ShmCollectionCase::STATUS_RESOLVED) {
+                // Guard finansial server-side (Ticket 95): resolusi manual
+                // hanya bila sisa tunggakan overdue = 0 (contract T91 Rule 10
+                // payment_resolution.resolution_condition). Flag readiness
+                // dari frontend TIDAK pernah dipercaya — backend menghitung
+                // ulang dari kolom persisted.
+                $this->guardResolutionCleared($locked);
             }
 
             $locked->status = $toStatus;
@@ -218,11 +237,38 @@ class ShmCollectionCaseService
     }
 
     /**
+     * Guard finansial resolusi (Ticket 95): sisa tunggakan overdue pinjaman
+     * harus tepat NOL sebelum case boleh masuk RESOLVED.
+     *
+     * Angka berasal dari agregat SQL server-side yang memakai formula &
+     * predikat T90 yang sama (overdueObligationProgress) — bukan input
+     * frontend, tanpa toleransi arbitrer (toleransi closure = PENDING).
+     *
+     * @throws ValidationException bila masih ada kewajiban overdue tersisa
+     */
+    private function guardResolutionCleared(ShmCollectionCase $case): void
+    {
+        $loan = $case->loan;
+        $remaining = $this->collections->overdueObligationProgress($loan)['remaining_overdue'];
+
+        if ((float) $remaining > 0) {
+            throw ValidationException::withMessages([
+                'collection.resolusi' => sprintf(
+                    'Resolusi Collection Case ditolak: masih terdapat kewajiban overdue tersisa Rp %s untuk pinjaman %s. Penyelesaian hanya dapat dilakukan setelah seluruh tunggakan terbayar.',
+                    number_format((float) $remaining, 2, ',', '.'),
+                    $loan->loan_number,
+                ),
+            ]);
+        }
+    }
+
+    /**
      * Tutup case (→ RESOLVED) melalui invokasi eksplisit.
      *
-     * T92 TIDAK membuat automatic resolution berdasarkan outstanding = 0,
-     * pembayaran, maupun penyelesaian settlement — koneksi tersebut menjadi
-     * ticket pembayaran/Collection berikutnya.
+     * Resolusi TIDAK PERNAH otomatis (pembayaran, alokasi, maupun aktivitas
+     * PAID tidak pernah memanggil ini). Sejak Ticket 95 invokasi eksplisit
+     * ini juga dijaga guard finansial: transisi → RESOLVED ditolak bila sisa
+     * tunggakan overdue > 0 (lihat guardResolutionCleared).
      *
      * @throws ValidationException
      */

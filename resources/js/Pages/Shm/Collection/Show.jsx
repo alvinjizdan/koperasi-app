@@ -37,11 +37,16 @@ import {
  * Ticket 93 menambahkan pencatatan aktivitas Collection oleh PEMILIK case
  * (flag `can_record` dari server; server tetap otoritatif), dan Ticket 94
  * menambahkan transisi workflow status case — daftar aksi valid datang dari
- * server (`allowed_transitions`). Pencatatan/transisi tidak membuat PTP/
- * pembayaran, dan tidak menawarkan pembayaran, penalty, collector,
- * escalation otomatis, maupun perubahan status pinjaman — semuanya masih
- * PENDING BUSINESS CONFIRMATION. State angsuran adalah turunan tampilan,
- * bukan status DB baru.
+ * server (`allowed_transitions`). Ticket 95 menambahkan progres pembayaran
+ * overdue (`payment_progress`) & section Collection Resolution: seluruh angka
+ * finansial dan flag kesiapan (`resolution_ready`/`can_resolve`) DIHITUNG
+ * SERVER — React tidak pernah menghitung sisa tunggakan maupun kesiapan,
+ * dan resolusi tidak pernah terjadi otomatis (tombol memakai endpoint
+ * workflow T94 yang sama, guard finansial ada di backend). Pencatatan/
+ * transisi tidak membuat PTP/pembayaran, dan tidak menawarkan pembayaran,
+ * penalty, collector, escalation otomatis, maupun perubahan status pinjaman
+ * — semuanya masih PENDING BUSINESS CONFIRMATION. State angsuran adalah
+ * turunan tampilan, bukan status DB baru.
  */
 function Field({ label, children }) {
     return (
@@ -257,8 +262,11 @@ function ActivityForm({ caseId }) {
  * Daftar aksi MURNI datang dari server (`allowed_transitions` = tabel
  * ALLOWED_TRANSITIONS T92 yang sudah difilter pemilik) — React tidak
  * menghitung ulang graph transisi. PROMISE_TO_PAY hanya merubah status;
- * TIDAK ada form/field detail PTP. RESOLVED tidak menawarkan aksi apa pun
- * (terminal, tanpa reopen). Otorisasi tetap mutlak di backend.
+ * TIDAK ada form/field detail PTP. RESOLVED TIDAK dirender di sini: aksi
+ * Selesaikan pindah ke section Collection Resolution (Ticket 95) yang
+ * di-gate flag server `can_resolve` (readiness finansial) — tanpa itu
+ * resolusi bisa ditawarkan saat tunggakan masih ada. RESOLVED sendiri
+ * tetap terminal (tanpa reopen). Otorisasi tetap mutlak di backend.
  */
 function CaseWorkflow({ collectionCase, flash }) {
     const { status, opened_at, resolved_at, allowed_transitions } = collectionCase;
@@ -267,6 +275,12 @@ function CaseWorkflow({ collectionCase, flash }) {
         label: status,
         className: 'bg-slate-100 text-slate-600',
     };
+
+    // RESOLVED disaring dari sini — aksi Selesaikan digantikan section
+    // Collection Resolution dengan gate finansial `can_resolve` (T95).
+    const workflowTransitions = allowed_transitions.filter(
+        (toStatus) => toStatus !== 'RESOLVED',
+    );
 
     const transitionTo = (toStatus) => {
         router.post(
@@ -311,9 +325,9 @@ function CaseWorkflow({ collectionCase, flash }) {
                 </span>
             </div>
 
-            {allowed_transitions.length > 0 ? (
+            {workflowTransitions.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
-                    {allowed_transitions.map((toStatus) => (
+                    {workflowTransitions.map((toStatus) => (
                         <button
                             key={toStatus}
                             type="button"
@@ -350,8 +364,101 @@ function CaseWorkflow({ collectionCase, flash }) {
     );
 }
 
+/**
+ * Kesiapan resolusi Collection (Ticket 95).
+ *
+ * Seluruh angka & flag datang dari server: `remaining_overdue`,
+ * `resolution_ready`, dan `can_resolve` dihitung dari agregat SQL yang SAMA
+ * dengan guard finansial backend — React TIDAK menghitung sisa tunggakan
+ * maupun kesiapan (presentasi warna saja dari angka yang tampil). Tombol
+ * Selesaikan memakai endpoint workflow T94 yang sama (status = RESOLVED);
+ * backend tetap otoritatif. Resolusi SELALU aksi eksplisit pemilik — tidak
+ * pernah terjadi otomatis dari pembayaran maupun aktivitas.
+ */
+function CollectionResolution({ collectionCase }) {
+    const { id, status, resolution_ready, can_resolve, remaining_overdue } =
+        collectionCase;
+    const { errors } = usePage().props;
+    const isResolved = status === 'RESOLVED';
+
+    const readiness = isResolved
+        ? { label: 'SELESAI', className: 'bg-slate-100 text-slate-600' }
+        : resolution_ready
+          ? { label: 'SIAP DISELESAIKAN', className: 'bg-emerald-50 text-emerald-700' }
+          : { label: 'BELUM SIAP DISELESAIKAN', className: 'bg-rose-50 text-rose-700' };
+
+    const reason = isResolved
+        ? 'Case sudah RESOLVED — status terminal, tidak dapat dibuka kembali.'
+        : resolution_ready
+          ? 'Seluruh kewajiban overdue telah terbayar. Case dapat diselesaikan melalui aksi eksplisit — resolusi tidak pernah otomatis.'
+          : 'Masih terdapat kewajiban overdue.';
+
+    const resolve = () => {
+        router.post(
+            route('shm.collection.cases.transition', id),
+            { status: 'RESOLVED' },
+            { preserveScroll: true },
+        );
+    };
+
+    return (
+        <section className="rounded-lg bg-white p-5 shadow">
+            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                <CheckCircle2 className="h-4 w-4 text-slate-400" />
+                Collection Resolution
+            </h2>
+
+            <dl className="grid grid-cols-2 gap-4 md:grid-cols-3">
+                <Field label="Status">
+                    <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${readiness.className}`}
+                    >
+                        {readiness.label}
+                    </span>
+                </Field>
+                <Field label="Sisa tunggakan overdue">
+                    <span
+                        className={
+                            remaining_overdue > 0 ? 'text-rose-700' : 'text-emerald-700'
+                        }
+                    >
+                        {formatRupiah(remaining_overdue)}
+                    </span>
+                </Field>
+                <Field label="Keterangan">{reason}</Field>
+            </dl>
+
+            {can_resolve ? (
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <PrimaryButton type="button" onClick={resolve}>
+                        Selesaikan Collection
+                    </PrimaryButton>
+                    <p className="text-xs text-slate-500">
+                        Aksi eksplisit pemilik case — status berubah melalui
+                        workflow Collection dengan guard finansial di backend.
+                    </p>
+                </div>
+            ) : (
+                !isResolved &&
+                resolution_ready && (
+                    <p className="mt-4 text-xs text-slate-500">
+                        Transisi resolusi hanya tersedia bagi Marketing pemilik
+                        case ini.
+                    </p>
+                )
+            )}
+
+            {errors?.['collection.resolusi'] && (
+                <p className="mt-3 text-xs text-rose-600">
+                    {errors['collection.resolusi']}
+                </p>
+            )}
+        </section>
+    );
+}
+
 export default function Show({ collection, collection_case, timeline, today, flash }) {
-    const { loan, overdue, schedule, payments } = collection;
+    const { loan, overdue, schedule, payments, payment_progress } = collection;
 
     const scheduleColumns = [
         {
@@ -710,6 +817,68 @@ export default function Show({ collection, collection_case, timeline, today, fla
                         <CreditCard className="h-4 w-4 text-slate-400" />
                         Riwayat Pembayaran
                     </h2>
+
+                    {/* Progres kewajiban → alokasi → sisa (Ticket 95) — angka
+                        server-derived dari data payment/allocation tersimpan. */}
+                    {payment_progress && (
+                        <div className="mb-4 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 md:grid-cols-2 lg:grid-cols-4">
+                            <div>
+                                <p className="text-xs uppercase text-slate-500">
+                                    Kewajiban overdue
+                                </p>
+                                <p className="text-sm font-semibold text-slate-800">
+                                    {formatRupiah(payment_progress.overdue_total)}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                    Pokok {formatRupiah(payment_progress.overdue_principal)}{' '}
+                                    • Bunga {formatRupiah(payment_progress.overdue_interest)}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-xs uppercase text-slate-500">
+                                    Teralokasi
+                                </p>
+                                <p className="text-sm font-semibold text-slate-800">
+                                    {formatRupiah(payment_progress.allocated_total)}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                    Pokok {formatRupiah(payment_progress.allocated_principal)}{' '}
+                                    • Bunga {formatRupiah(payment_progress.allocated_interest)}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-xs uppercase text-slate-500">
+                                    Sisa overdue
+                                </p>
+                                <p
+                                    className={`text-sm font-semibold ${
+                                        payment_progress.remaining_overdue > 0
+                                            ? 'text-rose-700'
+                                            : 'text-emerald-700'
+                                    }`}
+                                >
+                                    {formatRupiah(payment_progress.remaining_overdue)}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                    Kewajiban − teralokasi (server)
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-xs uppercase text-slate-500">
+                                    Pembayaran terakhir
+                                </p>
+                                <p className="text-sm font-semibold text-slate-800">
+                                    {payment_progress.latest_payment
+                                        ? formatDate(payment_progress.latest_payment.payment_date)
+                                        : '-'}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                    {payment_progress.latest_payment?.payment_reference || '-'}
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
                     <ReportTable
                         columns={paymentColumns}
                         rows={payments}
@@ -718,12 +887,15 @@ export default function Show({ collection, collection_case, timeline, today, fla
                     />
                 </section>
 
-                {/* Collection case workflow (Ticket 94) */}
+                {/* Collection case workflow (Ticket 94) + resolution readiness (Ticket 95) */}
                 {collection_case && (
-                    <CaseWorkflow
-                        collectionCase={collection_case}
-                        flash={flash}
-                    />
+                    <>
+                        <CaseWorkflow
+                            collectionCase={collection_case}
+                            flash={flash}
+                        />
+                        <CollectionResolution collectionCase={collection_case} />
+                    </>
                 )}
 
                 {/* Collection activities (Ticket 93) */}

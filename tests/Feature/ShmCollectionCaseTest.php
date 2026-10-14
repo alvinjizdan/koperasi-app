@@ -39,6 +39,12 @@ use Tests\TestCase;
  * Tidak ada pengujian detail Promise-to-Pay, escalation authority BM/PD,
  * penalty, notification, cadence, maupun assignment — semuanya masih PENDING
  * dan sengaja tidak diimplementasikan di T92.
+ *
+ * Sejak Ticket 95 transisi → RESOLVED dijaga guard finansial (sisa tunggakan
+ * overdue harus 0 — contract T91 Rule 10). Fixture jalur RESOLVED karenanya
+ * melunasi tunggakan lebih dulu lewat payment/allocation engine ASLI;
+ * perilaku yang dikunci T92 (graph, terminal, resolved_at, audit,
+ * otorisasi, pemisahan domain finansial) tetap diuji tanpa perubahan arti.
  */
 class ShmCollectionCaseTest extends TestCase
 {
@@ -175,6 +181,24 @@ class ShmCollectionCaseTest extends TestCase
         app(ShmLoanPaymentAllocationService::class)->allocate($payment);
     }
 
+    /**
+     * Lunasi seluruh tunggakan pinjaman case lewat engine pembayaran ASLI —
+     * prasyarat guard finansial T95 untuk transisi → RESOLVED.
+     */
+    private function settleOverdue(ShmCollectionCase $case): void
+    {
+        $outstanding = (float) $case->loan->installments()
+            ->get()
+            ->sum(fn (ShmLoanInstallment $installment): float => ((float) $installment->principal_amount - (float) $installment->paid_principal_amount)
+                + ((float) $installment->interest_amount - (float) $installment->paid_interest_amount));
+
+        if ($outstanding <= 0) {
+            return;
+        }
+
+        $this->allocate($this->paymentFor($case->loan, round($outstanding, 2), $this->admin));
+    }
+
     // ------------------------------------------------------------------
     // Helpers layanan
     // ------------------------------------------------------------------
@@ -232,6 +256,11 @@ class ShmCollectionCaseTest extends TestCase
         };
 
         foreach ($walk as $toStatusStep) {
+            if ($toStatusStep === ShmCollectionCase::STATUS_RESOLVED) {
+                // Guard finansial T95 — tunggakan dilunasi sebelum resolusi.
+                $this->settleOverdue($case);
+            }
+
             $case = $this->transitionTo($case, $toStatusStep);
         }
 
@@ -425,7 +454,25 @@ class ShmCollectionCaseTest extends TestCase
     {
         $loan = $this->overdueLoanOf($this->marketing);
         $first = $this->createCaseFor($loan, $this->marketing);
+
+        // Guard finansial T95: resolusi hanya bila tunggakan lunas. Lunasi
+        // lebih dulu, lalu jadikan angsuran BERIKUTNYA jatuh tempo lewat agar
+        // pinjaman kembali eligible — premis uji ini ("masih eligible").
+        $this->allocate($this->paymentFor($loan, 1_200_000, $this->admin));
         $this->service()->resolve($first, (int) $this->marketing->id);
+
+        $loan->installments()->create([
+            'installment_number' => 2,
+            'due_date' => today()->subDays(5)->toDateString(),
+            'principal_amount' => 1_000_000,
+            'interest_amount' => 200_000,
+            'total_amount' => 1_200_000,
+            'paid_amount' => 0,
+            'paid_interest_amount' => 0,
+            'paid_principal_amount' => 0,
+            'remaining_amount' => 1_200_000,
+            'status' => ShmLoanInstallment::STATUS_SCHEDULED,
+        ]);
 
         $second = $this->createCaseFor($loan, $this->marketing);
 
@@ -533,6 +580,7 @@ class ShmCollectionCaseTest extends TestCase
     public function test_promise_to_pay_to_resolved_is_allowed_when_explicit(): void
     {
         $case = $this->caseInStatus(ShmCollectionCase::STATUS_PROMISE_TO_PAY);
+        $this->settleOverdue($case);
 
         $updated = $this->transitionTo($case, ShmCollectionCase::STATUS_RESOLVED);
 
@@ -543,6 +591,7 @@ class ShmCollectionCaseTest extends TestCase
     public function test_in_progress_to_resolved_is_allowed_when_explicit(): void
     {
         $case = $this->caseInStatus(ShmCollectionCase::STATUS_IN_PROGRESS);
+        $this->settleOverdue($case);
 
         // Jalur resolve() — invokasi eksplisit, bukan automatic resolution.
         $updated = $this->service()->resolve($case, (int) $this->marketing->id);
@@ -564,6 +613,7 @@ class ShmCollectionCaseTest extends TestCase
     public function test_escalated_to_resolved_is_allowed_when_explicit(): void
     {
         $case = $this->caseInStatus(ShmCollectionCase::STATUS_ESCALATED);
+        $this->settleOverdue($case);
 
         $updated = $this->transitionTo($case, ShmCollectionCase::STATUS_RESOLVED);
 
@@ -574,6 +624,7 @@ class ShmCollectionCaseTest extends TestCase
     public function test_open_to_resolved_is_allowed_when_explicit(): void
     {
         $case = $this->openCaseOf($this->marketing);
+        $this->settleOverdue($case);
 
         $updated = $this->transitionTo(
             $case,
@@ -643,6 +694,7 @@ class ShmCollectionCaseTest extends TestCase
     public function test_resolved_at_is_set_exactly_when_becoming_resolved(): void
     {
         $case = $this->openCaseOf($this->marketing);
+        $this->settleOverdue($case);
         $before = now()->startOfSecond();
 
         $updated = $this->transitionTo($case, ShmCollectionCase::STATUS_RESOLVED);
@@ -831,15 +883,26 @@ class ShmCollectionCaseTest extends TestCase
         $case = $this->createCaseFor($loan, $this->marketing);
 
         $this->transitionTo($case, ShmCollectionCase::STATUS_IN_PROGRESS);
+
+        // Guard finansial T95: resolusi butuh tunggakan lunas — pembayaran
+        // dibuat fixture (engine asli), lalu SELURUH state finansial
+        // di-snapshot sebelum transisi final sehingga uji ini tetap
+        // membuktikan lifecycle TIDAK menyentuh domain finansial.
+        $this->allocate($this->paymentFor($loan, 1_200_000, $this->admin));
+        $paidPrincipalBefore = (float) $loan->installments()->sum('paid_principal_amount');
+        $paidInterestBefore = (float) $loan->installments()->sum('paid_interest_amount');
+
         $updated = $this->transitionTo($case, ShmCollectionCase::STATUS_RESOLVED);
 
         $loan->refresh();
 
-        // Status Collection = state terpisah; pinjaman TETAP active.
+        // Status Collection = state terpisah; pinjaman TETAP active dan
+        // transisi tidak menambah/mengubah baris payment maupun settlement.
         $this->assertSame(ShmCollectionCase::STATUS_RESOLVED, $updated->status);
         $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->status);
-        $this->assertDatabaseCount('shm_loan_payments', 0);
+        $this->assertDatabaseCount('shm_loan_payments', 1);
         $this->assertDatabaseCount('shm_loan_settlements', 0);
-        $this->assertSame(0.0, (float) $loan->installments()->sum('paid_principal_amount'));
+        $this->assertSame($paidPrincipalBefore, (float) $loan->installments()->sum('paid_principal_amount'));
+        $this->assertSame($paidInterestBefore, (float) $loan->installments()->sum('paid_interest_amount'));
     }
 }

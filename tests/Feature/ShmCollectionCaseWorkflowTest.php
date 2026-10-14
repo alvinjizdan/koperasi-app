@@ -12,6 +12,8 @@ use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanInstallment;
 use App\Models\User;
 use App\Services\Shm\ShmCollectionCaseService;
+use App\Services\Shm\ShmLoanPaymentAllocationService;
+use App\Services\Shm\ShmLoanPaymentService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -39,6 +41,11 @@ use Tests\TestCase;
  * Tidak ada pengujian detail PTP (amount/tanggal/fulfillment — PROMISE_TO_PAY
  * murni state workflow), escalation authority BM/PD, penalty, notification,
  * maupun assignment — semuanya PENDING dan sengaja tidak diimplementasikan.
+ *
+ * Sejak Ticket 95 transisi → RESOLVED dijaga guard finansial (sisa tunggakan
+ * overdue harus 0); fixture yang menguji jalur RESOLVED karenanya melunasi
+ * tunggakan lebih dulu lewat payment/allocation engine ASLI — perilaku yang
+ * diuji (graph, terminal, resolved_at, audit, otorisasi) tidak berubah.
  */
 class ShmCollectionCaseWorkflowTest extends TestCase
 {
@@ -135,7 +142,31 @@ class ShmCollectionCaseWorkflowTest extends TestCase
     }
 
     /**
+     * Lunasi seluruh tunggakan pinjaman case lewat engine pembayaran ASLI —
+     * prasyarat guard finansial T95 untuk transisi → RESOLVED.
+     */
+    private function settleOverdue(ShmCollectionCase $case): void
+    {
+        $outstanding = (float) $case->loan->installments()
+            ->get()
+            ->sum(fn (ShmLoanInstallment $installment): float => ((float) $installment->principal_amount - (float) $installment->paid_principal_amount)
+                + ((float) $installment->interest_amount - (float) $installment->paid_interest_amount));
+
+        if ($outstanding <= 0) {
+            return;
+        }
+
+        $payment = app(ShmLoanPaymentService::class)->create($case->loan, [
+            'payment_date' => now()->toDateString(),
+            'amount' => round($outstanding, 2),
+        ], (int) $this->admin->id);
+
+        app(ShmLoanPaymentAllocationService::class)->allocate($payment);
+    }
+
+    /**
      * Bawa case ke $status melalui jalur transisi valid (setup — bukan uji).
+     * Sebelum langkah RESOLVED tunggakan dilunasi (guard T95).
      */
     private function walkTo(ShmCollectionCase $case, string $status): ShmCollectionCase
     {
@@ -157,6 +188,10 @@ class ShmCollectionCaseWorkflowTest extends TestCase
         };
 
         foreach ($walk as $toStatusStep) {
+            if ($toStatusStep === ShmCollectionCase::STATUS_RESOLVED) {
+                $this->settleOverdue($case);
+            }
+
             $case = $this->service()->transition($case, $toStatusStep, (int) $this->marketing->id);
         }
 
@@ -436,6 +471,8 @@ class ShmCollectionCaseWorkflowTest extends TestCase
     public function test_resolved_at_is_set_by_server_when_entering_resolved(): void
     {
         $case = $this->caseInStatus(ShmCollectionCase::STATUS_IN_PROGRESS);
+        // Guard finansial T95 — tunggakan dilunasi sebelum resolusi eksplisit.
+        $this->settleOverdue($case);
         $before = now();
 
         $this->postTransition($case, $this->marketing, [
@@ -463,6 +500,8 @@ class ShmCollectionCaseWorkflowTest extends TestCase
     public function test_frontend_supplied_resolved_at_is_ignored(): void
     {
         $case = $this->caseInStatus(ShmCollectionCase::STATUS_IN_PROGRESS);
+        // Guard finansial T95 — tunggakan dilunasi sebelum resolusi eksplisit.
+        $this->settleOverdue($case);
 
         $this->postTransition($case, $this->marketing, [
             'status' => ShmCollectionCase::STATUS_RESOLVED,

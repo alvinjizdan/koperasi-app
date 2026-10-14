@@ -227,6 +227,63 @@ class ShmCollectionQueryService
     }
 
     /**
+     * Progres pembayaran atas kewajiban overdue satu pinjaman (Ticket 95) —
+     * SATU agregat SQL, tanpa memuat baris ke PHP maupun agregasi frontend.
+     *
+     * Seluruh baris angsuran jatuh tempo sebelum hari ini (bagian temporal
+     * predikat T90, klausa `due_date < ?` IDENTIK):
+     * - overdue_*  = kewajiban pada jatuh tempo (principal_amount /
+     *   interest_amount) — tetap terekam meski baris sudah lunas, agar
+     *   rantai kewajiban → alokasi → sisa tidak kehilangan riwayat;
+     * - allocated_* = split paid hasil ShmLoanPaymentAllocationService;
+     * - remaining_overdue = Σ sisa per baris YANG DI-CLAMP positif —
+     *   identik dengan predikat outstanding > 0 milik T90 (baris lunas
+     *   memberi 0), sehingga NILAINYA NOL tepat saat tidak ada lagi
+     *   tunggakan (syarat resolution_ready Ticket 95, tanpa toleransi —
+     *   collection_closure_tolerance masih PENDING BUSINESS CONFIRMATION).
+     *
+     * Perhitungan berjalan di database (kolom numeric PostgreSQL); hasil
+     * dinormalkan ke desimal 2 digit di sini — frontend tidak pernah
+     * menghitung ulang.
+     *
+     * @return array{overdue_principal: string, overdue_interest: string, overdue_total: string, allocated_principal: string, allocated_interest: string, allocated_total: string, remaining_overdue: string}
+     */
+    public function overdueObligationProgress(ShmLoan $loan): array
+    {
+        $row = DB::table('shm_loan_installments')
+            ->selectRaw(
+                'coalesce(sum(principal_amount), 0) as overdue_principal,'
+                .'coalesce(sum(interest_amount), 0) as overdue_interest,'
+                .'coalesce(sum(paid_principal_amount), 0) as allocated_principal,'
+                .'coalesce(sum(paid_interest_amount), 0) as allocated_interest,'
+                .'coalesce(sum(case when (principal_amount - paid_principal_amount)'
+                .' + (interest_amount - paid_interest_amount) > 0 then'
+                .' (principal_amount - paid_principal_amount)'
+                .' + (interest_amount - paid_interest_amount) else 0 end), 0) as remaining_overdue'
+            )
+            ->where('shm_loan_id', $loan->getKey())
+            ->whereRaw('due_date < ?', [today()->toDateString()])
+            ->first();
+
+        $money = fn (mixed $value): string => number_format((float) $value, 2, '.', '');
+
+        $overduePrincipal = $money($row->overdue_principal);
+        $overdueInterest = $money($row->overdue_interest);
+        $allocatedPrincipal = $money($row->allocated_principal);
+        $allocatedInterest = $money($row->allocated_interest);
+
+        return [
+            'overdue_principal' => $overduePrincipal,
+            'overdue_interest' => $overdueInterest,
+            'overdue_total' => $money((float) $overduePrincipal + (float) $overdueInterest),
+            'allocated_principal' => $allocatedPrincipal,
+            'allocated_interest' => $allocatedInterest,
+            'allocated_total' => $money((float) $allocatedPrincipal + (float) $allocatedInterest),
+            'remaining_overdue' => $money($row->remaining_overdue),
+        ];
+    }
+
+    /**
      * Subquery agregat tunggakan terkorelasi per pinjaman.
      *
      * Predikat di dalam subquery berasal dari applyOverdueCondition —

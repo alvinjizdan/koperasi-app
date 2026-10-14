@@ -50,6 +50,12 @@ use Inertia\Response;
  * audit tetap di ShmCollectionCaseService (controller hanya meneruskan
  * `status` dari session aktor). Detail PTP (amount/tanggal/fulfillment)
  * sengaja TIDAK ada — PROMISE_TO_PAY murni status workflow.
+ *
+ * Ticket 95 menambahkan presentasi progres pembayaran & kesiapan resolusi
+ * (angka SEMUA server-derived dari agregat ShmCollectionQueryService) serta
+ * guard finansial resolusi di service — tidak ada perhitungan finansial di
+ * frontend, tidak ada resolusi otomatis, dan tidak ada pembuatan pembayaran
+ * dari halaman Collection.
  */
 class ShmCollectionController extends Controller
 {
@@ -122,7 +128,8 @@ class ShmCollectionController extends Controller
     /**
      * Detail monitoring satu pinjaman tunggakan: nasabah, pinjaman,
      * ringkasan tunggakan, jadwal angsuran (presentation state derived),
-     * riwayat pembayaran, dan timeline audit yang SUDAH ada.
+     * riwayat pembayaran, progres pembayaran overdue (Ticket 95), dan
+     * timeline audit yang SUDAH ada.
      *
      * Read-only: method ini tidak pernah menulis data maupun audit.
      */
@@ -131,24 +138,6 @@ class ShmCollectionController extends Controller
         // Ownership DULU — kelayakan Collection tidak pernah membocorkan
         // keberadaan pinjaman milik marketing lain.
         $this->authorizeLoanRecordOwnership($request, $loan);
-
-        // Hanya kandidat Collection yang punya halaman detail: closed,
-        // belum cair, maupun tunggakan yang sudah lunas seluruhnya (404).
-        abort_unless(
-            $this->collections->isCandidate($loan),
-            404,
-            'Pinjaman ini tidak memiliki tunggakan pada Collection.'
-        );
-
-        // Eager loading sekali jalan: jadwal (terurut), riwayat pembayaran
-        // + alokasinya, dan relasi presentasi — tanpa N+1.
-        $loan->load([
-            'customer:id,customer_number,name,nik,phone,address,is_active,member_id',
-            'customer.member:id,full_name,member_number',
-            'product:id,code,name',
-            'installments' => fn ($installments) => $installments->orderBy('installment_number'),
-            'payments.allocations',
-        ]);
 
         // Case Collection TERBARU pinjaman (bila ada) + riwayat aktivitas
         // terurut — dibaca pada request YANG SAMA lewat eager load (tanpa N+1).
@@ -163,9 +152,38 @@ class ShmCollectionController extends Controller
             ->with(['activities' => fn ($activities) => $activities->latestFirst()->with('actor:id,name')])
             ->first();
 
+        // Halaman detail terbuka untuk kandidat Collection ATAU pinjaman yang
+        // memiliki Collection Case (Ticket 95). Setelah tunggakan terbayar
+        // penuh pinjaman keluar dari kelayakan T90 (dan otomatis dari daftar
+        // kerja), tetapi PEMILIK case harus tetap bisa membuka halaman untuk
+        // melihat kesiapan resolusi dan menyelesaikan case; case RESOLVED
+        // tetap terlihat sebagai status terminal. Predikat kelayakan daftar
+        // T90 (candidates/isCandidate) TIDAK diubah — pinjaman tanpa case dan
+        // tanpa tunggakan tetap 404.
+        abort_unless(
+            $this->collections->isCandidate($loan) || $latestCase !== null,
+            404,
+            'Pinjaman ini tidak memiliki tunggakan pada Collection.'
+        );
+
+        // Eager loading sekali jalan: jadwal (terurut), riwayat pembayaran
+        // + alokasinya, dan relasi presentasi — tanpa N+1.
+        $loan->load([
+            'customer:id,customer_number,name,nik,phone,address,is_active,member_id',
+            'customer.member:id,full_name,member_number',
+            'product:id,code,name',
+            'installments' => fn ($installments) => $installments->orderBy('installment_number'),
+            'payments.allocations',
+        ]);
+
+        // Progres pembayaran overdue: SATU agregat SQL dipakai bersama oleh
+        // ringkasan pembayaran (detail) dan kesiapan resolusi (case) sehingga
+        // angka yang tampil = angka yang dijaga backend.
+        $paymentProgress = $this->collections->overdueObligationProgress($loan);
+
         return Inertia::render('Shm/Collection/Show', [
-            'collection' => $this->presentCollectionDetail($loan),
-            'collection_case' => $this->presentCollectionCase($latestCase, $request),
+            'collection' => $this->presentCollectionDetail($loan, $paymentProgress),
+            'collection_case' => $this->presentCollectionCase($latestCase, $request, $paymentProgress),
             'timeline' => $this->collectionTimeline($loan),
             'today' => today()->toDateString(),
             'flash' => [
@@ -176,14 +194,15 @@ class ShmCollectionController extends Controller
     }
 
     /**
-     * Transisi status workflow Collection Case (Ticket 94).
+     * Transisi status workflow Collection Case (Ticket 94/95).
      *
      * Endpoint mutasi SATU-satunya untuk workflow lifecycle. Controller hanya
      * meneruskan `status` target dari Form Request — graph transisi valid,
-     * otorisasi pemilik (tanpa fallback admin/shm.view_all), penetapan
-     * `resolved_at`, dan audit `shm.collection.case.status_changed` semuanya
-     * mutlak di `ShmCollectionCaseService::transition()` (transaksi tunggal).
-     * Aktor = user session; identitas/pemilik/pinjaman/timestamp penyelesaian
+     * otorisasi pemilik (tanpa fallback admin/shm.view_all), guard finansial
+     * resolusi (remaining overdue = 0, Ticket 95), penetapan `resolved_at`,
+     * dan audit `shm.collection.case.status_changed` semuanya mutlak di
+     * `ShmCollectionCaseService::transition()` (transaksi tunggal).
+     * Aktor = user session; identitas/pemilik/pinjaman/resolved_at/readiness
      * TIDAK pernah diterima dari frontend. Tidak ada detail PTP yang diminta.
      */
     public function transition(StoreShmCollectionCaseTransitionRequest $request, ShmCollectionCase $case): RedirectResponse
@@ -210,15 +229,26 @@ class ShmCollectionController extends Controller
      * server dan KOSONG untuk non-pemilik, sehingga React tidak menghitung
      * ulang logika transisi dan tidak pernah menawarkan aksi ke non-owner.
      *
+     * Kesiapan resolusi (Ticket 95) — semuanya server-derived dari agregat
+     * yang sama dengan guard backend:
+     * - `remaining_overdue` = sisa tunggakan overdue (angka finansial);
+     * - `resolution_ready` = case BELUM RESOLVED dan remaining = 0;
+     * - `can_resolve` = pemilik + belum RESOLVED + ready — SATU-satunya
+     *   sumber tampilan tombol Selesaikan di frontend.
+     *
+     * @param  array{overdue_principal: string, overdue_interest: string, overdue_total: string, allocated_principal: string, allocated_interest: string, allocated_total: string, remaining_overdue: string}  $paymentProgress
      * @return array<string, mixed>|null
      */
-    private function presentCollectionCase(?ShmCollectionCase $case, Request $request): ?array
+    private function presentCollectionCase(?ShmCollectionCase $case, Request $request, array $paymentProgress): ?array
     {
         if ($case === null) {
             return null;
         }
 
         $isOwner = (int) $request->user()?->id === (int) $case->marketing_id;
+        $remainingOverdue = (float) $paymentProgress['remaining_overdue'];
+        $isResolved = $case->status === ShmCollectionCase::STATUS_RESOLVED;
+        $resolutionReady = ! $isResolved && $remainingOverdue <= 0;
 
         return [
             'id' => $case->id,
@@ -230,6 +260,9 @@ class ShmCollectionController extends Controller
             'allowed_transitions' => $isOwner
                 ? (ShmCollectionCase::ALLOWED_TRANSITIONS[$case->status] ?? [])
                 : [],
+            'remaining_overdue' => round($remainingOverdue, 2),
+            'resolution_ready' => $resolutionReady,
+            'can_resolve' => $isOwner && $resolutionReady,
             'activities' => $case->activities
                 ->map(fn (ShmCollectionActivity $activity): array => [
                     'id' => $activity->id,
@@ -303,11 +336,13 @@ class ShmCollectionController extends Controller
     }
 
     /**
-     * Payload detail Collection (ringkasan + jadwal + riwayat pembayaran).
+     * Payload detail Collection (ringkasan + jadwal + riwayat pembayaran +
+     * progres pembayaran overdue Ticket 95).
      *
+     * @param  array{overdue_principal: string, overdue_interest: string, overdue_total: string, allocated_principal: string, allocated_interest: string, allocated_total: string, remaining_overdue: string}  $paymentProgress
      * @return array<string, mixed>
      */
-    private function presentCollectionDetail(ShmLoan $loan): array
+    private function presentCollectionDetail(ShmLoan $loan, array $paymentProgress): array
     {
         $today = today();
 
@@ -362,6 +397,44 @@ class ShmCollectionController extends Controller
                 ->map(fn (ShmLoanPayment $payment): array => $this->presentCollectionPayment($payment))
                 ->values()
                 ->all(),
+            // Rantai kewajiban → alokasi → sisa (Ticket 95) — seluruh angka
+            // dari SATU agregat SQL server-side; frontend tidak menghitung.
+            'payment_progress' => $this->presentPaymentProgress($loan, $paymentProgress),
+        ];
+    }
+
+    /**
+     * Progres pembayaran overdue + pembayaran terakhir (Ticket 95).
+     *
+     * Nilai finansial diteruskan apa adanya dari agregat query service;
+     * pembayaran terakhir diambil dari baris yang sudah dimuat (posted saja —
+     * konsisten dengan last_payment_date pada daftar T90), tanpa query
+     * tambahan per pembayaran.
+     *
+     * @param  array{overdue_principal: string, overdue_interest: string, overdue_total: string, allocated_principal: string, allocated_interest: string, allocated_total: string, remaining_overdue: string}  $paymentProgress
+     * @return array<string, mixed>
+     */
+    private function presentPaymentProgress(ShmLoan $loan, array $paymentProgress): array
+    {
+        $latestPayment = $loan->payments
+            ->filter(fn (ShmLoanPayment $payment): bool => $payment->status === ShmLoanPayment::STATUS_POSTED)
+            ->sortBy([['payment_date', 'desc'], ['id', 'desc']])
+            ->first();
+
+        return [
+            'overdue_principal' => round((float) $paymentProgress['overdue_principal'], 2),
+            'overdue_interest' => round((float) $paymentProgress['overdue_interest'], 2),
+            'overdue_total' => round((float) $paymentProgress['overdue_total'], 2),
+            'allocated_principal' => round((float) $paymentProgress['allocated_principal'], 2),
+            'allocated_interest' => round((float) $paymentProgress['allocated_interest'], 2),
+            'allocated_total' => round((float) $paymentProgress['allocated_total'], 2),
+            'remaining_overdue' => round((float) $paymentProgress['remaining_overdue'], 2),
+            'latest_payment' => $latestPayment !== null
+                ? [
+                    'payment_date' => $latestPayment->payment_date?->format('Y-m-d'),
+                    'payment_reference' => $latestPayment->payment_reference,
+                ]
+                : null,
         ];
     }
 
