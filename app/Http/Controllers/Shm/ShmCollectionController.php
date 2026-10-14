@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Shm;
 use App\Http\Controllers\Concerns\AuthorizesShmOwnership;
 use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Shm\StoreShmCollectionCaseTransitionRequest;
 use App\Models\AuditLog;
 use App\Models\ShmCollectionActivity;
 use App\Models\ShmCollectionCase;
@@ -14,8 +15,10 @@ use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanPayment;
 use App\Models\ShmLoanPaymentAllocation;
 use App\Models\ShmLoanProduct;
+use App\Services\Shm\ShmCollectionCaseService;
 use App\Services\Shm\ShmCollectionQueryService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Inertia\Inertia;
@@ -41,13 +44,22 @@ use Inertia\Response;
  * pembacaan riwayat aktivitas Collection (case aktif + flag pemilik) pada
  * payload detail; pencatatannya sendiri ada di
  * ShmCollectionActivityController (route terpisah, otorisasi di domain).
+ *
+ * Ticket 94 menambahkan SATU aksi workflow: transisi status Collection Case
+ * (POST) — seluruh logika graph transisi, otorisasi pemilik, resolved_at, dan
+ * audit tetap di ShmCollectionCaseService (controller hanya meneruskan
+ * `status` dari session aktor). Detail PTP (amount/tanggal/fulfillment)
+ * sengaja TIDAK ada — PROMISE_TO_PAY murni status workflow.
  */
 class ShmCollectionController extends Controller
 {
     use AuthorizesShmOwnership;
     use InteractsWithSorting;
 
-    public function __construct(private readonly ShmCollectionQueryService $collections) {}
+    public function __construct(
+        private readonly ShmCollectionQueryService $collections,
+        private readonly ShmCollectionCaseService $cases,
+    ) {}
 
     /**
      * Daftar work queue Collection (server-side: search/filter/sort/paging).
@@ -138,19 +150,22 @@ class ShmCollectionController extends Controller
             'payments.allocations',
         ]);
 
-        // Case aktif pinjaman (bila ada) + riwayat aktivitas terurut —
-        // dibaca pada request YANG SAMA lewat eager load (tanpa N+1).
-        // Pencatatan aktivitas (T93) hanya ditawarkan kepada pemilik case;
-        // pembacaan riwayat mengikuti otorisasi halaman detail ini.
-        $activeCase = ShmCollectionCase::query()
+        // Case Collection TERBARU pinjaman (bila ada) + riwayat aktivitas
+        // terurut — dibaca pada request YANG SAMA lewat eager load (tanpa N+1).
+        // Case aktif selalu lebih baru dari case RESOLVED sebelumnya (T92:
+        // hanya satu active case; case baru dibuat setelah yang lama RESOLVED),
+        // sehingga case terbaru = case aktif bila ada; jika semua sudah
+        // RESOLVED, case RESOLVED terakhir tetap tampil sebagai status
+        // TERMINAL (Ticket 94: status terlihat, tanpa aksi transisi).
+        $latestCase = ShmCollectionCase::query()
             ->where('shm_loan_id', $loan->getKey())
-            ->active()
+            ->latest('id')
             ->with(['activities' => fn ($activities) => $activities->latestFirst()->with('actor:id,name')])
             ->first();
 
         return Inertia::render('Shm/Collection/Show', [
             'collection' => $this->presentCollectionDetail($loan),
-            'collection_case' => $this->presentCollectionCase($activeCase, $request),
+            'collection_case' => $this->presentCollectionCase($latestCase, $request),
             'timeline' => $this->collectionTimeline($loan),
             'today' => today()->toDateString(),
             'flash' => [
@@ -161,11 +176,39 @@ class ShmCollectionController extends Controller
     }
 
     /**
-     * Case aktif pinjaman (bila ada) + riwayat aktivitas (Ticket 93).
+     * Transisi status workflow Collection Case (Ticket 94).
+     *
+     * Endpoint mutasi SATU-satunya untuk workflow lifecycle. Controller hanya
+     * meneruskan `status` target dari Form Request — graph transisi valid,
+     * otorisasi pemilik (tanpa fallback admin/shm.view_all), penetapan
+     * `resolved_at`, dan audit `shm.collection.case.status_changed` semuanya
+     * mutlak di `ShmCollectionCaseService::transition()` (transaksi tunggal).
+     * Aktor = user session; identitas/pemilik/pinjaman/timestamp penyelesaian
+     * TIDAK pernah diterima dari frontend. Tidak ada detail PTP yang diminta.
+     */
+    public function transition(StoreShmCollectionCaseTransitionRequest $request, ShmCollectionCase $case): RedirectResponse
+    {
+        $toStatus = (string) $request->validated('status');
+
+        $this->cases->transition($case, $toStatus, (int) $request->user()->id);
+
+        return redirect()
+            ->route('shm.collection.show', $case->shm_loan_id)
+            ->with('success', sprintf('Status Collection Case berhasil diubah ke %s.', $toStatus));
+    }
+
+    /**
+     * Case Collection terbaru pinjaman (bila ada) + riwayat aktivitas
+     * (Ticket 93/94).
      *
      * `can_record` dihitung di server: pengguna saat ini harus PEMILIK case —
      * `shm.view_all`/admin TIDAK otomatis boleh mencatat. Aktivitas sudah
      * terurut `latestFirst` (activity_at desc, id desc) dari eager load.
+     *
+     * `allowed_transitions` (Ticket 94) = daftar target valid dari status
+     * saat ini menurut `ShmCollectionCase::ALLOWED_TRANSITIONS` — DIHITUNG
+     * server dan KOSONG untuk non-pemilik, sehingga React tidak menghitung
+     * ulang logika transisi dan tidak pernah menawarkan aksi ke non-owner.
      *
      * @return array<string, mixed>|null
      */
@@ -175,12 +218,18 @@ class ShmCollectionController extends Controller
             return null;
         }
 
+        $isOwner = (int) $request->user()?->id === (int) $case->marketing_id;
+
         return [
             'id' => $case->id,
             'status' => $case->status,
             'opened_at' => $case->opened_at->toDateTimeString(),
+            'resolved_at' => $case->resolved_at?->toDateTimeString(),
             'marketing_id' => $case->marketing_id,
-            'can_record' => (int) $request->user()?->id === (int) $case->marketing_id,
+            'can_record' => $isOwner,
+            'allowed_transitions' => $isOwner
+                ? (ShmCollectionCase::ALLOWED_TRANSITIONS[$case->status] ?? [])
+                : [],
             'activities' => $case->activities
                 ->map(fn (ShmCollectionActivity $activity): array => [
                     'id' => $activity->id,
@@ -399,7 +448,9 @@ class ShmCollectionController extends Controller
 
     /**
      * Garis waktu read-only dari data audit YANG SUDAH ADA: riwayat
-     * pengajuan asal, event pinjaman (jadwal dll.), dan event pembayaran.
+     * pengajuan asal, event pinjaman (jadwal dll.), event pembayaran, dan
+     * event Collection Case pinjaman ini (pembuatan + perubahan status
+     * lifecycle — Ticket 94, tanpa event lain).
      *
      * Tidak pernah menulis audit — GET Collection tidak menghasilkan
      * mutation apa pun.
@@ -410,10 +461,13 @@ class ShmCollectionController extends Controller
     {
         $applicationId = $loan->shm_loan_application_id;
         $paymentIds = $loan->payments->pluck('id');
+        $caseIds = ShmCollectionCase::query()
+            ->where('shm_loan_id', $loan->getKey())
+            ->pluck('id');
 
         return AuditLog::query()
             ->with('actor:id,name')
-            ->where(function (Builder $query) use ($loan, $applicationId, $paymentIds): void {
+            ->where(function (Builder $query) use ($loan, $applicationId, $paymentIds, $caseIds): void {
                 $query
                     ->where(fn (Builder $loanEvents) => $loanEvents
                         ->where('object_type', ShmLoan::class)
@@ -429,6 +483,12 @@ class ShmCollectionController extends Controller
                         fn (Builder $events) => $events->orWhere(fn (Builder $paymentEvents) => $paymentEvents
                             ->where('object_type', ShmLoanPayment::class)
                             ->whereIn('object_id', $paymentIds)),
+                    )
+                    ->when(
+                        $caseIds->isNotEmpty(),
+                        fn (Builder $events) => $events->orWhere(fn (Builder $caseEvents) => $caseEvents
+                            ->where('object_type', ShmCollectionCase::class)
+                            ->whereIn('object_id', $caseIds)),
                     );
             })
             ->orderByDesc('created_at')

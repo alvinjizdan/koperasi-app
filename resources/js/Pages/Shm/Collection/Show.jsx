@@ -1,5 +1,5 @@
 import React from 'react';
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Head, Link, router, usePage, useForm } from '@inertiajs/react';
 import ShmLayout from '@/Layouts/ShmLayout';
 import ReportTable from '@/Components/Admin/ReportTable';
 import InputError from '@/Components/InputError';
@@ -23,6 +23,7 @@ import {
     PhoneCall,
     UserRound,
     Users,
+    Workflow,
 } from 'lucide-react';
 
 /**
@@ -33,12 +34,14 @@ import {
  * jadwal angsuran dengan presentation state yang derived dari amounts,
  * riwayat pembayaran + alokasinya, dan timeline dari audit trail existing.
  *
- * Ticket 93 menambahkan SATU aksi terbatas: pencatatan aktivitas Collection
- * oleh PEMILIK case aktif (flag `can_record` dari server; server tetap
- * otoritatif). Pencatatan tidak mengubah status case, tidak membuat PTP/
+ * Ticket 93 menambahkan pencatatan aktivitas Collection oleh PEMILIK case
+ * (flag `can_record` dari server; server tetap otoritatif), dan Ticket 94
+ * menambahkan transisi workflow status case — daftar aksi valid datang dari
+ * server (`allowed_transitions`). Pencatatan/transisi tidak membuat PTP/
  * pembayaran, dan tidak menawarkan pembayaran, penalty, collector,
- * escalation, maupun perubahan status — semuanya masih PENDING BUSINESS
- * CONFIRMATION. State angsuran adalah turunan tampilan, bukan status DB baru.
+ * escalation otomatis, maupun perubahan status pinjaman — semuanya masih
+ * PENDING BUSINESS CONFIRMATION. State angsuran adalah turunan tampilan,
+ * bukan status DB baru.
  */
 function Field({ label, children }) {
     return (
@@ -91,6 +94,41 @@ const ACTIVITY_RESULT_META = {
     UNABLE_TO_PAY: { label: 'Tidak mampu bayar', className: 'bg-rose-50 text-rose-700' },
     OTHER: { label: 'Lainnya', className: 'bg-slate-100 text-slate-600' },
 };
+
+// Status lifecycle Collection Case = contract T91 (via ALLOWED_TRANSITIONS
+// T92 yang dikirim server); label Indonesia hanya tampilan. PROMISE_TO_PAY di
+// sini murni STATE WORKFLOW — tanpa form/field detail PTP (ticket PTP nanti).
+const CASE_STATUS_META = {
+    OPEN: { label: 'Open', className: 'bg-slate-100 text-slate-600' },
+    IN_PROGRESS: { label: 'In Progress', className: 'bg-sky-50 text-sky-700' },
+    PROMISE_TO_PAY: { label: 'Promise to Pay', className: 'bg-amber-50 text-amber-700' },
+    ESCALATED: { label: 'Escalated', className: 'bg-rose-50 text-rose-700' },
+    RESOLVED: { label: 'Resolved', className: 'bg-emerald-50 text-emerald-700' },
+};
+
+/**
+ * Label tombol transisi — murni presentasi; keputusan transisi valid selalu
+ * datang dari `allowed_transitions` server (React tidak menghitung graph).
+ */
+function transitionActionLabel(fromStatus, toStatus) {
+    if (toStatus === 'RESOLVED') {
+        return 'Selesaikan Case';
+    }
+
+    if (toStatus === 'ESCALATED') {
+        return 'Eskalasi';
+    }
+
+    if (toStatus === 'PROMISE_TO_PAY') {
+        return 'Promise to Pay';
+    }
+
+    if (toStatus === 'IN_PROGRESS') {
+        return fromStatus === 'OPEN' ? 'Mulai Penanganan' : 'Kembali ke Penanganan';
+    }
+
+    return toStatus;
+}
 
 /**
  * Form pencatatan aktivitas Collection (Ticket 93).
@@ -210,6 +248,105 @@ function ActivityForm({ caseId }) {
             </div>
             <InputError message={errors['collection.otorisasi']} className="mt-2" />
         </form>
+    );
+}
+
+/**
+ * Status workflow Collection Case + aksi transisi valid (Ticket 94).
+ *
+ * Daftar aksi MURNI datang dari server (`allowed_transitions` = tabel
+ * ALLOWED_TRANSITIONS T92 yang sudah difilter pemilik) — React tidak
+ * menghitung ulang graph transisi. PROMISE_TO_PAY hanya merubah status;
+ * TIDAK ada form/field detail PTP. RESOLVED tidak menawarkan aksi apa pun
+ * (terminal, tanpa reopen). Otorisasi tetap mutlak di backend.
+ */
+function CaseWorkflow({ collectionCase, flash }) {
+    const { status, opened_at, resolved_at, allowed_transitions } = collectionCase;
+    const { errors } = usePage().props;
+    const statusMeta = CASE_STATUS_META[status] ?? {
+        label: status,
+        className: 'bg-slate-100 text-slate-600',
+    };
+
+    const transitionTo = (toStatus) => {
+        router.post(
+            route('shm.collection.cases.transition', collectionCase.id),
+            { status: toStatus },
+            { preserveScroll: true },
+        );
+    };
+
+    return (
+        <section className="rounded-lg bg-white p-5 shadow">
+            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                <Workflow className="h-4 w-4 text-slate-400" />
+                Status Penanganan Collection
+            </h2>
+
+            {flash?.success && (
+                <div className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                    <p>{flash.success}</p>
+                </div>
+            )}
+            {flash?.error && (
+                <div className="mb-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <p>{flash.error}</p>
+                </div>
+            )}
+
+            <div className="mb-4 flex flex-wrap items-center gap-3">
+                <span className="text-sm text-slate-500">Status:</span>
+                <span
+                    className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusMeta.className}`}
+                >
+                    {statusMeta.label}
+                </span>
+                <span className="text-xs text-slate-400">
+                    Dibuka {formatDateTime(opened_at)}
+                    {resolved_at
+                        ? ` • Diselesaikan ${formatDateTime(resolved_at)}`
+                        : ''}
+                </span>
+            </div>
+
+            {allowed_transitions.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                    {allowed_transitions.map((toStatus) => (
+                        <button
+                            key={toStatus}
+                            type="button"
+                            onClick={() => transitionTo(toStatus)}
+                            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1"
+                        >
+                            {transitionActionLabel(status, toStatus)}
+                        </button>
+                    ))}
+                </div>
+            ) : status === 'RESOLVED' ? (
+                <p className="text-xs text-slate-500">
+                    Case sudah RESOLVED — status terminal, tidak dapat dibuka
+                    kembali melalui workflow ini.
+                </p>
+            ) : (
+                <p className="text-xs text-slate-500">
+                    Transisi status hanya tersedia bagi Marketing pemilik case
+                    ini.
+                </p>
+            )}
+
+            {errors?.['collection.status'] && (
+                <p className="mt-3 text-xs text-rose-600">
+                    {errors['collection.status']}
+                </p>
+            )}
+            {errors?.['collection.otorisasi'] && (
+                <p className="mt-3 text-xs text-rose-600">
+                    {errors['collection.otorisasi']}
+                </p>
+            )}
+        </section>
     );
 }
 
@@ -415,10 +552,12 @@ export default function Show({ collection, collection_case, timeline, today, fla
                 <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                     <Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
                     <p>
-                        Halaman <strong>read-only</strong> kecuali pencatatan
-                        aktivitas Collection bagi pemilik case (Ticket 93).
-                        Tidak ada aksi pembayaran, penalty, collector, maupun
-                        perubahan status dari halaman ini — semuanya masih{' '}
+                        Halaman <strong>read-only</strong> kecuali dua aksi
+                        terbatas bagi pemilik case: pencatatan aktivitas
+                        Collection (Ticket 93) dan transisi status workflow
+                        Collection Case (Ticket 94). Tidak ada aksi pembayaran,
+                        penalty, collector, maupun perubahan status pinjaman
+                        dari halaman ini — semuanya masih{' '}
                         <strong>PENDING BUSINESS CONFIRMATION</strong>.
                     </p>
                 </div>
@@ -579,25 +718,20 @@ export default function Show({ collection, collection_case, timeline, today, fla
                     />
                 </section>
 
+                {/* Collection case workflow (Ticket 94) */}
+                {collection_case && (
+                    <CaseWorkflow
+                        collectionCase={collection_case}
+                        flash={flash}
+                    />
+                )}
+
                 {/* Collection activities (Ticket 93) */}
                 <section className="rounded-lg bg-white p-5 shadow">
                     <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
                         <ClipboardList className="h-4 w-4 text-slate-400" />
                         Riwayat Aktivitas Collection
                     </h2>
-
-                    {flash?.success && (
-                        <div className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700">
-                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                            <p>{flash.success}</p>
-                        </div>
-                    )}
-                    {flash?.error && (
-                        <div className="mb-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
-                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                            <p>{flash.error}</p>
-                        </div>
-                    )}
 
                     {!collection_case ? (
                         <p className="text-sm text-slate-500">

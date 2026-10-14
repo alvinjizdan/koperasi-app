@@ -680,6 +680,22 @@ Route::prefix('shm')->name('shm.')->group(function () {
             Route::post('/collection/{case}/activities', [ShmCollectionActivityController::class, 'store'])
                 ->name('collection.activities.store');
 
+            // -----------------------------------------------------------------
+            // Ticket 94 — Transisi workflow status Collection Case.
+            //
+            // POST tunggal di gate modul `shm.view` yang SAMA dengan halaman
+            // Collection (pola T92/T93: permission view existing + otorisasi
+            // tulis mutlak di ShmCollectionCaseService — pemilik case saja,
+            // tanpa fallback admin/shm.view_all; tidak ada permission baru).
+            // Path 3 segmen bernama literal — tidak konflik dengan
+            // GET /collection/{loan} (metode HTTP & jumlah segmen berbeda)
+            // maupun POST /collection/{case}/activities. Graph transisi = tabel
+            // ALLOWED_TRANSITIONS T92 (contract T91); PROMISE_TO_PAY murni
+            // status workflow tanpa detail PTP.
+            // -----------------------------------------------------------------
+            Route::post('/collection/{case}/transition', [ShmCollectionController::class, 'transition'])
+                ->name('collection.cases.transition');
+
             Route::get('/pinjaman/{loan}', [ShmLoanController::class, 'show'])
                 ->name('loans.show');
 
