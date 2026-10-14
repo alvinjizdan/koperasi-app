@@ -10,9 +10,9 @@ return [
     'meta' => [
         'contract_name' => 'SHM Business Rule Contract',
         'scope' => 'Sarana Hunian Mandiri (SHM)',
-        'version' => '1.2.0-T79',
+        'version' => '1.3.0-T91',
         'status' => 'reference_contract_only',
-        'purpose' => 'T79: general/standard loan business rules diadopsi sebagai CONFIRMED BASELINE untuk SHM, kecuali ada aturan khusus KSP yang menggantikan.',
+        'purpose' => 'T79: general/standard loan business rules diadopsi sebagai CONFIRMED BASELINE untuk SHM, kecuali ada aturan khusus KSP yang menggantikan. T91: business rule & workflow contract Collection (internal koperasi) — role structure, lifecycle, aging, activity/result, promise-to-pay, escalation authority, permission konseptual, audit, dan daftar pending rule — tanpa implementasi action/UI/database.',
         'baseline_source' => 'Keputusan user (T79): SHM memakai GENERAL/STANDARD LOAN BUSINESS RULES sebagai baseline, sampai ada aturan khusus KSP yang menggantikan. Setiap rule di bawah ini dilacak keputusan tersebut, BUKAN ke asumsi industri.',
         'related_documents' => [
             'docs/SHM-BUSINESS-DECISION-PACKAGE.md',
@@ -22,7 +22,7 @@ return [
             'config/shm.php',
             'config/business-rules.php (referensi umum koperasi; BUKAN source of truth SHM — nilai provisional tidak diadopsi)',
         ],
-        'changed_by' => 'T79 — baseline rule contract; no financial behavior change, no schema change, no UI',
+        'changed_by' => 'T79 — baseline rule contract; no financial behavior change, no schema change, no UI. T91 — collection business rule & workflow contract (ADDITIVE: key baru collection_workflow + assert guard; tidak ada key lama dihapus/diubah, tanpa perubahan behavior runtime, schema, UI, payment, settlement, atau loan status).',
         'vocabulary' => [
             'CONFIRMED BASELINE' => 'Rule diputuskan (keputusan user T79) dan mengikat ticket implementasi berikutnya.',
             'PENDING BUSINESS CONFIRMATION' => 'Rule belum diputuskan; sistem tidak boleh menebak atau mengimplementasikan.',
@@ -1320,6 +1320,393 @@ return [
         'note' => 'T79 tidak membuat collection engine/menu/automation; tidak ada persentase atau jadwal collection yang dikarang.',
     ],
 
+    /*
+    |-----------------------------------------------------------------------
+    | T91 — COLLECTION BUSINESS RULE & WORKFLOW CONTRACT (ADDITIVE)
+    |
+    | Sumber keputusan: user decision T91 (business rule Collection
+    | dikonfirmasi pihak koperasi, disesuaikan role KSP Bima Sakti Mandiri).
+    | Section ini MELANJUTKAN domain collection T79/T84/T89A/T90 tanpa
+    | menghapus/mengubah key lama — decision_domains.collection dan
+    | collection.di atas dipertahankan apa adanya untuk traceability.
+    |
+    | SCOPE: contract saja. TIDAK ada UI action, TIDAK ada tabel/case
+    | collection, TIDAK ada permission baru, TIDAK ada perubahan T90
+    | monitoring, payment, settlement, loan status, atau approval workflow.
+    |-----------------------------------------------------------------------
+    */
+    'collection_workflow' => [
+        'status' => 'CONFIRMED BASELINE (T91) — business rule & workflow contract; IMPLEMENTASI action Collection = ticket terpisah',
+        'relation_to_t79' => 'Pengembangan domain collection T79 (basis CONFIRMED, detailed_rules PENDING) + T84 (collection_dependency) + T89A (trigger/purpose) + T90 (monitoring read-only). Bagian yang dijawab T91 dijabarkan DI SINI; key lama TIDAK diubah.',
+        'contract_only' => [
+            'ui_action_created' => false,
+            'db_collection_case_created' => false,
+            'permission_created' => false,
+            't90_monitoring_changed' => false,
+            'payment_settlement_loan_status_changed' => false,
+            'source' => 'T91 implementation scope (WAJIB/TIDAK BOLEH)',
+        ],
+
+        // ---------------------------------------------------------------
+        // Konteks: aplikasi INTERNAL koperasi (Rule 15 + business context)
+        // ---------------------------------------------------------------
+        'context' => [
+            'application_type' => 'internal_koperasi',
+            'customer_facing' => false,
+            'performed_by' => 'user_internal_koperasi (aktivitas Collection dilakukan pegawai, bukan otomasi ke nasabah)',
+            'external_automation' => [
+                'whatsapp' => false,
+                'sms' => false,
+                'email_reminder' => false,
+                'customer_portal' => false,
+                'customer_login' => false,
+                'external_notification_gateway' => false,
+            ],
+            'internal_notification_future' => 'Jika notification internal diperlukan: TICKET TERPISAH (Rule 15) — tidak diimplementasikan di T91.',
+            'loan_application_workflow_context' => [
+                'status' => 'CONTEXT ONLY — T91 TIDAK mengimplementasikan perubahan workflow pengajuan pinjaman',
+                'sequence' => [
+                    'marketing_input_pengajuan',
+                    'branch_manager_analisis',
+                    'president_director_final_approval',
+                    'finance_manager_pencairan',
+                    'loan_active',
+                ],
+                'technical_change' => 'PENDING TICKET TERPISAH (perubahan teknis workflow pengajuan bukan scope T91)',
+                'purpose' => 'Dicatat untuk memastikan Collection tidak bertentangan dengan role structure baru.',
+            ],
+            'source' => 'T91 business context + Rule 15 + Loan Application Workflow',
+        ],
+
+        // ---------------------------------------------------------------
+        // RULE 3 — ELIGIBILITY (predicate T90 dipertahankan apa adanya)
+        // ---------------------------------------------------------------
+        'eligibility' => [
+            'status' => 'CONFIRMED BASELINE (T90 predicate; TIDAK diubah T91)',
+            'requires' => [
+                'loan.status = active',
+                'loan.disbursed_at IS NOT NULL',
+                'installment.due_date < today (today()->toDateString())',
+                '(principal_amount - paid_principal_amount) + (interest_amount - paid_interest_amount) > 0',
+            ],
+            'excluded' => [
+                'closed',
+                'undisbursed (belum dicairkan)',
+                'future_only (hanya installment jatuh tempo masa depan)',
+                'overdue_fully_paid (tunggakan sudah lunas semua)',
+            ],
+            'grace_period' => 'none (tanpa grace period)',
+            'predicate_source' => 'T90 app/Services/Shm/ShmCollectionQueryService.php (applyOverdueCondition) — T91 TIDAK menyentuhnya',
+            'change_forbidden_without_explicit_new_rule' => true,
+            'source' => 'T91 Rule 3 + T90 eligibility contract',
+        ],
+
+        // ---------------------------------------------------------------
+        // RULE 1 — OWNER (Marketing; tanpa role Collector khusus)
+        // ---------------------------------------------------------------
+        'owner' => [
+            'initial_owner_role' => 'marketing',
+            'dedicated_collector_role' => 'PENDING BUSINESS CONFIRMATION (T91 TIDAK membuat role Collector; collection awal ditangani Marketing)',
+            'marketing_responsibilities' => [
+                'monitoring_loan_overdue',
+                'follow_up',
+                'record_activity',
+                'record_result',
+                'escalate_if_needed',
+            ],
+            'ownership_technical' => 'Mengikuti mekanisme ownership SHM existing (shm.view + ownedBy/shm.view_all dari T90) — tidak ada mekanisme kepemilikan baru di T91.',
+            'source' => 'T91 Rule 1',
+        ],
+
+        // ---------------------------------------------------------------
+        // RULE 4 — COLLECTION STATUS LIFECYCLE (contract values)
+        // ---------------------------------------------------------------
+        'statuses' => [
+            'values' => ['OPEN', 'IN_PROGRESS', 'PROMISE_TO_PAY', 'ESCALATED', 'RESOLVED'],
+            'meanings' => [
+                'OPEN' => 'Memenuhi Collection eligibility tetapi belum ada tindakan Collection.',
+                'IN_PROGRESS' => 'Marketing sedang menangani/follow-up loan.',
+                'PROMISE_TO_PAY' => 'Customer memberikan komitmen pembayaran yang dicatat Marketing.',
+                'ESCALATED' => 'Kasus membutuhkan penanganan Branch Manager atau President Director.',
+                'RESOLVED' => 'Kewajiban overdue yang menjadi target Collection sudah diselesaikan.',
+            ],
+            'persistence' => 'PENDING (struktur tabel/case Collection & status database BELUM dirancang — T91 contract terlebih dahulu; tidak ada kolom status baru yang dibuat)',
+            'transition_table' => 'PENDING TICKET IMPLEMENTASI (siapa boleh memindahkan status mana — tidak ditebak di T91)',
+            'loan_status_untouched' => true,
+            'installment_db_status_untouched' => true,
+            'presentation_state_only' => 'Status Collection BUKAN status pinjaman dan BUKAN kolom installment; T90 tetap memakai presentation state turunan tanpa DB status baru.',
+            'source' => 'T91 Rule 4',
+        ],
+
+        // ---------------------------------------------------------------
+        // COLLECTION WORKFLOW (baseline + escalation branch)
+        // ---------------------------------------------------------------
+        'workflow' => [
+            'baseline' => [
+                'loan_active_overdue',
+                'collection_open',
+                'marketing_follow_up',
+                'resolved',
+            ],
+            'escalation' => [
+                'marketing',
+                'escalation',
+                'branch_manager_or_president_director',
+                'decision_follow_up',
+                'collection_continues_or_resolved',
+            ],
+            'auto_escalation' => false,
+            'auto_escalation_note' => 'TIDAK ada escalation otomatis berdasarkan angka/bucket — threshold belum ditentukan (Rule 9).',
+            'source' => 'T91 Collection Workflow baseline',
+        ],
+
+        // ---------------------------------------------------------------
+        // RULE 5 — AGING (dihitung dari days overdue T90)
+        // ---------------------------------------------------------------
+        'aging' => [
+            'calculation' => 'days_overdue dari repayment schedule (T90 — earliest overdue due_date vs today)',
+            'buckets' => [
+                ['label' => '1-7 hari', 'min_days' => 1, 'max_days' => 7],
+                ['label' => '8-30 hari', 'min_days' => 8, 'max_days' => 30],
+                ['label' => '31-60 hari', 'min_days' => 31, 'max_days' => 60],
+                ['label' => '61-90 hari', 'min_days' => 61, 'max_days' => 90],
+                ['label' => '>90 hari', 'min_days' => 91, 'max_days' => null],
+            ],
+            'purpose' => [
+                'monitoring',
+                'tingkat_perhatian_collection',
+                'membantu_keputusan_escalation',
+            ],
+            'auto_escalation_by_bucket' => false,
+            'source' => 'T91 Rule 5 (baseline aging operasional yang dikonfirmasi; BUKAN hasil tebakan)',
+
+        ],
+
+        // ---------------------------------------------------------------
+        // RULE 6 — COLLECTION ACTIVITY
+        // ---------------------------------------------------------------
+        'activities' => [
+            'types' => ['phone_call', 'visit', 'follow_up', 'other'],
+            'fields' => [
+                'datetime',
+                'user_marketing',
+                'activity',
+                'result',
+                'notes',
+                'next_action_optional',
+            ],
+            'recorded_by' => 'marketing (user internal yang menangani collection miliknya)',
+            'automation' => 'PENDING — TIDAK ada integrasi WhatsApp/SMS/email otomatis (Rule 6 + 15)',
+            'source' => 'T91 Rule 6',
+        ],
+
+        // ---------------------------------------------------------------
+        // RULE 7 — COLLECTION RESULT
+        // ---------------------------------------------------------------
+        'results' => [
+            'values' => ['CONTACTED', 'NOT_REACHED', 'PROMISE_TO_PAY', 'PAID', 'UNABLE_TO_PAY', 'OTHER'],
+            'enum_mapping' => 'PENDING SAAT IMPLEMENTASI — nilai di atas adalah contract values; pemetaan ke enum/kolom project mengikuti convention existing dan WAJIB didokumentasikan (Rule 7). T91 TIDAK membuat enum/database value.',
+            'source' => 'T91 Rule 7',
+        ],
+
+        // ---------------------------------------------------------------
+        // RULE 8 — PROMISE TO PAY
+        // ---------------------------------------------------------------
+        'promise_to_pay' => [
+            'recordable' => true,
+            'fields' => ['promised_date', 'promised_amount', 'notes'],
+            'status_effect' => 'collection status menjadi PROMISE_TO_PAY',
+            'grace_period' => 'PENDING BUSINESS CONFIRMATION',
+            'max_attempts' => 'PENDING BUSINESS CONFIRMATION',
+            'broken_ptp_detection' => 'PENDING BUSINESS CONFIRMATION (tidak ada automatic broken-PTP detection)',
+            'broken_ptp_penalty' => 'PENDING BUSINESS CONFIRMATION (lihat juga domain penalty — TIDAK diimplementasikan)',
+            'cannot_guess' => true,
+            'source' => 'T91 Rule 8',
+        ],
+
+        // ---------------------------------------------------------------
+        // RULE 9 + RULE 12 — ESCALATION & AUTHORITY
+        // ---------------------------------------------------------------
+        'escalation' => [
+            'initial_level' => 'marketing',
+            'authorities' => ['branch_manager', 'president_director'],
+            'workflow' => 'Marketing → Escalation → Branch Manager / President Director → Decision/Follow-up → Collection continues / Resolved',
+            'automatic_escalation' => false,
+            'threshold' => 'PENDING BUSINESS CONFIRMATION (TIDAK ada angka threshold yang ditetapkan/dikarang)',
+            'timing' => 'PENDING BUSINESS CONFIRMATION (tidak ada automatic escalation timing)',
+            'potential_factors' => [
+                'aging',
+                'nominal_outstanding',
+                'repeated_unsuccessful_follow_up',
+                'broken_promise_to_pay',
+                'kondisi_customer',
+            ],
+            'potential_factors_note' => 'Faktor POTENSIAL yang membantu keputusan MANUSIA — bukan algoritma otomatis; threshold final belum ditentukan.',
+            'assignment_authority' => ['branch_manager', 'president_director'],
+            'assignment_algorithm' => 'PENDING BUSINESS CONFIRMATION (Rule 2 — JANGAN menebak struktur assignment; tidak ada automatic collector assignment)',
+            'approval_workflow_unchanged' => true,
+            'source' => 'T91 Rule 9 + Rule 12 + Rule 2',
+        ],
+
+        // ---------------------------------------------------------------
+        // RULE 10 — PAYMENT INTERACTION (workflow payment existing T86-T88)
+        // ---------------------------------------------------------------
+        'payment_resolution' => [
+            'payment_workflow' => 'existing SHM payment workflow (T86-T88 — shm_loan_payments + allocation): SATU-SATUNYA transaksi uang masuk',
+            'collection_creates_payment' => false,
+            'partial_payment_effect' => 'Jika customer membayar sebagian: outstanding dihitung ulang; loan TETAP berada dalam Collection selama masih memiliki overdue outstanding.',
+            'resolution_condition' => 'Seluruh kewajiban overdue yang menjadi target Collection diselesaikan → Collection RESOLVED.',
+            'payment_allocation_unchanged' => true,
+            'loan_closed_by_collection' => false,
+            'loan_closed_note' => 'Collection TIDAK menutup loan; penutupan loan mengikuti settlement workflow T89 (lihat settlement_interaction).',
+            'payment_workflow_unchanged_by_t91' => true,
+            'source' => 'T91 Rule 10 + T84 payment contracts',
+        ],
+
+        // ---------------------------------------------------------------
+        // RULE 11 — SETTLEMENT INTERACTION (workflow T89 tidak diubah)
+        // ---------------------------------------------------------------
+        'settlement_interaction' => [
+            'separate_workflows' => true,
+            'settlement_statuses' => ['pending', 'approved', 'payment_recorded', 'payment_verified', 'completed'],
+            'settlement_result' => 'loan closed (T89 — setelah settlement completed)',
+            'collection_creates_payment_or_settlement' => false,
+            'collection_during_settlement' => 'Collection TIDAK boleh membuat payment atau settlement baru selama settlement berjalan.',
+            'settlement_stage_specific_rules' => 'PENDING BUSINESS CONFIRMATION (aturan khusus per tahap settlement pending/approved/payment_recorded/payment_verified BELUM ditentukan — JANGAN ditebak; Rule 11)',
+            'settlement_unchanged_by_t91' => true,
+            'cannot_guess' => true,
+            'source' => 'T91 Rule 11 + T89 settlement contract',
+        ],
+
+        // ---------------------------------------------------------------
+        // RULE 13 — PERMISSION (konseptual; implementasi ticket berikutnya)
+        // ---------------------------------------------------------------
+        'permissions' => [
+            'status' => 'CONCEPTUAL ONLY — implementasi pada ticket implementasi berikutnya (Rule 13)',
+            'existing_basis' => [
+                'shm.view (route middleware Collection T90)',
+                'ownership mechanism existing (ownedBy / shm.view_all — canViewAllShm)',
+            ],
+            'marketing' => [
+                'view_collection',
+                'handle_own_collection',
+                'record_activity',
+                'change_operational_status_allowed',
+            ],
+            'branch_manager' => [
+                'monitor_collection',
+                'handle_escalation',
+                'assignment_reassignment_if_implemented',
+            ],
+            'president_director' => [
+                'monitor_collection',
+                'handle_escalation_high_level',
+            ],
+            'finance_manager' => [
+                'financial_transactions_existing_workflow',
+                'not_initial_collection_owner',
+            ],
+            'new_permissions_added_by_t91' => false,
+            'detailed_matrix' => 'PENDING BUSINESS CONFIRMATION (pending #16 — matrix permission detail TIDAK diimplementasikan/ditebak di T91)',
+            'source' => 'T91 Rule 13',
+        ],
+
+        // ---------------------------------------------------------------
+        // ROLE STRUCTURE (T91) — termasuk nomenklatur Finance Manager
+        // ---------------------------------------------------------------
+        'roles' => [
+            'marketing' => [
+                'business_role' => 'MARKETING',
+                'technical_role_key' => 'marketing',
+                'technical_role_exists' => true,
+                'collection_role' => 'initial Collection owner (Rule 1)',
+            ],
+            'branch_manager' => [
+                'business_role' => 'BRANCH MANAGER',
+                'technical_role_key' => null,
+                'technical_role_exists' => false,
+                'collection_role' => 'escalation authority + monitoring + assignment/reassignment (Rule 2/9/12)',
+                'implementation_note' => 'Role teknis dibuat pada ticket implementasi permission berikutnya — T91 hanya contract.',
+            ],
+            'president_director' => [
+                'business_role' => 'PRESIDENT DIRECTOR',
+                'technical_role_key' => null,
+                'technical_role_exists' => false,
+                'collection_role' => 'escalation authority tingkat tinggi + monitoring (Rule 9/12)',
+                'implementation_note' => 'Role teknis dibuat pada ticket implementasi permission berikutnya — T91 hanya contract.',
+            ],
+            'finance_manager' => [
+                'business_role' => 'FINANCE MANAGER',
+                'nomenclature_replaces' => 'Kasir',
+                'new_workflow_design_uses' => 'Finance Manager',
+                'legacy_term_policy' => 'Istilah "Kasir" HANYA untuk compatibility/legacy code yang belum dimigrasikan; desain workflow baru (termasuk contract ini) memakai Finance Manager.',
+                'technical_role_key' => null,
+                'technical_role_exists' => false,
+                'responsibilities' => [
+                    'fungsi_keuangan',
+                    'pencairan',
+                    'transaksi_pembayaran_sesuai_workflow_finansial',
+                ],
+                'collection_initial_owner' => false,
+            ],
+            'collector' => [
+                'created' => false,
+                'status' => 'PENDING BUSINESS CONFIRMATION (Rule 1 — T91 TIDAK membuat role Collector khusus; collection awal = Marketing)',
+            ],
+            'source' => 'T91 Role Structure + Rule 1 + Rule 12',
+        ],
+
+        // ---------------------------------------------------------------
+        // RULE 14 — AUDIT TRAIL (mekanisme audit existing)
+        // ---------------------------------------------------------------
+        'audit' => [
+            'mechanism' => 'existing audit mechanism (AuditLogger + AuditLog) — TIDAK membuat arsitektur audit baru',
+            'must_trace' => [
+                'collection_dibuka_open',
+                'perubahan_status',
+                'assignment_reassignment',
+                'aktivitas_follow_up',
+                'hasil_follow_up',
+                'promise_to_pay',
+                'escalation',
+                'resolution',
+            ],
+            'read_only_get_writes_no_audit' => true,
+            'read_only_note' => 'GET Collection (T90 monitoring) TIDAK menulis audit record — audit hanya untuk aksi operasional Collection di ticket implementasi.',
+            'source' => 'T91 Rule 14 + T90 read-only guarantee',
+        ],
+
+        // ---------------------------------------------------------------
+        // PENDING BUSINESS RULE — daftar resmi T91 (17 item; JANGAN menebak)
+        // ---------------------------------------------------------------
+        'pending_rules' => [
+            'status' => 'PENDING BUSINESS CONFIRMATION',
+            'items' => [
+                'exact_escalation_threshold',
+                'automatic_escalation_timing',
+                'exact_ptp_grace_period',
+                'maximum_ptp_attempts',
+                'penalty_formula',
+                'penalty_grace_period',
+                'penalty_maximum',
+                'collection_cadence',
+                'automatic_scheduler_or_job',
+                'collector_role',
+                'exact_assignment_algorithm',
+                'settlement_vs_collection_temporary_suspension_rule',
+                'restructuring',
+                'write_off',
+                'collection_closure_tolerance',
+                'detailed_permission_matrix_implementation',
+                'notification_mechanism',
+            ],
+            'cannot_guess' => true,
+            'invention_forbidden' => true,
+            'if_needed_during_implementation' => 'Tandai PENDING BUSINESS CONFIRMATION dan lanjutkan pekerjaan Collection yang aman — jangan mengarang aturan.',
+            'source' => 'T91 PENDING BUSINESS RULE (daftar eksplisit dari ticket)',
+        ],
+    ],
+
     'credit_checking' => [
         'status' => 'CONFIRMED BASELINE for role; scoring formula tetap PENDING BUSINESS CONFIRMATION',
         'role' => 'Pre-approval assessment; hasil dapat memengaruhi kelanjutan ke Approval.',
@@ -1516,6 +1903,7 @@ return [
         'penalty' => 'PENDING BUSINESS CONFIRMATION — TIDAK diimplementasikan, TIDAK ada nilai default',
         'settlement' => 'CONFIRMED BASELINE composition (T79) — tolerance/discount/implementation tetap PENDING',
         'collection' => 'CONFIRMED BASELINE basis (T79) — detailed rules tetap PENDING',
+        'collection_workflow' => 'CONFIRMED BASELINE (T91) — owner Marketing, escalation authority BM/PD, 5 status lifecycle, 5 aging bucket, activity/result/PTP contract, payment & settlement terpisah, audit existing; threshold/PTP limits/assignment algorithm/permission matrix/notification = PENDING BUSINESS CONFIRMATION',
         'credit_checking' => 'CONFIRMED BASELINE role (T79) — scoring formula tetap PENDING',
         'document' => 'CONFIRMED GATE + PENDING BUSINESS CONFIRMATION (required list)',
         'disbursement' => 'CONFIRMED GATE & flow — detailed financial rule = PENDING BUSINESS CONFIRMATION',
@@ -1631,6 +2019,28 @@ return [
         'payment_does_not_automatically_close_loan' => true,
         'settlement_is_separate_workflow' => true,
         'collection_reads_repayment_state_not_separate_source' => true,
+
+        // T91 Collection Business Rule & Workflow Contract Assertions
+        'collection_initial_owner_marketing' => true,
+        'collection_escalation_authority_branch_manager' => true,
+        'collection_escalation_authority_president_director' => true,
+        'collection_dedicated_collector_role_not_created' => true,
+        'finance_manager_replaces_kasir_nomenclature_in_new_contract' => true,
+        'collection_status_lifecycle_documented' => true,
+        'collection_aging_buckets_documented' => true,
+        'collection_activity_contract_documented' => true,
+        'collection_result_contract_documented' => true,
+        'promise_to_pay_contract_documented_but_limits_pending' => true,
+        'collection_uses_existing_payment_workflow' => true,
+        'settlement_remains_separate_from_collection' => true,
+        'collection_permission_is_conceptual_only' => true,
+        'collection_audit_uses_existing_mechanism' => true,
+        'collection_internal_only_no_external_automation' => true,
+        'no_escalation_threshold_invented' => true,
+        'no_ptp_grace_or_attempt_limit_invented' => true,
+        'no_automatic_scheduler_or_notification' => true,
+        't90_collection_eligibility_predicate_unchanged' => true,
+        't91_contract_additive_no_existing_key_removed' => true,
     ],
 
     /*
