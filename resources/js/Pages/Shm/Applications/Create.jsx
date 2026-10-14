@@ -3,17 +3,18 @@ import { Head, Link, useForm } from '@inertiajs/react';
 import ShmLayout from '@/Layouts/ShmLayout';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
-import TextInput from '@/Components/TextInput';
 import InputLabel from '@/Components/InputLabel';
 import InputError from '@/Components/InputError';
 
 /**
  * Form pembuatan pengajuan SHM.
  *
- * Nasabah pengajuan adalah Nasabah SHM, BUKAN anggota koperasi. Pengguna
- * memilih nasabah yang sudah terdaftar, atau membuat nasabah baru langsung
- * dari flow ini. Nasabah baru dibuat sebagai master nasabah SHM dan tidak
- * pernah otomatis menjadi anggota koperasi.
+ * Nasabah pengajuan adalah Nasabah SHM, BUKAN anggota koperasi. Form ini hanya
+ * memilih nasabah yang sudah terdaftar pada master Nasabah SHM. Nasabah baru
+ * dibuat melalui modul Nasabah SHM (`/shm/nasabah/create`) karena sejak T89C
+ * wajib menunjuk anggota koperasi sumber secara eksplisit (`member_id`);
+ * form ini TIDAK membuat nasabah secara inline sehingga tidak pernah
+ * mengirim `new_customer` dan tidak pernah memilih anggota secara otomatis.
  *
  * Nomor pengajuan maupun nomor nasabah tidak ada di form ini karena selalu
  * dibuat server.
@@ -23,30 +24,28 @@ export default function Create({ customers, can_create_customer, flash }) {
 
     const form = useForm({
         shm_customer_id: '',
-        new_customer: {
-            name: '',
-            nik: '',
-            phone: '',
-        },
         notes: '',
     });
 
+    // T89F-5 — submit chain.
+    //
+    // `useForm().transform()` pada @inertiajs/react 2.3.28 hanya MENDAFTARKAN
+    // callback transformasi dan tidak mengembalikan objek form, sehingga pola
+    // lama `form.transform(...).post(...)` melempar
+    // "TypeError: Cannot read properties of undefined (reading 'post')" dan
+    // SIMPAN DRAFT tidak pernah mengirim request. Payload yang dikirim sudah
+    // sama dengan state form (hanya nasabah terdaftar + catatan), jadi cukup
+    // dipanggil sebagai method: `form.post(...)`.
     const submit = (event) => {
         event.preventDefault();
 
-        if (mode === 'existing') {
-            form.transform((data) => ({
-                ...data,
-                new_customer: { name: '', nik: '', phone: '' },
-            })).post(route('shm.applications.store'));
-
+        // Mode "Nasabah Baru" tidak menyubmit apa pun: nasabah dibuat lewat
+        // modul Nasabah SHM, lalu dipilih kembali pada mode ini.
+        if (mode !== 'existing') {
             return;
         }
 
-        form.transform((data) => ({
-            ...data,
-            shm_customer_id: '',
-        })).post(route('shm.applications.store'));
+        form.post(route('shm.applications.store'));
     };
 
     return (
@@ -126,84 +125,49 @@ export default function Create({ customers, can_create_customer, flash }) {
                         </div>
                     ) : (
                         <div className="space-y-4 rounded-lg border border-slate-200 p-4">
-                            <p className="text-xs text-gray-500">
-                                Nasabah baru akan dibuat di master Nasabah SHM. Ini tidak membuat
-                                anggota koperasi.
+                            <p className="text-sm text-gray-600">
+                                Nasabah SHM baru wajib bersumber dari anggota koperasi aktif, sehingga
+                                dibuat melalui modul Nasabah SHM — bukan dari form pengajuan ini.
                             </p>
-                            <div>
-                                <InputLabel htmlFor="new_customer_name" value="Nama Nasabah" />
-                                <TextInput
-                                    id="new_customer_name"
-                                    value={form.data.new_customer.name}
-                                    onChange={(e) =>
-                                        form.setData('new_customer.name', e.target.value)
-                                    }
-                                    className="mt-1"
-                                />
-                                <InputError
-                                    message={
-                                        form.errors['new_customer.name'] || form.errors.shm_customer_id
-                                    }
-                                    className="mt-1"
-                                />
-                            </div>
-                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                <div>
-                                    <InputLabel htmlFor="new_customer_nik" value="NIK" />
-                                    <TextInput
-                                        id="new_customer_nik"
-                                        value={form.data.new_customer.nik}
-                                        onChange={(e) =>
-                                            form.setData('new_customer.nik', e.target.value)
-                                        }
-                                        className="mt-1"
-                                        placeholder="Opsional"
-                                    />
-                                    <InputError
-                                        message={form.errors['new_customer.nik']}
-                                        className="mt-1"
-                                    />
-                                </div>
-                                <div>
-                                    <InputLabel htmlFor="new_customer_phone" value="Telepon" />
-                                    <TextInput
-                                        id="new_customer_phone"
-                                        value={form.data.new_customer.phone}
-                                        onChange={(e) =>
-                                            form.setData('new_customer.phone', e.target.value)
-                                        }
-                                        className="mt-1"
-                                        placeholder="Opsional"
-                                    />
-                                    <InputError
-                                        message={form.errors['new_customer.phone']}
-                                        className="mt-1"
-                                    />
-                                </div>
+                            <p className="text-xs text-gray-500">
+                                Setelah nasabah dibuat, kembali ke halaman ini dan pilih nasabah
+                                tersebut pada pilihan "Pilih nasabah terdaftar".
+                            </p>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <Link href={route('shm.customers.create')}>
+                                    <PrimaryButton type="button">Buat Nasabah SHM</PrimaryButton>
+                                </Link>
+                                <SecondaryButton type="button" onClick={() => setMode('existing')}>
+                                    Kembali memilih nasabah terdaftar
+                                </SecondaryButton>
                             </div>
                         </div>
                     )}
 
-                    <div>
-                        <InputLabel htmlFor="notes" value="Catatan" />
-                        <textarea
-                            id="notes"
-                            rows={4}
-                            value={form.data.notes}
-                            onChange={(e) => form.setData('notes', e.target.value)}
-                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                        <InputError message={form.errors.notes} className="mt-1" />
-                    </div>
+                    {mode === 'existing' && (
+                        <>
+                            <div>
+                                <InputLabel htmlFor="notes" value="Catatan" />
+                                <textarea
+                                    id="notes"
+                                    rows={4}
+                                    value={form.data.notes}
+                                    onChange={(e) => form.setData('notes', e.target.value)}
+                                    className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                />
+                                <InputError message={form.errors.notes} className="mt-1" />
+                            </div>
 
-                    <div className="flex items-center justify-end gap-3">
-                        <Link href={route('shm.applications.index')}>
-                            <SecondaryButton>Batal</SecondaryButton>
-                        </Link>
-                        <PrimaryButton type="submit" disabled={form.processing}>
-                            {form.processing ? 'Menyimpan...' : 'Simpan Draft'}
-                        </PrimaryButton>
-                    </div>
+                            <div className="flex items-center justify-end gap-3">
+                                <Link href={route('shm.applications.index')}>
+                                    <SecondaryButton>Batal</SecondaryButton>
+                                </Link>
+                                <PrimaryButton type="submit" disabled={form.processing}>
+                                    {form.processing ? 'Menyimpan...' : 'Simpan Draft'}
+                                </PrimaryButton>
+                            </div>
+                        </>
+                    )}
                 </form>
             </div>
         </ShmLayout>

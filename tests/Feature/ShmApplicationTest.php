@@ -266,6 +266,26 @@ class ShmApplicationTest extends TestCase
         $this->assertDatabaseCount('shm_customers', $beforeCustomers);
     }
 
+    public function test_application_create_page_offers_only_registered_active_customers(): void
+    {
+        // T89F-5 — halaman ini TIDAK membuat nasabah secara inline; nasabah
+        // baru dibuat melalui modul Nasabah SHM (wajib menunjuk anggota
+        // koperasi sumber). Karena itu daftar yang ditawarkan hanya nasabah
+        // TERDAFTAR dan AKTIF, dan pilihan "+ Nasabah Baru" hanya muncul
+        // bila pengguna berhak membuat nasabah di modul tersebut.
+        ShmCustomer::factory()->inactive()->create();
+
+        $this->actingAs($this->marketing)
+            ->get(route('shm.applications.create'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Shm/Applications/Create')
+                ->where('can_create_customer', true)
+                // Nasabah nonaktif tidak pernah ditawarkan (hanya 1 aktif).
+                ->has('customers', 1)
+                ->where('customers.0.id', $this->customer->id));
+    }
+
     public function test_application_rejects_inactive_customer(): void
     {
         $inactive = ShmCustomer::factory()->inactive()->create();
