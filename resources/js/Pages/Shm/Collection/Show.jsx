@@ -1,17 +1,26 @@
 import React from 'react';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, useForm } from '@inertiajs/react';
 import ShmLayout from '@/Layouts/ShmLayout';
 import ReportTable from '@/Components/Admin/ReportTable';
+import InputError from '@/Components/InputError';
+import InputLabel from '@/Components/InputLabel';
+import PrimaryButton from '@/Components/PrimaryButton';
+import TextInput from '@/Components/TextInput';
 import { formatDate, formatDateTime, formatRupiah } from '@/utils/format';
 import {
     AlertTriangle,
     ArrowLeft,
     CalendarDays,
+    CheckCircle2,
+    ClipboardList,
     Clock,
     CreditCard,
     FileText,
     History,
+    ListChecks,
     Lock,
+    MapPin,
+    PhoneCall,
     UserRound,
     Users,
 } from 'lucide-react';
@@ -24,7 +33,10 @@ import {
  * jadwal angsuran dengan presentation state yang derived dari amounts,
  * riwayat pembayaran + alokasinya, dan timeline dari audit trail existing.
  *
- * Tidak ada tombol aksi: tidak ada pembayaran, penalty, collector,
+ * Ticket 93 menambahkan SATU aksi terbatas: pencatatan aktivitas Collection
+ * oleh PEMILIK case aktif (flag `can_record` dari server; server tetap
+ * otoritatif). Pencatatan tidak mengubah status case, tidak membuat PTP/
+ * pembayaran, dan tidak menawarkan pembayaran, penalty, collector,
  * escalation, maupun perubahan status — semuanya masih PENDING BUSINESS
  * CONFIRMATION. State angsuran adalah turunan tampilan, bukan status DB baru.
  */
@@ -61,7 +73,147 @@ const PAYMENT_STATUS = {
     reversed: { label: 'Dibatalkan', className: 'bg-slate-100 text-slate-500' },
 };
 
-export default function Show({ collection, timeline, today }) {
+// Nilai aktivitas Collection = contract T91 (via model ShmCollectionActivity);
+// label Indonesia hanya untuk tampilan. PROMISE_TO_PAY/PAID di riwayat adalah
+// HASIL LAPORAN historis — bukan PTP record, pembayaran, maupun penutupan case.
+const ACTIVITY_TYPE_META = {
+    phone_call: { label: 'Telepon', Icon: PhoneCall },
+    visit: { label: 'Kunjungan', Icon: MapPin },
+    follow_up: { label: 'Follow-up', Icon: ListChecks },
+    other: { label: 'Lainnya', Icon: ClipboardList },
+};
+
+const ACTIVITY_RESULT_META = {
+    CONTACTED: { label: 'Terhubung', className: 'bg-emerald-50 text-emerald-700' },
+    NOT_REACHED: { label: 'Tidak terhubung', className: 'bg-rose-50 text-rose-700' },
+    PROMISE_TO_PAY: { label: 'Janji bayar', className: 'bg-amber-50 text-amber-700' },
+    PAID: { label: 'Sudah dibayar', className: 'bg-emerald-50 text-emerald-700' },
+    UNABLE_TO_PAY: { label: 'Tidak mampu bayar', className: 'bg-rose-50 text-rose-700' },
+    OTHER: { label: 'Lainnya', className: 'bg-slate-100 text-slate-600' },
+};
+
+/**
+ * Form pencatatan aktivitas Collection (Ticket 93).
+ *
+ * Hanya dirender untuk PEMILIK case (flag `can_record` dihitung di server;
+ * server tetap otoritatif lewat domain service). Tidak ada field
+ * collector/escalation/PTP/pembayaran. Sukses = kembali ke halaman yang sama
+ * dengan flash, riwayat bertambah, dan status case tidak berubah.
+ */
+function ActivityForm({ caseId }) {
+    const { data, setData, post, processing, errors, reset } = useForm({
+        activity_type: 'phone_call',
+        result: 'CONTACTED',
+        activity_at: '',
+        notes: '',
+        next_action: '',
+    });
+
+    const selectClassName =
+        'mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500';
+
+    const submit = (event) => {
+        event.preventDefault();
+        post(route('shm.collection.activities.store', caseId), {
+            preserveScroll: true,
+            onSuccess: () => reset(),
+        });
+    };
+
+    return (
+        <form
+            onSubmit={submit}
+            className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-4"
+        >
+            <p className="mb-3 text-xs font-semibold uppercase text-slate-500">
+                Tambah Aktivitas
+            </p>
+            <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                    <InputLabel htmlFor="activity_type" value="Tipe Aktivitas" />
+                    <select
+                        id="activity_type"
+                        value={data.activity_type}
+                        onChange={(event) => setData('activity_type', event.target.value)}
+                        className={selectClassName}
+                    >
+                        {Object.entries(ACTIVITY_TYPE_META).map(([value, meta]) => (
+                            <option key={value} value={value}>
+                                {meta.label}
+                            </option>
+                        ))}
+                    </select>
+                    <InputError
+                        message={errors.activity_type || errors['collection.aktivitas.tipe']}
+                        className="mt-1"
+                    />
+                </div>
+                <div>
+                    <InputLabel htmlFor="result" value="Hasil" />
+                    <select
+                        id="result"
+                        value={data.result}
+                        onChange={(event) => setData('result', event.target.value)}
+                        className={selectClassName}
+                    >
+                        {Object.entries(ACTIVITY_RESULT_META).map(([value, meta]) => (
+                            <option key={value} value={value}>
+                                {meta.label}
+                            </option>
+                        ))}
+                    </select>
+                    <InputError
+                        message={errors.result || errors['collection.aktivitas.hasil']}
+                        className="mt-1"
+                    />
+                </div>
+                <div>
+                    <InputLabel htmlFor="activity_at" value="Waktu Aktivitas" />
+                    <TextInput
+                        id="activity_at"
+                        type="datetime-local"
+                        value={data.activity_at}
+                        className="mt-1 block w-full"
+                        onChange={(event) => setData('activity_at', event.target.value)}
+                    />
+                    <InputError message={errors.activity_at} className="mt-1" />
+                </div>
+                <div className="md:col-span-2">
+                    <InputLabel htmlFor="notes" value="Catatan" />
+                    <textarea
+                        id="notes"
+                        value={data.notes}
+                        onChange={(event) => setData('notes', event.target.value)}
+                        rows={2}
+                        className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    />
+                    <InputError message={errors.notes} className="mt-1" />
+                </div>
+                <div className="md:col-span-2">
+                    <InputLabel htmlFor="next_action" value="Tindak Lanjut (opsional)" />
+                    <textarea
+                        id="next_action"
+                        value={data.next_action}
+                        onChange={(event) => setData('next_action', event.target.value)}
+                        rows={2}
+                        placeholder="Contoh: Hubungi kembali setelah tanggal gajian."
+                        className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    />
+                    <InputError message={errors.next_action} className="mt-1" />
+                </div>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+                <PrimaryButton disabled={processing}>Simpan Aktivitas</PrimaryButton>
+                <p className="text-xs text-slate-500">
+                    Pencatatan aktivitas tidak mengubah status case.
+                </p>
+            </div>
+            <InputError message={errors['collection.otorisasi']} className="mt-2" />
+        </form>
+    );
+}
+
+export default function Show({ collection, collection_case, timeline, today, flash }) {
     const { loan, overdue, schedule, payments } = collection;
 
     const scheduleColumns = [
@@ -263,9 +415,10 @@ export default function Show({ collection, timeline, today }) {
                 <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                     <Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
                     <p>
-                        Halaman <strong>read-only</strong>. Tidak ada aksi
-                        pembayaran, penalty, collector, maupun perubahan status
-                        dari halaman ini — semuanya masih{' '}
+                        Halaman <strong>read-only</strong> kecuali pencatatan
+                        aktivitas Collection bagi pemilik case (Ticket 93).
+                        Tidak ada aksi pembayaran, penalty, collector, maupun
+                        perubahan status dari halaman ini — semuanya masih{' '}
                         <strong>PENDING BUSINESS CONFIRMATION</strong>.
                     </p>
                 </div>
@@ -424,6 +577,120 @@ export default function Show({ collection, timeline, today }) {
                         emptyTitle="Belum ada pembayaran"
                         emptyDescription="Riwayat pembayaran pinjaman ini akan tampil di sini."
                     />
+                </section>
+
+                {/* Collection activities (Ticket 93) */}
+                <section className="rounded-lg bg-white p-5 shadow">
+                    <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                        <ClipboardList className="h-4 w-4 text-slate-400" />
+                        Riwayat Aktivitas Collection
+                    </h2>
+
+                    {flash?.success && (
+                        <div className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700">
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                            <p>{flash.success}</p>
+                        </div>
+                    )}
+                    {flash?.error && (
+                        <div className="mb-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                            <p>{flash.error}</p>
+                        </div>
+                    )}
+
+                    {!collection_case ? (
+                        <p className="text-sm text-slate-500">
+                            Belum ada Collection Case aktif untuk pinjaman ini.
+                            Aktivitas Collection hanya dapat dicatat pada case
+                            yang sudah ada — pembuatan case dilakukan melalui
+                            layanan Collection (Ticket 92).
+                        </p>
+                    ) : (
+                        <>
+                            {collection_case.can_record ? (
+                                <ActivityForm caseId={collection_case.id} />
+                            ) : (
+                                <p className="mb-4 text-xs text-slate-500">
+                                    Pencatatan aktivitas hanya tersedia bagi
+                                    Marketing pemilik case ini.
+                                </p>
+                            )}
+
+                            {collection_case.activities.length === 0 ? (
+                                <p className="text-sm text-slate-500">
+                                    Belum ada aktivitas tercatat pada case ini.
+                                </p>
+                            ) : (
+                                <ol className="space-y-3">
+                                    {collection_case.activities.map((activity) => {
+                                        const typeMeta =
+                                            ACTIVITY_TYPE_META[activity.activity_type] ?? {
+                                                label: activity.activity_type,
+                                                Icon: ClipboardList,
+                                            };
+                                        const resultMeta =
+                                            ACTIVITY_RESULT_META[activity.result] ?? {
+                                                label: activity.result,
+                                                className:
+                                                    'bg-slate-100 text-slate-600',
+                                            };
+                                        const Icon = typeMeta.Icon;
+
+                                        return (
+                                            <li
+                                                key={activity.id}
+                                                className="flex items-start gap-3 border-b border-slate-50 pb-3 last:border-b-0 last:pb-0"
+                                            >
+                                                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-500">
+                                                    <Icon className="h-3.5 w-3.5" />
+                                                </span>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <p className="text-sm font-medium text-slate-700">
+                                                            {typeMeta.label}
+                                                        </p>
+                                                        <span
+                                                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${resultMeta.className}`}
+                                                        >
+                                                            {resultMeta.label}
+                                                        </span>
+                                                        <span className="text-xs text-slate-400">
+                                                            {formatDateTime(
+                                                                activity.activity_at,
+                                                            )}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-slate-500">
+                                                        Dicatat oleh{' '}
+                                                        {activity.actor?.name ??
+                                                            '-'}{' '}
+                                                        •{' '}
+                                                        {formatDateTime(
+                                                            activity.created_at,
+                                                        )}
+                                                    </p>
+                                                    {activity.notes && (
+                                                        <p className="mt-1 text-sm text-slate-600">
+                                                            {activity.notes}
+                                                        </p>
+                                                    )}
+                                                    {activity.next_action && (
+                                                        <p className="mt-1 text-xs text-slate-500">
+                                                            <span className="font-medium text-slate-600">
+                                                                Tindak lanjut:
+                                                            </span>{' '}
+                                                            {activity.next_action}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </li>
+                                        );
+                                    })}
+                                </ol>
+                            )}
+                        </>
+                    )}
                 </section>
 
                 {/* Timeline */}

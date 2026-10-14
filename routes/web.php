@@ -26,6 +26,7 @@ use App\Http\Controllers\SavingsTransactionController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Shm\ShmApplicationController;
 use App\Http\Controllers\Shm\ShmApprovalController;
+use App\Http\Controllers\Shm\ShmCollectionActivityController;
 use App\Http\Controllers\Shm\ShmCollectionController;
 use App\Http\Controllers\Shm\ShmCreditCheckController;
 use App\Http\Controllers\Shm\ShmCustomerController;
@@ -662,6 +663,22 @@ Route::prefix('shm')->name('shm.')->group(function () {
                 ->name('collection.index');
             Route::get('/collection/{loan}', [ShmCollectionController::class, 'show'])
                 ->name('collection.show');
+
+            // -----------------------------------------------------------------
+            // Ticket 93 — Pencatatan Collection Activity pada case eksisting.
+            //
+            // POST tunggal di bawah gate modul `shm.view` yang SAMA dengan
+            // halaman Collection (pola marketing.activities.store: permission
+            // view existing + otorisasi tulis mutlak di domain). Otorisasi
+            // = Marketing PEMILIK case di ShmCollectionActivityService
+            // (tanpa fallback admin/shm.view_all; matrix BM/PD masih PENDING
+            // dari T91, sehingga tidak ada permission baru). Path 3 segmen —
+            // tidak konflik dengan /collection/{loan} (2 segmen). Riwayat
+            // aktivitas dibaca lewat payload halaman detail (/collection/{loan}),
+            // tanpa jalur baca ganda.
+            // -----------------------------------------------------------------
+            Route::post('/collection/{case}/activities', [ShmCollectionActivityController::class, 'store'])
+                ->name('collection.activities.store');
 
             Route::get('/pinjaman/{loan}', [ShmLoanController::class, 'show'])
                 ->name('loans.show');

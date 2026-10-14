@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -114,6 +115,17 @@ class ShmCollectionCase extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * Riwayat aktivitas operasional pada case ini (Ticket 93) — append-only
+     * dengan FK RESTRICT (riwayat tidak ikut terhapus bersama case).
+     *
+     * @return HasMany<ShmCollectionActivity, $this>
+     */
+    public function activities(): HasMany
+    {
+        return $this->hasMany(ShmCollectionActivity::class, 'shm_collection_case_id');
     }
 
     /**

@@ -6,6 +6,8 @@ use App\Http\Controllers\Concerns\AuthorizesShmOwnership;
 use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Models\ShmCollectionActivity;
+use App\Models\ShmCollectionCase;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanInstallment;
@@ -34,8 +36,11 @@ use Inertia\Response;
  * parsing filter, sorting whitelist, pagination, dan presentasi props.
  *
  * Business rule yang masih PENDING (penalty, collector, cadence, escalation,
- * kunjungan, notification) TIDAK direpresentasikan sebagai fitur apa pun di
- * sini — tidak ada stage/score/prioritas yang dikarang.
+ * notification) TIDAK direpresentasikan sebagai fitur apa pun di sini —
+ * tidak ada stage/score/prioritas yang dikarang. Ticket 93 menambahkan
+ * pembacaan riwayat aktivitas Collection (case aktif + flag pemilik) pada
+ * payload detail; pencatatannya sendiri ada di
+ * ShmCollectionActivityController (route terpisah, otorisasi di domain).
  */
 class ShmCollectionController extends Controller
 {
@@ -133,11 +138,66 @@ class ShmCollectionController extends Controller
             'payments.allocations',
         ]);
 
+        // Case aktif pinjaman (bila ada) + riwayat aktivitas terurut —
+        // dibaca pada request YANG SAMA lewat eager load (tanpa N+1).
+        // Pencatatan aktivitas (T93) hanya ditawarkan kepada pemilik case;
+        // pembacaan riwayat mengikuti otorisasi halaman detail ini.
+        $activeCase = ShmCollectionCase::query()
+            ->where('shm_loan_id', $loan->getKey())
+            ->active()
+            ->with(['activities' => fn ($activities) => $activities->latestFirst()->with('actor:id,name')])
+            ->first();
+
         return Inertia::render('Shm/Collection/Show', [
             'collection' => $this->presentCollectionDetail($loan),
+            'collection_case' => $this->presentCollectionCase($activeCase, $request),
             'timeline' => $this->collectionTimeline($loan),
             'today' => today()->toDateString(),
+            'flash' => [
+                'success' => session('success'),
+                'error' => session('error'),
+            ],
         ]);
+    }
+
+    /**
+     * Case aktif pinjaman (bila ada) + riwayat aktivitas (Ticket 93).
+     *
+     * `can_record` dihitung di server: pengguna saat ini harus PEMILIK case —
+     * `shm.view_all`/admin TIDAK otomatis boleh mencatat. Aktivitas sudah
+     * terurut `latestFirst` (activity_at desc, id desc) dari eager load.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function presentCollectionCase(?ShmCollectionCase $case, Request $request): ?array
+    {
+        if ($case === null) {
+            return null;
+        }
+
+        return [
+            'id' => $case->id,
+            'status' => $case->status,
+            'opened_at' => $case->opened_at->toDateTimeString(),
+            'marketing_id' => $case->marketing_id,
+            'can_record' => (int) $request->user()?->id === (int) $case->marketing_id,
+            'activities' => $case->activities
+                ->map(fn (ShmCollectionActivity $activity): array => [
+                    'id' => $activity->id,
+                    'activity_type' => $activity->activity_type,
+                    'result' => $activity->result,
+                    'activity_at' => $activity->activity_at->toDateTimeString(),
+                    'notes' => $activity->notes,
+                    'next_action' => $activity->next_action,
+                    'created_at' => $activity->created_at?->toDateTimeString(),
+                    'actor' => [
+                        'id' => $activity->actor?->id,
+                        'name' => $activity->actor?->name,
+                    ],
+                ])
+                ->values()
+                ->all(),
+        ];
     }
 
     /**
