@@ -43,9 +43,12 @@ class ShmApplicationService
      * - `shm_customer_id` untuk nasabah yang sudah terdaftar;
      * - `new_customer` untuk nasabah baru yang dibuat langsung dari flow
      *   pengajuan. Nasabah baru dibuat sebagai ShmCustomer, TIDAK pernah
-     *   sebagai anggota koperasi.
+     *   sebagai anggota koperasi, DAN wajib menunjuk anggota koperasi sumber
+     *   secara eksplisit (`member_id`). Tidak ada fallback pemilihan anggota:
+     *   bila `member_id` tidak tersedia, pembuatan ditolak oleh
+     *   ShmCustomerService (kontrak T89C/T89F-2).
      *
-     * @param  array{shm_customer_id?: int|null, new_customer?: array{name: string, nik?: string|null, phone?: string|null}|null, notes?: string|null, marketing_activity_id?: int|null}  $data
+     * @param  array{shm_customer_id?: int|null, new_customer?: array{member_id?: int|null, name: string, nik?: string|null, phone?: string|null}|null, notes?: string|null, marketing_activity_id?: int|null}  $data
      */
     public function create(array $data): ShmApplication
     {
@@ -219,9 +222,12 @@ class ShmApplicationService
      * Tentukan id nasabah untuk pengajuan baru.
      *
      * Nasabah baru dibuat melalui ShmCustomerService sebagai master nasabah
-     * SHM, bukan sebagai anggota koperasi.
+     * SHM, bukan sebagai anggota koperasi. Anggota sumber WAJIB eksplisit:
+     * ShmCustomerService::create() menolak `member_id` yang kosong, tidak
+     * ditemukan, atau tidak berstatus aktif. Metode ini TIDAK memilihkan
+     * anggota lain bila `member_id` tidak dikirim (T89F-2).
      *
-     * @param  array{shm_customer_id?: int|null, new_customer?: array{name: string, nik?: string|null, phone?: string|null}|null}  $data
+     * @param  array{shm_customer_id?: int|null, new_customer?: array{member_id?: int|null, name: string, nik?: string|null, phone?: string|null}|null}  $data
      */
     private function resolveCustomerId(array $data): int
     {
@@ -229,6 +235,7 @@ class ShmApplicationService
 
         if (is_array($newCustomer) && trim((string) ($newCustomer['name'] ?? '')) !== '') {
             return $this->customers->create([
+                'member_id' => $newCustomer['member_id'] ?? null,
                 'name' => (string) $newCustomer['name'],
                 'nik' => $newCustomer['nik'] ?? null,
                 'phone' => $newCustomer['phone'] ?? null,

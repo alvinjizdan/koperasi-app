@@ -21,14 +21,22 @@ import {
  *   melakukan request backend dan bukan navigasi route.
  * - Form disubmit sebagai SATU payload 11 section ke backend (Ticket 67)
  *   dengan validasi server-side; penyimpanan atomik dan error validasi
- *   ditampilkan kembali. Foto jaminan tidak dikirim (upload storage PENDING).
- *   Setelah berhasil, redirect ke halaman detail pengajuan.
- * - Data pribadi dibaca dari master nasabah SHM (`shm_customers`), yang
- *   TERPISAH dari anggota koperasi. Field pada referensi screenshot yang
- *   belum tersedia di master ditampilkan sebagai GAP, bukan diarang.
- * - Rate resmi SHM = 2% (props `rate` dari ShmLoan::OFFICIAL_RATE_PERCENT).
- *   Tidak ada formula bunga baru: pilihan metode angsuran memakai opsi dari
- *   service simulasi existing dan tetap wajib dipilih secara eksplisit.
+ *   ditampilkan kembali. Ticket 77 — foto jaminan kini diunggah persisten
+ *   sebagai multipart/form-data (Inertia otomatis memakai FormData saat
+ *   payload memuat berkas). Setelah berhasil, redirect ke halaman detail
+ *   pengajuan.
+ * - Data pribadi (Ticket 76-FIX) adalah DATA PENGAJUAN: tersimpan pada
+ *   `shm_loan_applications`, bukan pada master nasabah (`shm_customers`).
+ *   Pemilihan nasabah hanya menetapkan `shm_customer_id`; mengedit Data
+ *   Pribadi tidak pernah mengubah master nasabah dan pengajuan berbeda untuk
+ *   nasabah yang sama dapat memiliki nilai berbeda. Nasabah SHM tetap
+ *   TERPISAH dari anggota koperasi (`members` tidak pernah dibaca).
+ * - Rate (T82) = f(PRODUCT, TENOR) dari tier rate produk — halaman ini
+ *   menurunkan tampilan rate dari props `products[].rate_tiers` (product +
+ *   tenor) dan TIDAK PERNAH mengirim rate authoritative ke backend; backend
+ *   resolve ulang. Universal 2% tidak dikirim/tidak ditampilkan. Tenor di
+ *   luar range eksak produk (gap) ditolak backend dengan validation error.
+ *   Pilihan metode angsuran tetap memakai opsi service simulasi existing.
  * - Perhitungan penghasilan/pengeluaran memakai bilangan bulat rupiah
  *   (integer arithmetic), bukan floating point sembrono. Tidak ada aturan
  *   eligibility/DSCR tambahan — semua itu PENDING BUSINESS CONFIRMATION.
@@ -110,6 +118,51 @@ function GapNote({ children }) {
     );
 }
 
+/**
+ * Ticket 77 — sel foto jaminan: pratinjau berkas lokal (object URL) atau
+ * foto tersimpan dari server, plus pemilih berkas untuk unggah/penggantian.
+ * Path filesystem tidak pernah disentuh frontend — foto tersimpan disajikan
+ * lewat route terotorisasi (`foto_url`).
+ */
+function FotoCell({ item, index, onPick }) {
+    const [localUrl, setLocalUrl] = React.useState(null);
+
+    React.useEffect(() => {
+        if (item.foto instanceof File) {
+            const url = URL.createObjectURL(item.foto);
+            setLocalUrl(url);
+            return () => URL.revokeObjectURL(url);
+        }
+        setLocalUrl(null);
+        return undefined;
+    }, [item.foto]);
+
+    const src = localUrl ?? item.foto_url;
+
+    return (
+        <div className="flex items-center gap-2">
+            {src ? (
+                <img
+                    src={src}
+                    alt={`Foto ${item.nama}`}
+                    className="h-10 w-10 shrink-0 rounded border border-slate-200 object-cover"
+                />
+            ) : (
+                <span className="text-xs text-slate-400">Belum ada foto</span>
+            )}
+            <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(event) =>
+                    onPick(index, event.target.files?.[0] ?? null)
+                }
+                className="w-28 text-xs text-slate-500"
+                aria-label={`Pilih foto jaminan ${item.nama}`}
+            />
+        </div>
+    );
+}
+
 function Field({ label, children, hint }) {
     return (
         <div>
@@ -160,7 +213,7 @@ function AccordionSection({ index, section, isOpen, onToggle, children }) {
     );
 }
 
-export default function Pengajuan({ today, rate, products, customers, options, application = null, formData = null }) {
+export default function Pengajuan({ today, products, customers, options, application = null, formData = null }) {
     // Accordion: murni state lokal. Tidak ada request backend saat toggle.
     const [openSections, setOpenSections] = useState(
         () => new Set([SECTIONS[0].key]),
@@ -185,11 +238,26 @@ export default function Pengajuan({ today, rate, products, customers, options, a
     // State form: kosong saat create; terisi data existing saat mode edit
     // (Ticket 68 — komponen yang sama, payload identik ke create/update).
     const buildEmptyForm = () => ({
-        pribadi: { customer_id: '' },
+        pribadi: {
+            customer_id: '',
+            // Ticket 76-FIX — Data Pribadi adalah DATA PENGAJUAN (snapshot per
+            // pengajuan di `shm_loan_applications`), bukan data master nasabah.
+            unit_kerja: '',
+            nip: '',
+            telepon_rumah: '',
+            tempat_lahir: '',
+            tanggal_lahir: '',
+            jumlah_tanggungan: '',
+            saldo_modal: '',
+            saldo_non_modal: '',
+            batas_hutang: '',
+        },
         pengajuan: {
             product_id: '',
             principal: '',
             tenor_months: '',
+            // T82 — jatuh tempo pertama dipilih Marketing (input date).
+            first_due_date: '',
             purpose: '',
             loan_sequence: '',
             disbursement_method: '',
@@ -218,6 +286,7 @@ export default function Pengajuan({ today, rate, products, customers, options, a
             approved_amount: '',
             provision_fee: '',
             administration_fee: '',
+            notary_fee: '',
             method: '',
             notes: '',
         },
@@ -251,6 +320,21 @@ export default function Pengajuan({ today, rate, products, customers, options, a
         (product) => String(product.id) === String(form.pengajuan.product_id),
     );
 
+    // T82 — turunkan rate dari tier produk (product + tenor) untuk
+    // TAMPILAN saja; sumber kebenaran resolusi tetap di backend.
+    const selectedTier = selectedProduct?.rate_tiers?.find(
+        (tier) =>
+            Number(form.pengajuan.tenor_months) >=
+                tier.min_tenor_months &&
+            Number(form.pengajuan.tenor_months) <= tier.max_tenor_months,
+    );
+    const validTenorRanges = (selectedProduct?.rate_tiers || []).map(
+        (tier) =>
+            tier.min_tenor_months === tier.max_tenor_months
+                ? `${tier.min_tenor_months} bulan`
+                : `${tier.min_tenor_months}–${tier.max_tenor_months} bulan`,
+    );
+
     // --- Data Tambahan: daftar barang agunan kredit (lokal) ----------------
     const [draftAgunan, setDraftAgunan] = useState({
         jenis: '',
@@ -281,7 +365,10 @@ export default function Pengajuan({ today, rate, products, customers, options, a
         status_pengikatan: '',
         tanggal_pengikatan: '',
         nilai_hak_tanggungan: '',
-        foto: '',
+        // Ticket 77 — `foto` memegang objek File yang dipilih (null = tanpa
+        // foto); `foto_url` diisi server untuk foto yang sudah tersimpan.
+        foto: null,
+        foto_url: null,
         picked: false,
     };
     const [showJaminanForm, setShowJaminanForm] = useState(false);
@@ -308,6 +395,15 @@ export default function Pengajuan({ today, rate, products, customers, options, a
         setRoot(
             'jaminan',
             form.jaminan.filter((_, i) => i !== index),
+        );
+
+    // Ticket 77 — pilih/ganti foto pada baris jaminan yang sudah ada.
+    const setJaminanFoto = (index, file) =>
+        setRoot(
+            'jaminan',
+            form.jaminan.map((item, i) =>
+                i === index ? { ...item, foto: file } : item,
+            ),
         );
 
     // --- Persyaratan tambahan (lokal, daftar bebas ala dokumen existing) ---
@@ -352,9 +448,13 @@ export default function Pengajuan({ today, rate, products, customers, options, a
 
     const submitPayload = () => ({
         ...form,
-        // Foto jaminan TIDAK dikirim: infrastructure upload storage belum
-        // ada (PENDING INFRASTRUCTURE) — tidak ada fake upload.
-        jaminan: form.jaminan.map(({ foto, ...rest }) => rest),
+        // Ticket 77 — foto kini dikirim sebagai berkas (Inertia otomatis
+        // memakai multipart/form-data saat payload memuat File). `foto_url`
+        // hanya kunci tampilan dari server dan tidak pernah dikirim balik.
+        jaminan: form.jaminan.map(({ foto_url, ...rest }) => ({
+            ...rest,
+            foto: rest.foto instanceof File ? rest.foto : null,
+        })),
     });
 
     const submit = (event) => {
@@ -372,11 +472,27 @@ export default function Pengajuan({ today, rate, products, customers, options, a
         };
 
         if (application) {
-            router.put(
-                route('shm.loans.pengajuan.update', application.id),
-                submitPayload(),
-                options,
+            const payload = submitPayload();
+            const hasFiles = form.jaminan.some(
+                (item) => item.foto instanceof File,
             );
+
+            if (hasFiles) {
+                // PHP hanya mem-parsing berkas multipart pada POST; unggah
+                // foto pada mode edit memakai method-spoofing POST +
+                // _method=PUT (pola Laravel — route tetap PUT).
+                router.post(
+                    route('shm.loans.pengajuan.update', application.id),
+                    { ...payload, _method: 'put' },
+                    options,
+                );
+            } else {
+                router.put(
+                    route('shm.loans.pengajuan.update', application.id),
+                    payload,
+                    options,
+                );
+            }
         } else {
             router.post(route('shm.loans.pengajuan.store'), submitPayload(), options);
         }
@@ -417,9 +533,9 @@ export default function Pengajuan({ today, rate, products, customers, options, a
                                     {application.application_number} ·{' '}
                                 </span>
                             )}
-                            Satu formulir dengan 11 bagian. Rate resmi
-                            bunga/jasa SHM{' '}
-                            <strong>{Number(rate)}%</strong>.
+                            Satu formulir dengan 11 bagian. Rate bunga/jasa
+                            mengikuti produk & tenor yang dipilih — lihat
+                            bagian Pengajuan Pinjaman.
                         </p>
                     </div>
                     <div className="flex gap-2">
@@ -481,9 +597,10 @@ export default function Pengajuan({ today, rate, products, customers, options, a
                                         (`shm_customers`) dan TIDAK otomatis
                                         menjadi anggota koperasi — tidak ada
                                         pembacaan tabel `members` di halaman
-                                        ini. Field referensi yang belum ada di
-                                        master nasabah SHM ditandai GAP dan
-                                        tidak diarang.
+                                        ini. Pemilihan nasabah hanya
+                                        menetapkan referensi pengajuan
+                                        (`shm_customer_id`); Data Pribadi di
+                                        bawah adalah milik pengajuan ini.
                                     </GapNote>
 
                                     <Field label="Pilih Nasabah SHM">
@@ -611,36 +728,197 @@ export default function Pengajuan({ today, rate, products, customers, options, a
                                     )}
 
                                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                                        {[
-                                            'Unit Kerja',
-                                            'NIP',
-                                            'Telepon Rumah',
-                                            'Tempat/Tanggal Lahir',
-                                            'Jumlah Tanggungan',
-                                            'Saldo Modal',
-                                            'Saldo Non Modal',
-                                            'Batas Hutang',
-                                        ].map((label) => (
-                                            <Field key={label} label={label}>
-                                                <input
-                                                    type="text"
-                                                    disabled
-                                                    placeholder="GAP — belum ada field di master nasabah SHM"
-                                                    className={readonlyClass}
-                                                />
-                                            </Field>
-                                        ))}
+                                        <Field label="Unit Kerja">
+                                            <input
+                                                type="text"
+                                                value={form.pribadi.unit_kerja ?? ''}
+                                                onChange={(event) =>
+                                                    setGroup(
+                                                        'pribadi',
+                                                        'unit_kerja',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className={inputClass}
+                                            />
+                                            {err('pribadi.unit_kerja') && (
+                                                <p className="mt-1 text-xs text-rose-600">
+                                                    {err('pribadi.unit_kerja')}
+                                                </p>
+                                            )}
+                                        </Field>
+                                        <Field label="NIP">
+                                            <input
+                                                type="text"
+                                                value={form.pribadi.nip ?? ''}
+                                                onChange={(event) =>
+                                                    setGroup(
+                                                        'pribadi',
+                                                        'nip',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className={inputClass}
+                                            />
+                                            {err('pribadi.nip') && (
+                                                <p className="mt-1 text-xs text-rose-600">
+                                                    {err('pribadi.nip')}
+                                                </p>
+                                            )}
+                                        </Field>
+                                        <Field label="Telepon Rumah">
+                                            <input
+                                                type="text"
+                                                value={form.pribadi.telepon_rumah ?? ''}
+                                                onChange={(event) =>
+                                                    setGroup(
+                                                        'pribadi',
+                                                        'telepon_rumah',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className={inputClass}
+                                            />
+                                            {err('pribadi.telepon_rumah') && (
+                                                <p className="mt-1 text-xs text-rose-600">
+                                                    {err('pribadi.telepon_rumah')}
+                                                </p>
+                                            )}
+                                        </Field>
+                                        <Field label="Tempat Lahir">
+                                            <input
+                                                type="text"
+                                                value={form.pribadi.tempat_lahir ?? ''}
+                                                onChange={(event) =>
+                                                    setGroup(
+                                                        'pribadi',
+                                                        'tempat_lahir',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className={inputClass}
+                                            />
+                                            {err('pribadi.tempat_lahir') && (
+                                                <p className="mt-1 text-xs text-rose-600">
+                                                    {err('pribadi.tempat_lahir')}
+                                                </p>
+                                            )}
+                                        </Field>
+                                        <Field label="Tanggal Lahir">
+                                            <input
+                                                type="date"
+                                                value={form.pribadi.tanggal_lahir ?? ''}
+                                                onChange={(event) =>
+                                                    setGroup(
+                                                        'pribadi',
+                                                        'tanggal_lahir',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className={inputClass}
+                                            />
+                                            {err('pribadi.tanggal_lahir') && (
+                                                <p className="mt-1 text-xs text-rose-600">
+                                                    {err('pribadi.tanggal_lahir')}
+                                                </p>
+                                            )}
+                                        </Field>
+                                        <Field label="Jumlah Tanggungan">
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={form.pribadi.jumlah_tanggungan ?? ''}
+                                                onChange={(event) =>
+                                                    setGroup(
+                                                        'pribadi',
+                                                        'jumlah_tanggungan',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className={inputClass}
+                                            />
+                                            {err('pribadi.jumlah_tanggungan') && (
+                                                <p className="mt-1 text-xs text-rose-600">
+                                                    {err('pribadi.jumlah_tanggungan')}
+                                                </p>
+                                            )}
+                                        </Field>
+                                        <Field label="Saldo Modal (Rp)">
+                                            <input
+                                                type="text"
+                                                inputMode="decimal"
+                                                value={form.pribadi.saldo_modal ?? ''}
+                                                onChange={(event) =>
+                                                    setGroup(
+                                                        'pribadi',
+                                                        'saldo_modal',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className={inputClass}
+                                            />
+                                            {err('pribadi.saldo_modal') && (
+                                                <p className="mt-1 text-xs text-rose-600">
+                                                    {err('pribadi.saldo_modal')}
+                                                </p>
+                                            )}
+                                        </Field>
+                                        <Field label="Saldo Non Modal (Rp)">
+                                            <input
+                                                type="text"
+                                                inputMode="decimal"
+                                                value={form.pribadi.saldo_non_modal ?? ''}
+                                                onChange={(event) =>
+                                                    setGroup(
+                                                        'pribadi',
+                                                        'saldo_non_modal',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className={inputClass}
+                                            />
+                                            {err('pribadi.saldo_non_modal') && (
+                                                <p className="mt-1 text-xs text-rose-600">
+                                                    {err('pribadi.saldo_non_modal')}
+                                                </p>
+                                            )}
+                                        </Field>
+                                        <Field label="Batas Hutang (Rp)">
+                                            <input
+                                                type="text"
+                                                inputMode="decimal"
+                                                value={form.pribadi.batas_hutang ?? ''}
+                                                onChange={(event) =>
+                                                    setGroup(
+                                                        'pribadi',
+                                                        'batas_hutang',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className={inputClass}
+                                            />
+                                            {err('pribadi.batas_hutang') && (
+                                                <p className="mt-1 text-xs text-rose-600">
+                                                    {err('pribadi.batas_hutang')}
+                                                </p>
+                                            )}
+                                        </Field>
                                     </div>
 
                                     <GapNote>
-                                        GAP: Unit Kerja, NIP, Telepon Rumah,
-                                        Tempat/Tanggal Lahir, Jumlah Tanggungan,
-                                        Saldo Modal, Saldo Non Modal, dan Batas
-                                        Hutang tidak ada pada `shm_customers`
-                                        maupun modul terkait. Field baru tidak
-                                        dibuat tanpa business confirmation, dan
-                                        saldo simpanan TIDAK diambil dari modul
-                                        simpanan mana pun.
+                                        Sembilan field Data Pribadi di atas
+                                        adalah DATA PENGAJUAN (tersimpan pada
+                                        `shm_loan_applications`, bukan pada
+                                        master nasabah) sehingga setiap
+                                        pengajuan dapat bernilai berbeda untuk
+                                        nasabah yang sama. Pemilihan nasabah
+                                        hanya menetapkan referensi
+                                        `shm_customer_id`; mengedit Data
+                                        Pribadi di sini TIDAK mengubah master
+                                        nasabah. Nilai dimasukkan manual —
+                                        sumber & semantik resmi Saldo Modal,
+                                        Saldo Non Modal, dan Batas Hutang masih
+                                        PENDING BUSINESS CONFIRMATION.
                                     </GapNote>
                                 </div>
                             )}
@@ -681,8 +959,7 @@ export default function Pengajuan({ today, rate, products, customers, options, a
                                                     {err('pengajuan.principal')}
                                                 </p>
                                             )}
-                                        </Field>
-                                        <Field label="Jangka Waktu (kali angsuran / bulan)">
+                                        </Field>                                        <Field label="Jangka Waktu (kali angsuran / bulan)">
                                             <input
                                                 type="number"
                                                 min="1"
@@ -704,11 +981,67 @@ export default function Pengajuan({ today, rate, products, customers, options, a
                                                     {err('pengajuan.tenor_months')}
                                                 </p>
                                             )}
+                                            {validTenorRanges.length > 0 && (
+                                                <p className="mt-1 text-xs text-slate-500">
+                                                    Tenor tersedia:{' '}
+                                                    {validTenorRanges.join(
+                                                        ', ',
+                                                    )}
+                                                </p>
+                                            )}
+                                        </Field>
+                                        <Field label="Rate Bunga (per bulan, flat)">
+                                            <input
+                                                type="text"
+                                                readOnly
+                                                value={
+                                                    selectedTier
+                                                        ? `${selectedTier.rate_percent}% / bulan (flat)`
+                                                        : '—'
+                                                }
+                                                className={readonlyClass}
+                                            />
+                                            <p className="mt-1 text-xs text-slate-500">
+                                                Rate ditentukan produk + tenor
+                                                (divalidasi ulang oleh server).
+                                            </p>
+                                        </Field>
+                                        <Field label="Jatuh Tempo Pertama">
+                                            <input
+                                                type="date"
+                                                value={
+                                                    form.pengajuan
+                                                        .first_due_date
+                                                }
+                                                onChange={(event) =>
+                                                    setGroup(
+                                                        'pengajuan',
+                                                        'first_due_date',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className={inputClass}
+                                            />
+                                            <p className="mt-1 text-xs text-slate-500">
+                                                Dipilih Marketing — wajib
+                                                diisi sebelum pencairan.
+                                            </p>
+                                            {err(
+                                                'pengajuan.first_due_date',
+                                            ) && (
+                                                <p className="mt-1 text-xs text-rose-600">
+                                                    {err(
+                                                        'pengajuan.first_due_date',
+                                                    )}
+                                                </p>
+                                            )}
                                         </Field>
                                         <Field label="Tujuan Pinjaman">
                                             <input
                                                 type="text"
-                                                value={form.pengajuan.purpose}
+                                                value={
+                                                    form.pengajuan.purpose
+                                                }
                                                 onChange={(event) =>
                                                     setGroup(
                                                         'pengajuan',
@@ -773,11 +1106,11 @@ export default function Pengajuan({ today, rate, products, customers, options, a
                                     <GapNote>
                                         Nilai pada contoh referensi (plafon,
                                         tenor, tujuan) BUKAN default data
-                                        produksi. Rate resmi tetap{' '}
-                                        {Number(rate)}% — lihat bagian
-                                        Persetujuan Pinjaman; formula dan
-                                        periodisasi bunga tetap PENDING
-                                        BUSINESS CONFIRMATION.
+                                        produksi. Rate mengikuti produk +
+                                        tenor yang dipilih (tier rate resmi)
+                                        — lihat bagian Persetujuan Pinjaman;
+                                        pembangkitan jadwal angsuran tetap
+                                        PENDING BUSINESS CONFIRMATION.
                                     </GapNote>
                                 </div>
                             )}
@@ -1074,6 +1407,18 @@ export default function Pengajuan({ today, rate, products, customers, options, a
 
                             {section.key === 'jaminan' && (
                                 <div className="space-y-4">
+                                    {Object.entries(errors)
+                                        .filter(([key]) =>
+                                            key.startsWith('jaminan.'),
+                                        )
+                                        .map(([key, message]) => (
+                                            <p
+                                                key={key}
+                                                className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700"
+                                            >
+                                                {message}
+                                            </p>
+                                        ))}
                                     <div className="overflow-x-auto rounded-lg border border-slate-200">
                                         <table className="w-full text-sm">
                                             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
@@ -1121,9 +1466,18 @@ export default function Pengajuan({ today, rate, products, customers, options, a
                                                                 {item.jenis} —{' '}
                                                                 {item.nama}
                                                             </td>
-                                                            <td className="px-3 py-2 text-xs text-slate-500">
-                                                                {item.foto ||
-                                                                    '—'}
+                                                            <td className="px-3 py-2">
+                                                                <FotoCell
+                                                                    item={
+                                                                        item
+                                                                    }
+                                                                    index={
+                                                                        index
+                                                                    }
+                                                                    onPick={
+                                                                        setJaminanFoto
+                                                                    }
+                                                                />
                                                             </td>
                                                             <td className="px-3 py-2">
                                                                 {item.keterangan ||
@@ -1323,21 +1677,32 @@ export default function Pengajuan({ today, rate, products, customers, options, a
                                             </Field>
                                             <Field
                                                 label="Foto"
-                                                hint="Pratinjau lokal saja — upload berkas belum tersedia (GAP)."
+                                                hint="Format: JPG, JPEG, PNG, atau WebP — maksimal 2 MB. Foto tersimpan permanen bersama pengajuan."
                                             >
                                                 <input
                                                     type="file"
-                                                    accept="image/*"
+                                                    accept="image/jpeg,image/png,image/webp"
                                                     onChange={(event) =>
                                                         setDraftJaminan({
                                                             ...draftJaminan,
-                                                            foto: event.target
-                                                                .files?.[0]
-                                                                ?.name ?? '',
+                                                            foto:
+                                                                event.target
+                                                                    .files?.[0] ??
+                                                                null,
                                                         })
                                                     }
                                                     className="mt-1 block w-full text-xs text-slate-500"
                                                 />
+                                                {draftJaminan.foto instanceof
+                                                    File && (
+                                                    <img
+                                                        src={URL.createObjectURL(
+                                                            draftJaminan.foto,
+                                                        )}
+                                                        alt="Pratinjau foto jaminan"
+                                                        className="mt-2 h-20 rounded border border-slate-200 object-cover"
+                                                    />
+                                                )}
                                             </Field>
                                             <div className="md:col-span-3">
                                                 <Field label="Keterangan">
@@ -1387,12 +1752,13 @@ export default function Pengajuan({ today, rate, products, customers, options, a
 
                                     <GapNote>
                                         Master jenis jaminan dan status
-                                        pengikatan resmi belum tersedia, sehingga
-                                        kedua isian dibuat bebas dan ditandai
-                                        GAP. Foto bersifat lokal dan belum
-                                        diunggah. Modul jaminan global TIDAK
-                                        dibuat — daftar ini melekat pada form
-                                        pengajuan.
+                                        pengikatan resmi belum tersedia
+                                        (PENDING BUSINESS CONFIRMATION),
+                                        sehingga kedua isian tetap teks bebas.
+                                        Foto jaminan kini diunggah permanen
+                                        (maksimal 2 MB, format gambar).
+                                        Modul jaminan global TIDAK dibuat —
+                                        daftar ini melekat pada form pengajuan.
                                     </GapNote>
                                 </div>
                             )}
@@ -1653,11 +2019,26 @@ export default function Pengajuan({ today, rate, products, customers, options, a
                                                 'approved_amount',
                                             )}
                                         </Field>
-                                        <Field label="Jasa / Rate resmi">
+                                        <Field label="Jasa / Rate Produk">
                                             <input
                                                 type="text"
                                                 readOnly
-                                                value={`${Number(rate)}%`}
+                                                value={
+                                                    selectedTier
+                                                        ? `${selectedTier.rate_percent}% / bulan`
+                                                        : '—'
+                                                }
+                                                className={readonlyClass}
+                                            />
+                                        </Field>
+                                        <Field label="Jatuh Tempo Pertama">
+                                            <input
+                                                type="text"
+                                                readOnly
+                                                value={
+                                                    form.pengajuan
+                                                        .first_due_date || '—'
+                                                }
                                                 className={readonlyClass}
                                             />
                                         </Field>
@@ -1671,6 +2052,15 @@ export default function Pengajuan({ today, rate, products, customers, options, a
                                             {renderMoney(
                                                 'persetujuan',
                                                 'administration_fee',
+                                            )}
+                                        </Field>
+                                        <Field
+                                            label="Biaya Notaris (Rp)"
+                                            hint="Custom fillable — nominal non-negatif; 0 bila tidak ada biaya notaris."
+                                        >
+                                            {renderMoney(
+                                                'persetujuan',
+                                                'notary_fee',
                                             )}
                                         </Field>
                                         <div className="md:col-span-2">

@@ -103,7 +103,7 @@ class UpdateShmCustomerRequest extends FormRequest
     }
 
     /**
-     * @return array{name: string, nik: string|null, phone: string|null, email: string|null, address: string|null, latitude: string|null, longitude: string|null}
+     * @return array<string, mixed>
      */
     public function payload(): array
     {

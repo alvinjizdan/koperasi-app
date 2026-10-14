@@ -10,8 +10,9 @@ import { Banknote, FileCheck, FileDown, Info, Pencil, Send } from 'lucide-react'
  *
  * Satu halaman read-only yang menampilkan kembali seluruh 11 section dari
  * database sehingga pengguna tidak perlu mengisi ulang form. Rate yang
- * ditampilkan berasal dari domain object (rate resmi 2%), bukan kolom
- * tersendiri. Status memakai vocabulary workflow existing (pending/approved/
+ * ditampilkan berasal dari domain object (rate = f(product, tenor) — T82;
+ * null bila produk/tenor belum menghasilkan tier), bukan kolom tersendiri.
+ * Status memakai vocabulary workflow existing (pending/approved/
  * rejected); "DITANGGUHKAN" sengaja tidak ada karena belum dikonfirmasi
  * bisnisnya.
  */
@@ -82,6 +83,8 @@ export default function PengajuanShow({ application, flash }) {
         );
     };
     const customer = application.customer ?? {};
+    // Ticket 76-FIX — Data Pribadi milik pengajuan ini (bukan master nasabah).
+    const pribadi = application.pribadi ?? {};
     const money = (value) =>
         value === null || value === undefined || value === ''
             ? '—'
@@ -127,8 +130,12 @@ export default function PengajuanShow({ application, flash }) {
                         </h1>
                         <p className="text-sm text-gray-500">
                             {application.application_number} &middot;{' '}
-                            {application.application_date} &middot; Rate resmi{' '}
-                            <strong>{Number(application.rate)}%</strong>
+                            {application.application_date} &middot; Rate produk{' '}
+                            <strong>
+                                {application.rate != null
+                                    ? `${Number(application.rate)}% / bulan`
+                                    : '— (produk/tenor belum dipilih)'}
+                            </strong>
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -315,9 +322,46 @@ export default function PengajuanShow({ application, flash }) {
                         <Row label="Alamat" value={customer.address} />
                         <Row label="Status" value={customer.is_active ? 'Aktif' : 'Nonaktif'} />
                         <Row label="Tanggal Menjadi Nasabah SHM" value={customer.registered_at} />
+                        {/* Data Pribadi — nilai milik pengajuan ini (`shm_loan_applications`), bukan master nasabah. */}
+                        <Row label="Unit Kerja" value={pribadi.unit_kerja} />
+                        <Row label="NIP" value={pribadi.nip} />
+                        <Row label="Telepon Rumah" value={pribadi.telepon_rumah} />
+                        <Row label="Tempat Lahir" value={pribadi.tempat_lahir} />
+                        <Row label="Tanggal Lahir" value={pribadi.tanggal_lahir} />
                         <Row
-                            label="Unit Kerja / NIP / Lahir / Tanggungan / Saldo Modal & Non Modal / Batas Hutang"
-                            value="Belum tersedia (PENDING)"
+                            label="Jumlah Tanggungan"
+                            value={
+                                pribadi.jumlah_tanggungan != null
+                                    ? `${pribadi.jumlah_tanggungan} orang`
+                                    : null
+                            }
+                        />
+                        <Row
+                            label="Saldo Modal"
+                            value={
+                                pribadi.saldo_modal != null
+                                    ? money(pribadi.saldo_modal)
+                                    : null
+                            }
+                            mono={pribadi.saldo_modal != null}
+                        />
+                        <Row
+                            label="Saldo Non Modal"
+                            value={
+                                pribadi.saldo_non_modal != null
+                                    ? money(pribadi.saldo_non_modal)
+                                    : null
+                            }
+                            mono={pribadi.saldo_non_modal != null}
+                        />
+                        <Row
+                            label="Batas Hutang"
+                            value={
+                                pribadi.batas_hutang != null
+                                    ? money(pribadi.batas_hutang)
+                                    : null
+                            }
+                            mono={pribadi.batas_hutang != null}
                         />
                     </dl>
                 </DetailSection>
@@ -449,18 +493,32 @@ export default function PengajuanShow({ application, flash }) {
                                     </p>
                                     <dl>
                                         <Row label="Tanggal" value={item.tanggal} />
+                                        <Row
+                                            label="Nomor Nasabah / Customer"
+                                            value={item.customer_number}
+                                        />
                                         <Row label="Keterangan" value={item.keterangan} />
                                         <Row label="Nilai Perkiraan" value={money(item.nilai_perkiraan)} mono />
                                         <Row label="Status Pengikatan" value={item.status_pengikatan} />
                                         <Row label="Tanggal Pengikatan" value={item.tanggal_pengikatan} />
                                         <Row label="Nilai Hak Tanggungan" value={money(item.nilai_hak_tanggungan)} mono />
                                     </dl>
+                                    {/* Ticket 77 — foto tersimpan disajikan lewat
+                                        route terotorisasi; tanpa foto = empty
+                                        state (tanpa gambar rusak/t palsu). */}
+                                    {item.foto_url ? (
+                                        <img
+                                            src={item.foto_url}
+                                            alt={`Foto ${item.nama}`}
+                                            className="mt-3 max-h-64 rounded-lg border border-slate-200 object-contain"
+                                        />
+                                    ) : (
+                                        <p className="mt-3 text-xs text-slate-400">
+                                            Belum ada foto jaminan.
+                                        </p>
+                                    )}
                                 </div>
                             ))}
-                            <p className="text-xs text-slate-500">
-                                Foto jaminan: PENDING INFRASTRUCTURE (upload
-                                berkas belum tersedia).
-                            </p>
                         </div>
                     )}
                 </DetailSection>
@@ -521,8 +579,22 @@ export default function PengajuanShow({ application, flash }) {
                         <Row label="Persetujuan Pinjaman Sebesar" value={money(application.persetujuan.approved_amount)} mono />
                         <Row label="Biaya Provisi" value={money(application.persetujuan.provision_fee)} mono />
                         <Row label="Biaya Administrasi" value={money(application.persetujuan.administration_fee)} mono />
+                        <Row label="Biaya Notaris" value={money(application.persetujuan.notary_fee)} mono />
                         <Row label="Jangka waktu" value={`${application.pengajuan.tenor_months} kali angsuran`} />
-                        <Row label="Jasa / Rate resmi" value={`${Number(application.rate)}%`} />
+                        <Row
+                            label="Jasa / Rate Produk"
+                            value={
+                                application.rate != null
+                                    ? `${Number(application.rate)}% / bulan (flat)`
+                                    : '—'
+                            }
+                        />
+                        <Row
+                            label="Jatuh Tempo Pertama"
+                            value={
+                                application.pengajuan.first_due_date || '—'
+                            }
+                        />
                         <Row label="Metode perhitungan" value={application.persetujuan.method ?? 'Belum dipilih (PENDING)'} />
                         <Row label="Status keputusan" value={status.text} />
                     </dl>

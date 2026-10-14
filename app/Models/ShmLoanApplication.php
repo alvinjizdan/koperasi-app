@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Carbon;
 
 /**
  * Pengajuan Pinjaman SHM (Ticket 67).
@@ -37,10 +38,20 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property string $application_date
  * @property string $principal
  * @property int $tenor_months
+ * @property Carbon|null $first_due_date // T82 — tanggal jatuh tempo pertama (dipilih Marketing)
  * @property string|null $purpose
  * @property int|null $loan_sequence
  * @property string|null $disbursement_method
  * @property string $status
+ * @property string|null $unit_kerja
+ * @property string|null $nip
+ * @property string|null $telepon_rumah
+ * @property string|null $tempat_lahir
+ * @property Carbon|null $tanggal_lahir
+ * @property int|null $jumlah_tanggungan
+ * @property string|null $saldo_modal
+ * @property string|null $saldo_non_modal
+ * @property string|null $batas_hutang
  */
 class ShmLoanApplication extends Model
 {
@@ -51,6 +62,8 @@ class ShmLoanApplication extends Model
         'application_date',
         'principal',
         'tenor_months',
+        // Ticket 82 — jatuh tempo pertama dipilih Marketing (bukan auto).
+        'first_due_date',
         'purpose',
         'loan_sequence',
         'disbursement_method',
@@ -81,12 +94,27 @@ class ShmLoanApplication extends Model
         'approved_amount',
         'provision_fee',
         'administration_fee',
+        // Ticket 85 — biaya notaris custom (input user, non-negatif).
+        'notary_fee',
         'calculation_method',
         'approval_notes',
         'status',
         // Ticket 68: pemilik & tautan approval (diisi server, bukan payload).
         'marketing_id',
         'shm_application_id',
+        // Ticket 76-FIX — Data Pribadi adalah DATA PENGAJUAN (snapshot per
+        // aplikasi), bukan data master nasabah. Nilai dimasukkan manual oleh
+        // staf tanpa formula; sumber & semantik bisnis resmi ketiga kolom
+        // saldo/batas tetap PENDING BUSINESS CONFIRMATION.
+        'unit_kerja',
+        'nip',
+        'telepon_rumah',
+        'tempat_lahir',
+        'tanggal_lahir',
+        'jumlah_tanggungan',
+        'saldo_modal',
+        'saldo_non_modal',
+        'batas_hutang',
     ];
 
     protected function casts(): array
@@ -96,6 +124,7 @@ class ShmLoanApplication extends Model
             'kasir_note_date' => 'date',
             'analysis_date' => 'date',
             'tenor_months' => 'integer',
+            'first_due_date' => 'date',
             'loan_sequence' => 'integer',
             // Seluruh nilai finansial memakai desimal, bukan float.
             'principal' => 'decimal:2',
@@ -114,6 +143,13 @@ class ShmLoanApplication extends Model
             'approved_amount' => 'decimal:2',
             'provision_fee' => 'decimal:2',
             'administration_fee' => 'decimal:2',
+            'notary_fee' => 'decimal:2',
+            // Ticket 76-FIX — Data Pribadi pengajuan.
+            'tanggal_lahir' => 'date',
+            'jumlah_tanggungan' => 'integer',
+            'saldo_modal' => 'decimal:2',
+            'saldo_non_modal' => 'decimal:2',
+            'batas_hutang' => 'decimal:2',
         ];
     }
 
@@ -202,10 +238,24 @@ class ShmLoanApplication extends Model
         return round($this->totalIncome() - $this->totalExpense(), 2);
     }
 
-    /** Rate resmi yang tampil pada pengajuan ini (sumber tunggal, bukan kolom). */
-    public function officialRatePercent(): float
+    /**
+     * Rate produk yang berlaku untuk pengajuan ini (T82).
+     *
+     * Rate TIDAK lagi universal 2%: resolusi = f(product, tenor) dari tier
+     * rate produk. Tanpa produk, tanpa tenor valid, atau produk tanpa tier
+     * yang menutup tenor → null (tidak ada fallback rate).
+     */
+    public function officialRatePercent(): ?float
     {
-        return (float) ShmLoan::OFFICIAL_RATE_PERCENT;
+        $product = $this->product;
+
+        if ($product === null || ! $product->is_active) {
+            return null;
+        }
+
+        $tier = $product->rateTierFor((int) $this->tenor_months);
+
+        return $tier === null ? null : (float) $tier->rate_percent;
     }
 
     /**

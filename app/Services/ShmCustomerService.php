@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\Member;
 use App\Models\ShmCustomer;
 use App\Support\DbTransaction;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 /**
@@ -42,13 +44,52 @@ class ShmCustomerService
         return DbTransaction::run(function () use ($data): ShmCustomer {
             $actorId = Auth::id();
 
+            $memberId = $data['member_id'] ?? null;
+            if (! $memberId) {
+                throw ValidationException::withMessages([
+                    'member_id' => ['Anggota koperasi sumber wajib dipilih untuk membuat nasabah SHM.'],
+                ]);
+            }
+
+            $member = Member::query()->lockForUpdate()->find($memberId);
+            if (! $member) {
+                throw ValidationException::withMessages([
+                    'member_id' => ['Anggota koperasi tidak ditemukan.'],
+                ]);
+            }
+
+            // Member eligibility: hanya anggota dengan status 'active' yang boleh menjadi nasabah SHM
+            if ($member->status !== 'active') {
+                throw ValidationException::withMessages([
+                    'member_id' => [sprintf('Anggota %s berstatus "%s" dan tidak memenuhi syarat menjadi Nasabah SHM. Hanya anggota berstatus aktif yang diperbolehkan.', $member->member_number, $member->status)],
+                ]);
+            }
+
+            // Duplicate prevention (1:1 relationship untuk nasabah aktif)
+            $existingActive = ShmCustomer::query()
+                ->where('member_id', $member->id)
+                ->where('is_active', true)
+                ->first();
+
+            if ($existingActive) {
+                throw ValidationException::withMessages([
+                    'member_id' => [sprintf('Anggota %s sudah terdaftar sebagai Nasabah SHM aktif (%s).', $member->member_number, $existingActive->customer_number)],
+                ]);
+            }
+
+            $name = ! empty($data['name']) ? $data['name'] : $member->full_name;
+            $nik = array_key_exists('nik', $data) && $data['nik'] !== null ? $data['nik'] : $member->identity_number;
+            $phone = array_key_exists('phone', $data) && $data['phone'] !== null ? $data['phone'] : $member->phone;
+            $address = array_key_exists('address', $data) && $data['address'] !== null ? $data['address'] : $member->address;
+
             $customer = ShmCustomer::query()->create([
+                'member_id' => $member->id,
                 'customer_number' => $this->generateCustomerNumber(),
-                'name' => $data['name'],
-                'nik' => $data['nik'] ?? null,
-                'phone' => $data['phone'] ?? null,
+                'name' => $name,
+                'nik' => $nik,
+                'phone' => $phone,
                 'email' => $data['email'] ?? null,
-                'address' => $data['address'] ?? null,
+                'address' => $address,
                 'latitude' => $data['latitude'] ?? null,
                 'longitude' => $data['longitude'] ?? null,
                 'is_active' => true,
@@ -59,9 +100,11 @@ class ShmCustomerService
                 ShmCustomer::class,
                 $customer->id,
                 $customer->name,
-                sprintf('Nasabah SHM %s dibuat.', $customer->customer_number),
+                sprintf('Nasabah SHM %s dibuat dari Anggota Koperasi %s.', $customer->customer_number, $member->member_number),
                 [
                     'customer_number' => $customer->customer_number,
+                    'member_id' => $member->id,
+                    'member_number' => $member->member_number,
                     'name' => $customer->name,
                     'is_active' => $customer->is_active,
                     'actor_id' => $actorId,
@@ -84,7 +127,9 @@ class ShmCustomerService
     {
         return DbTransaction::run(function () use ($customer, $data): ShmCustomer {
             $locked = ShmCustomer::query()->lockForUpdate()->findOrFail($customer->id);
-            $tracked = ['name', 'nik', 'phone', 'email', 'address', 'latitude', 'longitude'];
+            $tracked = [
+                'name', 'nik', 'phone', 'email', 'address', 'latitude', 'longitude',
+            ];
             $changes = [];
 
             foreach ($tracked as $field) {

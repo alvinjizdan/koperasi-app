@@ -17,12 +17,11 @@ import {
     ShieldAlert,
 } from 'lucide-react';
 
-/**
- * Aktivitas kunjungan milik pengguna sendiri.
- *
- * Check-in hanya terkirim setelah browser benar-benar memberikan koordinat.
- * Bila izin ditolak atau lokasi tidak tersedia, TIDAK ada koordinat pengganti
- * yang dibuat dan request tidak dikirim sama sekali.
+/** Aktivitas kunjungan milik pengguna sendiri.
+
+Check-in hanya terkirim setelah browser benar-benar memberikan koordinat.
+Bila izin ditolak atau lokasi tidak tersedia, TIDAK ada koordinat pengganti
+yang dibuat dan request tidak dikirim sama sekali.
  */
 const LOCATION_ERRORS = {
     1: 'Izin lokasi ditolak. Aktivitas hanya dapat dicatat setelah Anda mengizinkan akses lokasi pada browser.',
@@ -40,9 +39,6 @@ function newIdempotencyKey() {
 export default function Index({ activities, sort, customers, filters, can_monitor, flash, shm }) {
     const handleSort = useTableSort('shm.marketing.activities.index');
 
-    const [customerId, setCustomerId] = useState('');
-    const [result, setResult] = useState('');
-    const [notes, setNotes] = useState('');
     const [locating, setLocating] = useState(false);
     const [locationError, setLocationError] = useState('');
 
@@ -78,7 +74,9 @@ export default function Index({ activities, sort, customers, filters, can_monito
     const handleCheckIn = async (event) => {
         event.preventDefault();
 
-        if (!form.shm_customer_id) {
+        const selectedCustomerId = form.data.shm_customer_id;
+
+        if (!selectedCustomerId) {
             setLocationError('Pilih nasabah SHM tujuan kunjungan terlebih dahulu.');
             return;
         }
@@ -88,21 +86,18 @@ export default function Index({ activities, sort, customers, filters, can_monito
 
         try {
             const coordinates = await requestLocation();
-            form.setData({
+
+            form.transform((data) => ({
+                ...data,
                 latitude: String(coordinates.latitude),
                 longitude: String(coordinates.longitude),
-                result: form.result,
-                notes: form.notes,
-            });
+            }));
 
             form.post(route('shm.marketing.activities.store'), {
                 preserveScroll: true,
                 onSuccess: () => {
                     form.reset();
                     form.setData('idempotency_key', newIdempotencyKey());
-                    setCustomerId('');
-                    setResult('');
-                    setNotes('');
                 },
             });
         } catch (error) {
@@ -156,12 +151,13 @@ export default function Index({ activities, sort, customers, filters, can_monito
             key: 'actions',
             label: 'Aksi',
             sortable: false,
-            render: (row) => (                    <Link
-                        href={route('shm.marketing.activities.show', row.id)}
-                        className="text-[11px] font-semibold text-emerald-700 hover:underline"
-                    >
-                        Detail
-                    </Link>
+            render: (row) => (
+                <Link
+                    href={route('shm.marketing.activities.show', row.id)}
+                    className="text-[11px] font-semibold text-emerald-700 hover:underline"
+                >
+                    Detail
+                </Link>
             ),
         },
     ];
@@ -200,9 +196,8 @@ export default function Index({ activities, sort, customers, filters, can_monito
                             <InputLabel htmlFor="shm_customer_id" value="Nasabah SHM Tujuan" />
                             <select
                                 id="shm_customer_id"
-                                value={customerId}
+                                value={form.data.shm_customer_id}
                                 onChange={(event) => {
-                                    setCustomerId(event.target.value);
                                     form.setData('shm_customer_id', event.target.value);
                                 }}
                                 className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
@@ -214,13 +209,14 @@ export default function Index({ activities, sort, customers, filters, can_monito
                                     </option>
                                 ))}
                             </select>
+                            <InputError message={form.errors.shm_customer_id} className="mt-1" />
                         </div>
                         <div>
                             <InputLabel htmlFor="result" value="Hasil Kunjungan" />
                             <TextInput
                                 id="result"
                                 type="text"
-                                value={form.result}
+                                value={form.data.result}
                                 onChange={(event) => form.setData('result', event.target.value)}
                                 placeholder="Catatan singkat hasil kunjungan"
                                 className="mt-1"
@@ -232,7 +228,7 @@ export default function Index({ activities, sort, customers, filters, can_monito
                             <textarea
                                 id="notes"
                                 rows={2}
-                                value={form.notes}
+                                value={form.data.notes}
                                 onChange={(event) => form.setData('notes', event.target.value)}
                                 className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                                 placeholder="Catatan tambahan hasil kunjungan"
@@ -250,13 +246,13 @@ export default function Index({ activities, sort, customers, filters, can_monito
 
                     <div className="mt-4 flex items-center gap-2">
                         <PrimaryButton type="submit" disabled={locating || form.processing}>
-                            {locating ? 'Mengambil lokasi...' : 'Check-in'}
+                            {locating ? 'Mengambil lokasi...' : 'CHECK-IN'}
                         </PrimaryButton>
                         <SecondaryButton
                             type="button"
                             onClick={() => router.get(route('shm.marketing.activities.index'))}
                         >
-                            Reset
+                            RESET
                         </SecondaryButton>
                     </div>
                 </form>

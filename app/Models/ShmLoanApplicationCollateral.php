@@ -9,8 +9,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Jaminan pinjaman pada sebuah Pengajuan Pinjaman SHM (Ticket 67, Section 5).
  *
  * `collateral_type`, `binding_status` berupa teks bebas karena master
- * resminya belum tersedia (PENDING BUSINESS CONFIRMATION). Tidak ada kolom
- * foto: infrastructure upload storage belum ada (PENDING INFRASTRUCTURE).
+ * resminya belum tersedia (PENDING BUSINESS CONFIRMATION).
+ *
+ * Ticket 77 — `photo_path` menyimpan path RELATIF foto pada disk privat
+ * Laravel (bukan binary, bukan absolute path). Foto disajikan lewat route
+ * terotorisasi, bukan lewat path publik. Nullable: jaminan lama tanpa foto
+ * tetap valid.
+ *
+ * Jaminan TIDAK memiliki referensi nasabah sendiri — nasabah jaminan
+ * selalu mengikuti nasabah pengajuan induk (`shm_customer_id`), sehingga
+ * tidak ada duplicate customer ID yang bisa menyimpang.
  *
  * @property int $id
  * @property int $shm_loan_application_id
@@ -22,6 +30,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $binding_status
  * @property string|null $binding_date
  * @property string|null $rights_value
+ * @property string|null $photo_path
  */
 class ShmLoanApplicationCollateral extends Model
 {
@@ -35,6 +44,7 @@ class ShmLoanApplicationCollateral extends Model
         'binding_status',
         'binding_date',
         'rights_value',
+        'photo_path',
     ];
 
     protected function casts(): array

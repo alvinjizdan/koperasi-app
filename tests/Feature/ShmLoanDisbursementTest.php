@@ -8,8 +8,10 @@ use App\Models\Role;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
+use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
+use App\Services\Shm\ShmRepaymentScheduleService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -33,10 +35,15 @@ use Tests\TestCase;
  *   kedua;
  * - E. AUDIT: tepat satu audit pencairan dengan actor pelaku;
  * - F. TRANSACTION: kegagalan pembuatan loan ATAU audit → rollback penuh;
- * - G. REGRESSION PENDUKUNG: loan muncul di Daftar Pinjaman existing.
+ * - G. REGRESSION PENDUKUNG: loan muncul di Daftar Pinjaman existing;
+ * - H. KONTRAK FINANSIAL T81/T82: pencairan menstempel rate hasil resolusi
+ *   EXAKT produk+tenor (bukan universal 2%) + rate_period monthly +
+ *   calculation_method flat + first_due_date Marketing secara atomik; tenor
+ *   di luar range produk MENOLAK pencairan; tidak menghasilkan jadwal
+ *   angsuran; pinjaman lolos kontrak T80; pinjaman historis tidak tersentuh.
  *
- * Yang TIDAK diuji: formula bunga/cicilan/jadwal (PENDING), resubmit setelah
- * reject (PENDING BUSINESS CONFIRMATION), collection/pembayaran.
+ * Yang TIDAK diuji: formula bunga/cicilan/jadwal (milik T80), resubmit
+ * setelah reject (PENDING BUSINESS CONFIRMATION), collection/pembayaran.
  */
 class ShmLoanDisbursementTest extends TestCase
 {
@@ -100,6 +107,30 @@ class ShmLoanDisbursementTest extends TestCase
     }
 
     /**
+     * Produk dengan tier rate gaya BSM Prioritas (T82) — tenor 48 jatuh di
+     * tier 48–52 dengan rate 1.60% monthly flat. Tier default factory
+     * dihapus agar tidak tumpang tindih (rate harus bukti resolusi produk,
+     * bukan universal 2%).
+     */
+    private function productWithOfficialTiers(): ShmLoanProduct
+    {
+        $product = ShmLoanProduct::factory()->create();
+        $product->rateTiers()->delete();
+
+        foreach ([[12, 18, 1.30], [24, 30, 1.40], [36, 42, 1.50], [48, 52, 1.60]] as [$min, $max, $rate]) {
+            $product->rateTiers()->create([
+                'min_tenor_months' => $min,
+                'max_tenor_months' => $max,
+                'rate_percent' => $rate,
+                'rate_period' => 'monthly',
+                'calculation_method' => 'flat',
+            ]);
+        }
+
+        return $product;
+    }
+
+    /**
      * Payload 11 section yang valid — bentuk sama dengan state form T66/T68.
      *
      * @return array<string, mixed>
@@ -109,9 +140,11 @@ class ShmLoanDisbursementTest extends TestCase
         return [
             'pribadi' => ['customer_id' => $customerId],
             'pengajuan' => [
-                'product_id' => ShmLoanProduct::factory()->create()->id,
+                'product_id' => $this->productWithOfficialTiers()->id,
                 'principal' => '460000000',
                 'tenor_months' => 48,
+                // T82 — jatuh tempo pertama dipilih Marketing (bukan auto).
+                'first_due_date' => now()->addMonths(2)->startOfMonth()->toDateString(),
                 'purpose' => 'UNTUK MODAL USAHA',
                 'loan_sequence' => 1,
                 'disbursement_method' => 'Tunai',
@@ -376,12 +409,20 @@ class ShmLoanDisbursementTest extends TestCase
         $this->assertSame(48, $loan->tenor_months);
         $this->assertSame('UNTUK MODAL USAHA', $loan->purpose);
 
-        // Lifecycle: active + disbursed_at terisi; rate resmi tanpa periode.
+        // Lifecycle: active + disbursed_at terisi; kontrak finansial
+        // (T81/T82) distempel bersama pembuatan loan — rate = hasil
+        // resolusi EXAKT produk+tenor (48 bulan → tier 48–52 → 1.60%).
         $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->status);
         $this->assertNotNull($loan->disbursed_at);
         $this->assertSame(now()->toDateString(), $loan->disbursed_at->toDateString());
-        $this->assertSame(ShmLoan::OFFICIAL_RATE_PERCENT, (float) $loan->rate_percent);
-        $this->assertNull($loan->rate_period, 'Periode rate masih PENDING — tidak boleh ditebak.');
+        $this->assertSame(1.6, (float) $loan->rate_percent);
+        $this->assertSame('monthly', $loan->rate_period);
+        $this->assertSame('flat', $loan->calculation_method);
+        // T82 — first due date dibawa dari pengajuan (Marketing-pilih).
+        $this->assertSame(
+            $application->first_due_date->toDateString(),
+            $loan->first_due_date->toDateString(),
+        );
 
         // Pengajuan TIDAK berubah (status tetap pending per §6, approval utuh).
         $application->refresh();
@@ -557,5 +598,156 @@ class ShmLoanDisbursementTest extends TestCase
                 ->component('Shm/Loans/Show')
                 ->where('loan.loan_number', $loan->loan_number),
             );
+    }
+
+    // -----------------------------------------------------------------
+    // H. KONTRAK FINANSIAL T81 (stamping baseline T79)
+    // -----------------------------------------------------------------
+
+    /**
+     * AC-01 (T82): setiap pinjaman hasil pencairan menerima rate hasil
+     * resolusi EXAKT produk+tenor — bukan universal 2% — beserta kontrak
+     * baseline monthly + flat dan first due date dari pengajuan.
+     */
+    public function test_disbursement_stamps_product_derived_financial_contract(): void
+    {
+        $application = $this->approvedApplication();
+
+        $this->disburse($application)->assertSessionHasNoErrors();
+
+        $loan = ShmLoan::query()->sole();
+
+        // Tenor 48 pada produk fixture → tier 48–52 → 1.60% (bukan 2%).
+        $this->assertSame(1.6, (float) $loan->rate_percent);
+        $this->assertSame('monthly', $loan->rate_period);
+        $this->assertSame('flat', $loan->calculation_method);
+        $this->assertNotSame(ShmLoan::OFFICIAL_RATE_PERCENT, (float) $loan->rate_percent);
+
+        // Sumber kebenaran: kontrak T79 monthly/flat + resolver produk T82.
+        $this->assertSame(
+            config('shm-business-rule-contract.rate.interest_period.value'),
+            $loan->rate_period,
+        );
+        $this->assertSame(
+            config('shm-business-rule-contract.rate.calculation_method.value'),
+            $loan->calculation_method,
+        );
+
+        // Kontrak tereksplicit pada record — prasyarat T80 terpenuhi.
+        $this->assertTrue($loan->hasExplicitCalculation());
+    }
+
+    /**
+     * AC-13.10 + AC-08: T81 HANYA menstempel kontrak. Tidak ada satu pun
+     * baris angsuran yang dibuat oleh pencairan — pembangkitan jadwal tetap
+     * menjadi tanggung jawab ShmRepaymentScheduleService (T80).
+     */
+    public function test_disbursement_does_not_generate_repayment_schedule(): void
+    {
+        $application = $this->approvedApplication();
+
+        $this->disburse($application)->assertSessionHasNoErrors();
+
+        $loan = ShmLoan::query()->sole();
+
+        $this->assertSame(0, $loan->installments()->count(), 'Pencairan tidak boleh membuat jadwal.');
+        $this->assertSame(0, ShmLoanInstallment::query()->count(), 'Tabel angsuran harus tetap kosong.');
+    }
+
+    /**
+     * §14 — Integrasi T80 ↔ T81: temuan T80 (pinjaman cair tanpa kontrak)
+     * kini tertutup. Alur penuh: approve → disburse → kontrak bulanan+flat
+     * terstempel → pembangkitan jadwal T80 berhasil dan idempoten.
+     */
+    public function test_disbursed_loan_passes_t80_schedule_generation_contract(): void
+    {
+        $application = $this->approvedApplication();
+
+        $this->disburse($application)->assertSessionHasNoErrors();
+
+        $loan = ShmLoan::query()->sole();
+
+        $this->assertSame('monthly', $loan->rate_period);
+        $this->assertSame('flat', $loan->calculation_method);
+        $this->assertSame(1.6, (float) $loan->rate_percent, 'Rate = tier produk 48–52 (1.60%), bukan universal 2%.');
+
+        $schedule = app(ShmRepaymentScheduleService::class)->generate($loan);
+
+        // 48 tenor → 48 angsuran; pokok terjumlah tepat (termasuk angsuran
+        // penyeimbang terakhir).
+        $this->assertCount($loan->tenor_months, $schedule);
+        $this->assertSame($loan->tenor_months, $loan->installments()->count());
+        $this->assertSame(
+            460000000.0,
+            round((float) $schedule->sum('principal_amount'), 2),
+        );
+
+        // Idempoten: panggilan kedua tidak menambah/mengubah baris.
+        app(ShmRepaymentScheduleService::class)->generate($loan);
+
+        $this->assertSame($loan->tenor_months, $loan->installments()->count());
+    }
+
+    /**
+     * AC-06: pencairan baru TIDAK pernah menyentuh pinjaman historis yang
+     * rate_period/calculation_method-nya masih null (tanpa backfill).
+     */
+    public function test_disbursement_does_not_modify_existing_loans_without_contract(): void
+    {
+        $legacy = ShmLoan::factory()->create([
+            'rate_percent' => ShmLoan::OFFICIAL_RATE_PERCENT,
+            'rate_period' => null,
+            'calculation_method' => null,
+            'status' => ShmLoan::STATUS_ACTIVE,
+            'disbursed_at' => now()->subYear()->toDateString(),
+        ]);
+
+        $application = $this->approvedApplication();
+        $this->disburse($application)->assertSessionHasNoErrors();
+
+        $legacy->refresh();
+
+        $this->assertSame(2, ShmLoan::query()->count());
+        $this->assertNull($legacy->rate_period, 'Loan historis tidak boleh di-mass-update.');
+        $this->assertNull($legacy->calculation_method, 'Loan historis tidak boleh di-mass-update.');
+
+        $fresh = ShmLoan::query()->whereKeyNot($legacy->id)->sole();
+        $this->assertSame('monthly', $fresh->rate_period);
+        $this->assertSame('flat', $fresh->calculation_method);
+    }
+
+    /**
+     * T82 — pencairan DITOLAK untuk tenor di luar seluruh range eksak
+     * produk (gap 19–23): tanpa interpolasi/fallback/nearest/default rate.
+     */
+    public function test_disbursement_rejects_tenor_outside_product_range(): void
+    {
+        $application = $this->approvedApplication();
+
+        // Ubah tenor pengajuan menjadi gap (19–23 tidak dicakup tier mana
+        // pun) — bypass guard form; pencairan harus menolak di backend.
+        $application->forceFill(['tenor_months' => 22])->save();
+
+        $this->disburse($application)
+            ->assertSessionHasErrors('pengajuan.tenor_months');
+
+        $this->assertSame(0, ShmLoan::query()->count(), 'Tidak boleh ada loan tanpa rate valid.');
+        $this->assertSame(0, $this->disburseAuditCount(), 'Tidak boleh ada audit pencairan gagal.');
+    }
+
+    /**
+     * T82 — first_due_date WAJIB diisi Marketing sebelum pencairan; tidak
+     * pernah dihitung otomatis dari tanggal pencairan.
+     */
+    public function test_disbursement_requires_first_due_date_from_marketing(): void
+    {
+        $application = $this->approvedApplication();
+        $application->forceFill(['first_due_date' => null])->save();
+
+        $this->disburse($application)
+            ->assertSessionHasErrors('application');
+
+        $this->assertSame(0, ShmLoan::query()->count(), 'Pencairan tanpa first_due_date harus rollback penuh.');
+        $this->assertSame(0, $this->disburseAuditCount());
     }
 }

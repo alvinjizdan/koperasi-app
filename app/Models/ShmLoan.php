@@ -2,11 +2,12 @@
 
 namespace App\Models;
 
-use Database\Factories\ShmLoanFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Record Pinjaman milik nasabah SHM (Ticket 64).
@@ -27,6 +28,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $shm_loan_application_id // Ticket 69 — pengajuan asal pencairan
  * @property string $principal
  * @property int $tenor_months
+ * @property string|null $first_due_date // T82 — jatuh tempo pertama dari pengajuan disetujui
  * @property string $rate_percent
  * @property string|null $rate_period
  * @property string|null $calculation_method
@@ -38,10 +40,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class ShmLoan extends Model
 {
-    /** @use HasFactory<ShmLoanFactory> */
     use HasFactory;
 
-    /** Rate bunga/jasa resmi SHM (persen) sesuai requirement terbaru. */
+    /**
+     * LEGACY (T73/T79): angka tunggal 2% pernah menjadi rate resmi SHM.
+     *
+     * SEJAK T82 rate pinjaman = f(product, tenor) dari tier rate produk
+     * (ShmProductRateService) — konstanta ini TIDAK dipakai lagi sebagai
+     * rate/fallback pinjaman, pencairan, maupun pembangkitan jadwal; hanya
+     * modul simulasi legacy yang masih menyebutnya.
+     */
     public const OFFICIAL_RATE_PERCENT = 2.0;
 
     public const STATUS_ACTIVE = 'active';
@@ -55,7 +63,18 @@ class ShmLoan extends Model
         // Ticket 69: diisi server saat pencairan (bukan payload klien).
         'shm_loan_application_id',
         'principal',
+        // Ticket 85: snapshot biaya pencairan (immutable historical).
+        'admin_fee',
+        'provision_fee',
+        'insurance_fee',
+        'notary_fee',
+        'principal_savings',
+        'mandatory_savings',
+        'total_deduction',
+        'net_disbursement',
         'tenor_months',
+        // Ticket 82: dibawa dari pengajuan yang disetujui (bukan hitung auto).
+        'first_due_date',
         'rate_percent',
         'rate_period',
         'calculation_method',
@@ -70,7 +89,16 @@ class ShmLoan extends Model
     {
         return [
             'principal' => 'decimal:2',
+            'admin_fee' => 'decimal:2',
+            'provision_fee' => 'decimal:2',
+            'insurance_fee' => 'decimal:2',
+            'notary_fee' => 'decimal:2',
+            'principal_savings' => 'decimal:2',
+            'mandatory_savings' => 'decimal:2',
+            'total_deduction' => 'decimal:2',
+            'net_disbursement' => 'decimal:2',
             'tenor_months' => 'integer',
+            'first_due_date' => 'date',
             'rate_percent' => 'decimal:4',
             'disbursed_at' => 'date',
         ];
@@ -106,6 +134,85 @@ class ShmLoan extends Model
     public function application(): BelongsTo
     {
         return $this->belongsTo(ShmLoanApplication::class, 'shm_loan_application_id');
+    }
+
+    /**
+     * Jadwal / daftar angsuran pinjaman SHM (Ticket 74).
+     *
+     * @return HasMany<ShmLoanInstallment, $this>
+     */
+    public function installments(): HasMany
+    {
+        return $this->hasMany(ShmLoanInstallment::class, 'shm_loan_id')->orderBy('installment_number');
+    }
+
+    /**
+     * Resolve pinjaman berdasarkan nilai parameter route yang diterima.
+     *
+     * Digunakan oleh Laravel Route Model Binding (RMB).
+     * Dipanggil dua bentuk:
+     * - resolveRouteBinding($value, $field) ketika framework memberitahu
+     *   kolom pengenal yang digunakan (default $field = 'id').
+     * - resolveRouteBinding($value) ketika framework tidak dapat
+     *   menentukan kolom pengenal (mis. nilai tidak dapat di-parse
+     *   sebagai int).
+     *
+     * Strategi:
+     * - Jika $field adalah 'id' (default), prioritaskan pencarian
+     *   berdasarkan id (jika $value adalah numerik), lalu fallback
+     *   ke loan_number.
+     * - Jika $field bukan 'id', kembalikan null (tidak dikenal).
+     */
+    public function resolveRouteBinding($value, $field = null): ?ShmLoan
+    {
+        // Jika $field adalah 'id' (default atau eksplisit),
+        // prioritaskan pencarian berdasarkan id jika $value adalah numerik,
+        // lalu fallback ke loan_number.
+        if ($field === null || $field === 'id') {
+            if (is_numeric($value)) {
+                return $this->resolveRouteBindingUsingId((int) $value);
+            }
+
+            // Jika nilai bukan numerik dan $field='id', coba
+            // pencarian berdasarkan loan_number sebagai fallback.
+            return ShmLoan::where('loan_number', (string) $value)->first();
+        }
+
+        // Jika $field bukan 'id', tidak diketahui; kembalikan null.
+        return null;
+    }
+
+    /**
+     * Resolve pinjaman berdasarkan id.
+     */
+    protected function resolveRouteBindingUsingId(int $id): ?ShmLoan
+    {
+        return ShmLoan::find($id);
+    }
+
+    /**
+     * Record settlement / pelunasan pinjaman SHM (Ticket 89).
+     *
+     * @return HasOne<ShmLoanSettlement, $this>
+     */
+    public function settlement(): HasOne
+    {
+        return $this->hasOne(ShmLoanSettlement::class, 'shm_loan_id')->latestOfMany();
+    }
+
+    /**
+     * Transaksi pembayaran pinjaman SHM (Ticket 86).
+     *
+     * Murni transaksi pembayaran — T86 tidak pernah mengubah angsuran maupun
+     * saldo pokok dari sini. Terbaru di atas (pembayaran terakhir dulu).
+     *
+     * @return HasMany<ShmLoanPayment, $this>
+     */
+    public function payments(): HasMany
+    {
+        return $this->hasMany(ShmLoanPayment::class, 'shm_loan_id')
+            ->orderByDesc('payment_date')
+            ->orderByDesc('id');
     }
 
     /**

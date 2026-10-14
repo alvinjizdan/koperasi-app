@@ -66,11 +66,6 @@ class MarketingActivityTest extends TestCase
         return $user;
     }
 
-    /**
-     * Payload check-in yang valid.
-     *
-     * @return array<string, mixed>
-     */
     private function checkInPayload(array $overrides = []): array
     {
         return array_merge([
@@ -82,9 +77,6 @@ class MarketingActivityTest extends TestCase
         ], $overrides);
     }
 
-    /**
-     * Apakah nilai prop tidak memuat kunci tertentu?
-     */
     private function propLacksKey(mixed $value, string $key): bool
     {
         if (is_array($value)) {
@@ -102,7 +94,6 @@ class MarketingActivityTest extends TestCase
     // Data lokasi anggota
     // ---------------------------------------------------------------------
 
-    /** 1. Anggota dapat memiliki titik lokasi. */
     public function test_member_can_have_location_coordinates(): void
     {
         $this->actingAs($this->superadmin)
@@ -118,7 +109,6 @@ class MarketingActivityTest extends TestCase
         $this->assertEqualsWithDelta(108.5520, (float) $member->longitude, 0.0001);
     }
 
-    /** 2. Lokasi boleh kosong dan tidak pernah diisi koordinat palsu. */
     public function test_member_location_can_be_empty(): void
     {
         $this->assertFalse($this->member->fresh()->hasLocation());
@@ -126,7 +116,6 @@ class MarketingActivityTest extends TestCase
         $this->assertNull($this->member->fresh()->longitude);
     }
 
-    /** 3. Koordinat di luar rentang ditolak. */
     public function test_invalid_coordinates_are_rejected(): void
     {
         $this->actingAs($this->superadmin)
@@ -146,7 +135,6 @@ class MarketingActivityTest extends TestCase
         $this->assertFalse($this->member->fresh()->hasLocation());
     }
 
-    /** 4. Latitude dan longitude harus berpasangan. */
     public function test_member_location_requires_both_coordinates(): void
     {
         $this->actingAs($this->superadmin)
@@ -157,7 +145,6 @@ class MarketingActivityTest extends TestCase
             ->assertSessionHasErrors('longitude');
     }
 
-    /** 5. Perubahan lokasi anggota tercatat di audit. */
     public function test_member_location_change_is_audited(): void
     {
         $this->actingAs($this->superadmin)
@@ -173,7 +160,6 @@ class MarketingActivityTest extends TestCase
     // Aktivitas & check-in
     // ---------------------------------------------------------------------
 
-    /** 6. Marketing dapat membuat aktivitas check-in. */
     public function test_marketing_can_check_in(): void
     {
         $this->actingAs($this->marketing)
@@ -184,7 +170,6 @@ class MarketingActivityTest extends TestCase
 
         $this->assertSame($this->marketing->id, $activity->marketing_id);
         $this->assertSame($this->customer->id, $activity->shm_customer_id);
-        // Relasi kunjungan menyelesaikan ke Nasabah SHM, bukan ke anggota.
         $this->assertTrue($activity->customer->is($this->customer));
         $this->assertNotNull($activity->checked_in_at);
         $this->assertEqualsWithDelta(-6.7320, (float) $activity->latitude, 0.0001);
@@ -192,7 +177,6 @@ class MarketingActivityTest extends TestCase
         $this->assertSame('Kunjungan pertama', $activity->result);
     }
 
-    /** 7. Check-in tercatat di audit. */
     public function test_check_in_is_audited(): void
     {
         $this->actingAs($this->marketing)
@@ -201,7 +185,6 @@ class MarketingActivityTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'marketing.activity.checked_in']);
     }
 
-    /** 8. marketing_id dari input diabaikan: Marketing tidak dapat check-in atas nama orang lain. */
     public function test_marketing_cannot_check_in_on_behalf_of_another_user(): void
     {
         $other = $this->userWithRole('marketing');
@@ -217,7 +200,6 @@ class MarketingActivityTest extends TestCase
         $this->assertNotSame($other->id, $activity->marketing_id);
     }
 
-    /** 9. Check-in tanpa koordinat ditolak: sistem tidak mengarang lokasi. */
     public function test_check_in_without_coordinates_is_rejected(): void
     {
         $this->actingAs($this->marketing)
@@ -230,7 +212,6 @@ class MarketingActivityTest extends TestCase
         $this->assertSame(0, MarketingActivity::query()->count());
     }
 
-    /** 10. Nasabah SHM tujuan harus benar-benar ada di shm_customers. */
     public function test_check_in_requires_existing_shm_customer(): void
     {
         $this->actingAs($this->marketing)
@@ -242,7 +223,6 @@ class MarketingActivityTest extends TestCase
         $this->assertSame(0, MarketingActivity::query()->count());
     }
 
-    /** 11. Koordinat di luar rentang ditolak pada check-in. */
     public function test_check_in_rejects_out_of_range_coordinates(): void
     {
         $this->actingAs($this->marketing)
@@ -253,7 +233,6 @@ class MarketingActivityTest extends TestCase
             ->assertSessionHasErrors(['latitude', 'longitude']);
     }
 
-    /** 12. Waktu check-in berasal dari server, bukan dari input. */
     public function test_check_in_time_comes_from_server(): void
     {
         $this->actingAs($this->marketing)
@@ -266,7 +245,6 @@ class MarketingActivityTest extends TestCase
         $this->assertTrue($activity->checked_in_at->isToday());
     }
 
-    /** 13. Request duplikat dengan idempotency key tidak menggandakan data. */
     public function test_duplicate_check_in_does_not_create_extra_rows(): void
     {
         $key = 'test-idem-'.uniqid();
@@ -290,7 +268,6 @@ class MarketingActivityTest extends TestCase
     // Otorisasi & privasi data lokasi
     // ---------------------------------------------------------------------
 
-    /** 14. Pengguna tanpa permission marketing tidak dapat membuka halaman. */
     public function test_user_without_marketing_permission_is_forbidden(): void
     {
         $kasir = $this->userWithRole('kasir');
@@ -301,7 +278,6 @@ class MarketingActivityTest extends TestCase
             ->assertForbidden();
     }
 
-    /** 15. Marketing tidak dapat membuka aktivitas Marketing lain. */
     public function test_marketing_cannot_open_other_marketing_activity(): void
     {
         $other = $this->userWithRole('marketing');
@@ -317,7 +293,6 @@ class MarketingActivityTest extends TestCase
             ->assertForbidden();
     }
 
-    /** 16. Marketing hanya melihat aktivitasnya sendiri pada daftar. */
     public function test_marketing_list_only_shows_own_activities(): void
     {
         $other = $this->userWithRole('marketing');
@@ -338,12 +313,10 @@ class MarketingActivityTest extends TestCase
             );
     }
 
-    /** 17. Titik lokasi anggota tidak dikirim kepada pengguna tanpa permission lokasi. */
     public function test_member_location_is_not_exposed_without_permission(): void
     {
         $this->member->forceFill(['latitude' => -6.7320, 'longitude' => 108.5520])->save();
 
-        // Kasir boleh membuka detail anggota, tetapi tidak berhak atas lokasi.
         $kasir = $this->userWithRole('kasir');
 
         $this->actingAs($kasir)
@@ -356,7 +329,6 @@ class MarketingActivityTest extends TestCase
                 ->where('member', fn ($member) => $this->propLacksKey($member, 'latitude'))
             );
 
-        // Marketing berhak melihat titik lokasi.
         $this->actingAs($this->marketing)
             ->get(route('anggota.show', $this->member->id))
             ->assertOk()
@@ -366,7 +338,6 @@ class MarketingActivityTest extends TestCase
             );
     }
 
-    /** 18. Hanya pemegang permission yang dapat mengubah titik lokasi. */
     public function test_only_authorized_user_can_update_member_location(): void
     {
         $kasir = $this->userWithRole('kasir');
@@ -381,7 +352,6 @@ class MarketingActivityTest extends TestCase
         $this->assertFalse($this->member->fresh()->hasLocation());
     }
 
-    /** 19. Marketing dapat melihat hasil dan catatan aktivitasnya sendiri. */
     public function test_marketing_can_update_result_of_own_activity(): void
     {
         $this->actingAs($this->marketing)
@@ -401,8 +371,6 @@ class MarketingActivityTest extends TestCase
         $this->assertSame('Catatan tambahan', $activity->notes);
         $this->assertDatabaseHas('audit_logs', ['action' => 'marketing.activity.result_updated']);
 
-        // Satu aksi pengguna harus menghasilkan tepat satu baris audit;
-        // logChanges() sudah memanggil log() secara internal.
         $this->assertSame(1, AuditLog::query()
             ->where('action', 'marketing.activity.result_updated')
             ->count());
@@ -412,14 +380,12 @@ class MarketingActivityTest extends TestCase
     // Monitoring
     // ---------------------------------------------------------------------
 
-    /** 20. Monitoring hanya untuk pemegang permission. */
     public function test_monitoring_requires_permission(): void
     {
         $this->actingAs($this->marketing)->get(route('shm.marketing.monitoring.index'))->assertForbidden();
         $this->actingAs($this->superadmin)->get(route('shm.marketing.monitoring.index'))->assertOk();
     }
 
-    /** 21. Admin melihat seluruh aktivitas Marketing. */
     public function test_admin_can_monitor_all_activities(): void
     {
         $other = $this->userWithRole('marketing');
@@ -438,7 +404,6 @@ class MarketingActivityTest extends TestCase
             );
     }
 
-    /** 22. Monitoring memakai pagination server-side, bukan memuat semua data. */
     public function test_monitoring_uses_pagination(): void
     {
         foreach (range(1, 30) as $index) {
@@ -458,13 +423,11 @@ class MarketingActivityTest extends TestCase
             ->has('activities.data', 25)
         );
 
-        // per_page khusus tetap dihormati (whitelist 10/25/50/100).
         $this->actingAs($this->superadmin)
             ->get(route('shm.marketing.monitoring.index', ['per_page' => 10]))
             ->assertInertia(fn ($page) => $page->has('activities.data', 10));
     }
 
-    /** 23. Filter nasabah SHM bekerja pada monitoring. */
     public function test_monitoring_filter_by_customer_works(): void
     {
         $otherCustomer = ShmCustomer::factory()->create();
@@ -484,7 +447,6 @@ class MarketingActivityTest extends TestCase
             );
     }
 
-    /** 24. Lokasi nasabah SHM tidak ikut dikirim ke halaman monitoring. */
     public function test_monitoring_does_not_leak_customer_coordinates(): void
     {
         $this->customer->forceFill(['latitude' => -6.7320, 'longitude' => 108.5520])->save();
@@ -501,20 +463,105 @@ class MarketingActivityTest extends TestCase
     }
 
     // ---------------------------------------------------------------------
+    // P1: Customer coordinate lock (Titik Lokasi Nasabah)
+    // ---------------------------------------------------------------------
+
+    public function test_first_check_in_locks_customer_coordinate(): void
+    {
+        $this->actingAs($this->marketing)
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload())
+            ->assertSessionHasNoErrors();
+
+        $customer = $this->customer->fresh();
+
+        $this->assertTrue($customer->hasLocation());
+        $this->assertEqualsWithDelta(-6.7320, (float) $customer->latitude, 0.0001);
+        $this->assertEqualsWithDelta(108.5520, (float) $customer->longitude, 0.0001);
+    }
+
+    public function test_second_check_in_does_not_overwrite_locked_coordinate(): void
+    {
+        $this->actingAs($this->marketing)
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload())
+            ->assertSessionHasNoErrors();
+
+        // Check-in kedua dari lokasi berbeda.
+        $this->actingAs($this->marketing)
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload([
+                'latitude' => -6.9000000,
+                'longitude' => 108.7000000,
+                'result' => 'Kunjungan kedua',
+                'idempotency_key' => 'second-checkin-'.uniqid(),
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $customer = $this->customer->fresh();
+
+        // Koordinat master nasabah TIDAK berubah.
+        $this->assertTrue($customer->hasLocation());
+        $this->assertEqualsWithDelta(-6.7320, (float) $customer->latitude, 0.0001);
+        $this->assertEqualsWithDelta(108.5520, (float) $customer->longitude, 0.0001);
+
+        // Activity kedua menyimpan koordinat check-in kedua.
+        $second = MarketingActivity::query()->where('result', 'Kunjungan kedua')->firstOrFail();
+        $this->assertEqualsWithDelta(-6.9000000, (float) $second->latitude, 0.0001);
+        $this->assertEqualsWithDelta(108.7000000, (float) $second->longitude, 0.0001);
+    }
+
+    public function test_customer_coordinate_lock_fails_when_check_in_fails(): void
+    {
+        // Check-in dengan koordinat kosong ditolak oleh validasi.
+        $this->actingAs($this->marketing)
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload([
+                'latitude' => '',
+                'longitude' => '',
+            ]))
+            ->assertSessionHasErrors(['latitude', 'longitude']);
+
+        $this->assertFalse($this->customer->fresh()->hasLocation());
+    }
+
+    public function test_customer_coordinate_is_not_locked_without_check_in(): void
+    {
+        $this->assertFalse($this->customer->fresh()->hasLocation());
+    }
+
+    // ---------------------------------------------------------------------
     // Batas domain: Nasabah SHM, bukan anggota koperasi (Ticket 71)
     // ---------------------------------------------------------------------
 
-    /** 24a. Skema aktivitas tidak lagi menyimpan rujukan ke anggota koperasi. */
     public function test_activity_schema_has_no_cooperative_member_reference(): void
     {
         $this->assertFalse(Schema::hasColumn('marketing_activities', 'member_id'));
         $this->assertTrue(Schema::hasColumn('marketing_activities', 'shm_customer_id'));
     }
 
-    /** 24b. Check-in dapat dibuat tanpa anggota koperasi apa pun. */
+    public function test_check_in_succeeds_when_shm_customer_is_selected(): void
+    {
+        $this->actingAs($this->marketing)
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload())
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $activity = MarketingActivity::query()->firstOrFail();
+
+        $this->assertSame($this->customer->id, $activity->shm_customer_id);
+        $this->assertNotNull($activity->checked_in_at);
+    }
+
+    public function test_check_in_fails_when_shm_customer_is_not_selected(): void
+    {
+        $this->actingAs($this->marketing)
+            ->post(route('shm.marketing.activities.store'), array_merge($this->checkInPayload(), [
+                'shm_customer_id' => '',
+            ]))
+            ->assertSessionHasErrors('shm_customer_id');
+
+        $this->assertSame(0, MarketingActivity::query()->count());
+    }
+
     public function test_check_in_does_not_require_cooperative_member(): void
     {
-        // Payload tidak memuat anggota sama sekali — cukup nasabah SHM.
         $this->actingAs($this->marketing)
             ->post(route('shm.marketing.activities.store'), $this->checkInPayload())
             ->assertSessionHasNoErrors();
@@ -525,13 +572,10 @@ class MarketingActivityTest extends TestCase
         ]);
     }
 
-    /** 24c. Id anggota koperasi tidak dapat dipakai sebagai nasabah SHM. */
     public function test_koperasi_member_id_cannot_be_used_as_shm_customer(): void
     {
         $member = Member::factory()->create();
 
-        // Dua master memakai sekuens id sendiri-sendiri; pastikan id anggota
-        // ini memang tidak terdaftar di shm_customers.
         ShmCustomer::query()->whereKey($member->id)->delete();
         $this->assertNull(ShmCustomer::query()->find($member->id));
 
@@ -544,7 +588,6 @@ class MarketingActivityTest extends TestCase
         $this->assertSame(0, MarketingActivity::query()->count());
     }
 
-    /** 24d. Pilihan nasabah pada halaman aktivitas bersumber dari shm_customers. */
     public function test_activity_customer_selector_reads_from_shm_customers(): void
     {
         $this->actingAs($this->marketing)
@@ -559,7 +602,6 @@ class MarketingActivityTest extends TestCase
             );
     }
 
-    /** 24e. Detail aktivitas menyelesaikan Nasabah SHM, bukan anggota. */
     public function test_activity_detail_resolves_shm_customer(): void
     {
         $this->actingAs($this->marketing)
@@ -579,7 +621,50 @@ class MarketingActivityTest extends TestCase
             );
     }
 
-    /** 25. Permission marketing melekat pada role marketing, bukan nama role hardcoded. */
+    public function test_activity_detail_shows_locked_customer_coordinate(): void
+    {
+        $this->actingAs($this->marketing)
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload());
+
+        $this->customer->refresh();
+
+        $activity = MarketingActivity::query()->firstOrFail();
+
+        $this->actingAs($this->marketing)
+            ->get(route('shm.marketing.activities.show', $activity->id))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Shm/Marketing/Activities/Show')
+                ->where('activity.customer.latitude', (string) $this->customer->latitude)
+                ->where('activity.customer.longitude', (string) $this->customer->longitude)
+            );
+    }
+
+    public function test_customer_coordinate_not_locked_before_first_check_in(): void
+    {
+        $this->assertFalse($this->customer->fresh()->hasLocation());
+    }
+
+    public function test_locked_coordinate_visible_on_activity_detail(): void
+    {
+        $this->actingAs($this->marketing)
+            ->post(route('shm.marketing.activities.store'), $this->checkInPayload());
+
+        $this->customer->refresh();
+
+        $activity = MarketingActivity::query()->firstOrFail();
+
+        $response = $this->actingAs($this->marketing)
+            ->get(route('shm.marketing.activities.show', $activity->id));
+
+        $response->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Shm/Marketing/Activities/Show')
+                ->where('activity.customer.latitude', (string) $this->customer->latitude)
+                ->where('activity.customer.longitude', (string) $this->customer->longitude)
+            );
+    }
+
     public function test_marketing_role_has_activity_permissions(): void
     {
         $permissions = Role::query()
@@ -593,14 +678,12 @@ class MarketingActivityTest extends TestCase
             $this->assertContains($expected, $permissions);
         }
 
-        // Sensitive permissions TIDAK diberikan ke marketing.
         foreach (['marketing.monitoring.view', 'marketing.member_location.update'] as $forbidden) {
             $this->assertNotContains($forbidden, $permissions);
             $this->assertFalse($this->marketing->hasPermission($forbidden));
         }
     }
 
-    /** 26. Feature Simpanan dan Pinjaman tidak berubah karena fitur ini. */
     public function test_existing_modules_remain_untouched(): void
     {
         $this->actingAs($this->superadmin)->get(route('simpanan.index'))->assertOk();

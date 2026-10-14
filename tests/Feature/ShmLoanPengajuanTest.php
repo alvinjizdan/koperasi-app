@@ -100,7 +100,9 @@ class ShmLoanPengajuanTest extends TestCase
             ->assertOk()
             ->assertInertia(function (Assert $page): bool {
                 $page->component('Shm/Loans/Pengajuan')
-                    ->where('rate', fn (mixed $value): bool => (float) $value === 2.0)
+                    // T82 — tidak ada prop rate universal; rate diturunkan
+                    // dari tier produk (product + tenor) di sisi klien.
+                    ->missing('rate')
                     ->where('today', now()->format('Y-m-d'))
                     ->has('products')
                     ->has('customers')
@@ -234,7 +236,7 @@ class ShmLoanPengajuanTest extends TestCase
     }
 
     // -----------------------------------------------------------------
-    // E. Perhitungan cashflow & rate resmi 2%
+    // E. Perhitungan cashflow & rate produk (T82 — bukan universal 2%)
     // -----------------------------------------------------------------
 
     public function test_income_expense_remainder_uses_the_documented_formula(): void
@@ -249,8 +251,10 @@ class ShmLoanPengajuanTest extends TestCase
         $this->assertStringNotContainsString('parseFloat', $source);
     }
 
-    public function test_official_rate_stays_two_percent_and_screenshot_values_are_not_defaults(): void
+    public function test_pengajuan_page_shows_product_driven_rate_not_universal_two_percent(): void
     {
+        // T82 — konstanta legacy masih ada (simulasi) tetapi halaman
+        // pengajuan TIDAK lagi menerima/menampilkan rate universal 2%.
         $this->assertSame(2.0, ShmLoan::OFFICIAL_RATE_PERCENT);
 
         $this->actingAs($this->admin)
@@ -258,7 +262,7 @@ class ShmLoanPengajuanTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Shm/Loans/Pengajuan')
-                ->where('rate', fn (mixed $value): bool => (float) $value === 2.0)
+                ->missing('rate')
                 ->etc());
 
         $source = $this->pageSource();
@@ -306,18 +310,47 @@ class ShmLoanPengajuanTest extends TestCase
     {
         // Perubahan T68: +daftar, +edit, +update, +submit-approval —
         // sisanya identik T66/T67. Perubahan T69: +pencairan (POST).
+        // Perubahan T77: +jaminan/{collateral}/foto (GET, foto jaminan).
+        // Perubahan T86: +pembayaran (GET index, GET show, POST store).
+        // Perubahan T87: +pembayaran/{payment}/allocate (POST alokasi).
+        // Perubahan T89: +pelunasan (GET index, GET show, POST store).
+        // Perubahan T89B: +workflow pelunasan (approve/reject/payment/
+        // payment.verify/complete) +master policy diskon (index/store/
+        // toggle).
         $expected = [
             'shm.loans.index',
+            // T86 — transaksi pembayaran pinjaman SHM.
+            // T87 — alokasi pembayaran ke angsuran (POST).
+            'shm.loans.payments.allocate',
+            'shm.loans.payments.index',
+            'shm.loans.payments.show',
+            'shm.loans.payments.store',
+            // T89/T89B — pelunasan / settlement.
+            'shm.loans.pelunasan.approve',
+            'shm.loans.pelunasan.complete',
+            'shm.loans.pelunasan.index',
+            'shm.loans.pelunasan.payment',
+            'shm.loans.pelunasan.payment.verify',
+            'shm.loans.pelunasan.policies.index',
+            'shm.loans.pelunasan.policies.store',
+            'shm.loans.pelunasan.policies.toggle',
+            'shm.loans.pelunasan.policies.update',
+            'shm.loans.pelunasan.reject',
+            'shm.loans.pelunasan.show',
+            'shm.loans.pelunasan.store',
             'shm.loans.pengajuan',
             'shm.loans.pengajuan.daftar',
             'shm.loans.pengajuan.disburse',
             'shm.loans.pengajuan.edit',
+            'shm.loans.pengajuan.jaminan.foto',
             'shm.loans.pengajuan.pdf',
             'shm.loans.pengajuan.show',
             'shm.loans.pengajuan.store',
             'shm.loans.pengajuan.submit-approval',
             'shm.loans.pengajuan.update',
             'shm.loans.products.index',
+            // T83 — action eksplisit pembangkitan jadwal angsuran.
+            'shm.loans.schedule.generate',
             'shm.loans.show',
             'shm.loans.simulation',
             'shm.loans.simulation.pdf',

@@ -33,8 +33,11 @@ use App\Http\Controllers\Shm\ShmDocumentsController;
 use App\Http\Controllers\Shm\ShmEntryController;
 use App\Http\Controllers\Shm\ShmExportController;
 use App\Http\Controllers\Shm\ShmLoanController;
+use App\Http\Controllers\Shm\ShmLoanPaymentController;
+use App\Http\Controllers\Shm\ShmLoanSettlementController;
 use App\Http\Controllers\Shm\ShmLoginController;
 use App\Http\Controllers\Shm\ShmMemorandumController;
+use App\Http\Controllers\Shm\ShmSettlementDiscountPolicyController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -599,12 +602,65 @@ Route::prefix('shm')->name('shm.')->group(function () {
                 ->name('loans.pengajuan.show');
             Route::get('/pinjaman/pengajuan/{application}/pdf', [ShmLoanController::class, 'applicationPdf'])
                 ->name('loans.pengajuan.pdf');
+            // Ticket 77 — foto jaminan: route literal setelah {application}
+            // (path lebih panjang, tidak tertelan wildcard) dengan aturan
+            // kepemilikan pengajuan yang sama. Berkas tersimpan pada disk
+            // privat; route ini satu-satunya jalan membacanya.
+            Route::get('/pinjaman/pengajuan/{application}/jaminan/{collateral}/foto', [ShmLoanController::class, 'collateralPhoto'])
+                ->name('loans.pengajuan.jaminan.foto');
 
             // Daftar record pinjaman SHM + detail pinjaman.
             Route::get('/pinjaman', [ShmLoanController::class, 'index'])
                 ->name('loans.index');
+
+            // -----------------------------------------------------------------
+            // Ticket 86 — Transaksi pembayaran pinjaman SHM.
+            //
+            // Route literal (/pinjaman/pembayaran) didaftarkan SEBELUM
+            // /pinjaman/{loan} agar tidak tertelan wildcard. Baca memakai
+            // `shm.view` (sama dengan halaman Pinjaman lain) + scope
+            // kepemilikan; pencatatan pembayaran (POST) memakai permission
+            // TERPISAH `shm.payment.create` di bawah (pola BUG-01).
+            // -----------------------------------------------------------------
+            Route::get('/pinjaman/pembayaran', [ShmLoanPaymentController::class, 'index'])
+                ->name('loans.payments.index');
+            Route::get('/pinjaman/pembayaran/{payment}', [ShmLoanPaymentController::class, 'show'])
+                ->name('loans.payments.show');
+
+            // -----------------------------------------------------------------
+            // Ticket 89 — Pelunasan / Settlement Pinjaman SHM.
+            //
+            // Route literal (/pinjaman/pelunasan) didaftarkan SEBELUM
+            // /pinjaman/{loan} agar tidak tertelan wildcard. Baca (index &
+            // preview) memakai `shm.view` (sama dengan halaman Pinjaman
+            // lain) + scope kepemilikan; KONFIRMASI (POST) memakai permission
+            // TERPISAH `shm.settlement.create` di bawah (pola BUG-01).
+            // Preview = GET read-only, tidak pernah menulis record/audit/
+            // menutup pinjaman. Konfirmasi saat ini ditolak deterministik di
+            // ShmLoanSettlementService selama kontrak settlement masih
+            // memiliki blocked_by items (PENDING BUSINESS CONFIRMATION).
+            // -----------------------------------------------------------------
+            Route::get('/pinjaman/pelunasan', [ShmLoanSettlementController::class, 'index'])
+                ->name('loans.pelunasan.index');
+            Route::get('/pinjaman/pelunasan/policy', [ShmSettlementDiscountPolicyController::class, 'index'])
+                ->name('loans.pelunasan.policies.index');
+            Route::get('/pinjaman/pelunasan/{loan}', [ShmLoanSettlementController::class, 'show'])
+                ->name('loans.pelunasan.show');
+
             Route::get('/pinjaman/{loan}', [ShmLoanController::class, 'show'])
                 ->name('loans.show');
+
+            // -----------------------------------------------------------------
+            // Ticket 83 — ACTION EKSPLISIT pembangkitan jadwal angsuran.
+            //
+            // Permission `shm.view` + ownership scope yang SAMA dengan
+            // halaman detail (authorizeLoanRecordOwnership) — endpoint POST
+            // bukan bypass visibility; tidak ada permission baru. Pembangkitan
+            // TIDAK pernah otomatis (pencairan/approval/page-load); seluruh
+            // logika finansial tetap di ShmRepaymentScheduleService.
+            // -----------------------------------------------------------------
+            Route::post('/pinjaman/{loan}/schedule', [ShmLoanController::class, 'generateSchedule'])
+                ->name('loans.schedule.generate');
         });
 
         // -----------------------------------------------------------------
@@ -639,6 +695,83 @@ Route::prefix('shm')->name('shm.')->group(function () {
         Route::post('/pinjaman/pengajuan/{application}/pencairan', [ShmLoanController::class, 'disburse'])
             ->middleware('permission:shm.disburse')
             ->name('loans.pengajuan.disburse');
+
+        // -----------------------------------------------------------------
+        // Ticket 86 — Catat pembayaran pinjaman SHM.
+        //
+        // Permission `shm.payment.create` TERPISAH dari `shm.view` (pola
+        // BUG-01: baca ≠ tulis transaksi finansial), konsisten dengan
+        // `angsuran.record_payment` di koperasi. Scope kepemilikan pinjaman
+        // ditegakkan di controller dengan aturan yang SAMA dengan halaman
+        // detail (authorizeLoanRecordOwnership) — endpoint POST bukan bypass.
+        // -----------------------------------------------------------------
+        Route::post('/pinjaman/pembayaran', [ShmLoanPaymentController::class, 'store'])
+            ->middleware('permission:shm.payment.create')
+            ->name('loans.payments.store');
+
+        // -----------------------------------------------------------------
+        // Ticket 87 — Alokasikan pembayaran yang sudah tercatat (T86) ke
+        // angsuran. Permission SAMA dengan pencatatan (`shm.payment.create`)
+        // tanpa permission baru; scope kepemilikan pinjaman ditegakkan di
+        // controller (authorizeLoanRecordOwnership). Idempoten: panggilan
+        // ulang terhadap pembayaran teralokasi penuh tidak membuat alokasi
+        // ganda (unique constraint payment+installment di database).
+        // -----------------------------------------------------------------
+        Route::post('/pinjaman/pembayaran/{payment}/allocate', [ShmLoanPaymentController::class, 'allocate'])
+            ->middleware('permission:shm.payment.create')
+            ->name('loans.payments.allocate');
+
+        // -----------------------------------------------------------------
+        // Ticket 89 — Konfirmasi pelunasan (settlement) pinjaman SHM.
+        //
+        // Permission `shm.settlement.create` TERPISAH dari `shm.view` dan
+        // dari `shm.payment.create` (pola BUG-01: baca ≠ tulis transaksi
+        // finansial). Marketing sengaja TIDAK memilikinya — authority
+        // pelunasan masih PENDING BUSINESS CONFIRMATION. Scope kepemilikan
+        // pinjaman ditegakkan di controller dengan aturan yang SAMA dengan
+        // preview (authorizeLoanRecordOwnership) — endpoint POST bukan bypass.
+        // -----------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // Ticket 89B — Master policy diskon bunga pelunasan (data-driven).
+        // Route literal (/pinjaman/pelunasan/policy) didaftarkan SEBELUM
+        // POST /pinjaman/pelunasan/{loan} agar tidak tertelan wildcard.
+        // Baca = shm.view; tulis = shm.settlement.policy.manage (technical,
+        // TIDAK untuk marketing).
+        // -----------------------------------------------------------------
+        Route::post('/pinjaman/pelunasan/policy', [ShmSettlementDiscountPolicyController::class, 'store'])
+            ->middleware('permission:shm.settlement.policy.manage')
+            ->name('loans.pelunasan.policies.store');
+        Route::put('/pinjaman/pelunasan/policy/{policy}', [ShmSettlementDiscountPolicyController::class, 'update'])
+            ->middleware('permission:shm.settlement.policy.manage')
+            ->name('loans.pelunasan.policies.update');
+        Route::post('/pinjaman/pelunasan/policy/{policy}/toggle', [ShmSettlementDiscountPolicyController::class, 'toggle'])
+            ->middleware('permission:shm.settlement.policy.manage')
+            ->name('loans.pelunasan.policies.toggle');
+
+        Route::post('/pinjaman/pelunasan/{loan}', [ShmLoanSettlementController::class, 'store'])
+            ->middleware('permission:shm.settlement.create')
+            ->name('loans.pelunasan.store');
+
+        // -----------------------------------------------------------------
+        // Ticket 89B — Workflow settlement Model B (semua POST memerlukan
+        // `shm.settlement.create` + scope kepemilikan yang sama; role
+        // authority bisnis tetap PENDING BUSINESS CONFIRMATION).
+        // -----------------------------------------------------------------
+        Route::post('/pinjaman/pelunasan/{loan}/approve', [ShmLoanSettlementController::class, 'approve'])
+            ->middleware('permission:shm.settlement.create')
+            ->name('loans.pelunasan.approve');
+        Route::post('/pinjaman/pelunasan/{loan}/reject', [ShmLoanSettlementController::class, 'reject'])
+            ->middleware('permission:shm.settlement.create')
+            ->name('loans.pelunasan.reject');
+        Route::post('/pinjaman/pelunasan/{loan}/payment', [ShmLoanSettlementController::class, 'recordPayment'])
+            ->middleware('permission:shm.settlement.create')
+            ->name('loans.pelunasan.payment');
+        Route::post('/pinjaman/pelunasan/{loan}/payment/verify', [ShmLoanSettlementController::class, 'verifyPayment'])
+            ->middleware('permission:shm.settlement.create')
+            ->name('loans.pelunasan.payment.verify');
+        Route::post('/pinjaman/pelunasan/{loan}/complete', [ShmLoanSettlementController::class, 'complete'])
+            ->middleware('permission:shm.settlement.create')
+            ->name('loans.pelunasan.complete');
 
         // -----------------------------------------------------------------
         // Modul Export — pemantauan data operasional (Ticket 55).

@@ -60,7 +60,14 @@ class ShmCustomerTest extends TestCase
      */
     private function payload(array $overrides = []): array
     {
+        $memberId = $overrides['member_id'] ?? null;
+        if (! $memberId && ! array_key_exists('member_id', $overrides)) {
+            $member = Member::factory()->create(['status' => 'active']);
+            $memberId = $member->id;
+        }
+
         return array_merge([
+            'member_id' => $memberId,
             'name' => 'Nasabah Uji',
             'nik' => '3501234567890123',
             'phone' => '081234567890',
@@ -323,9 +330,10 @@ class ShmCustomerTest extends TestCase
     {
         $this->assertTrue(Schema::hasTable('shm_customers'));
 
-        $this->assertFalse(
+        // T89C: shm_customers kini menyimpan foreign key member_id ke members
+        $this->assertTrue(
             Schema::hasColumn('shm_customers', 'member_id'),
-            'shm_customers tidak boleh bergantung pada tabel members.'
+            'shm_customers harus memiliki kolom member_id.'
         );
 
         foreach (['amount', 'interest_rate', 'margin', 'discount', 'penalty'] as $column) {
@@ -338,10 +346,11 @@ class ShmCustomerTest extends TestCase
 
     public function test_existing_member_data_is_untouched_by_customer_operations(): void
     {
-        $member = Member::factory()->create(['full_name' => 'Anggota Koperasi Lama']);
+        $member = Member::factory()->create(['full_name' => 'Anggota Koperasi Lama', 'status' => 'active']);
         $before = Member::query()->count();
 
-        $this->createCustomerFor($this->marketing);
+        // Operasi pembuatan nasabah SHM menggunakan anggota yang sudah ada tanpa menambah record member baru
+        $this->createCustomerFor($this->marketing, ['member_id' => $member->id]);
 
         $this->assertSame($before, Member::query()->count());
         $this->assertSame('Anggota Koperasi Lama', $member->refresh()->full_name);

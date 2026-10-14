@@ -117,6 +117,28 @@ return [
                 'document.update' => 'Mencatat kelengkapan dokumen pengajuan',
                 'disburse' => 'Menandai pengajuan sebagai dicairkan',
                 'complete' => 'Menandai pengajuan sebagai selesai',
+                // Ticket 86: mencatat transaksi pembayaran pinjaman SHM
+                // terpisah dari hak MELIHAT (shm.view) mengikuti pola BUG-01
+                // koperasi (angsuran.view vs angsuran.record_payment).
+                // SIAPA yang berwenang mencatat pembayaran SHM masih PENDING
+                // BUSINESS CONFIRMATION — karena itu permission ini TIDAK
+                // ditambahkan ke daftar role marketing di bawah; role admin
+                // memperolehnya lewat all_permissions dan superadmin lewat
+                // bypass.
+                'payment.create' => 'Mencatat pembayaran pinjaman SHM',
+                // Ticket 89: konfirmasi pelunasan (settlement) TERPISAH dari
+                // hak MELIHAT (shm.view) dan dari `shm.payment.create` —
+                // settlement adalah mutasi finansial yang menutup pinjaman,
+                // bukan pencatatan pembayaran. Pola BUG-01 (baca ≠ tulis).
+                // SIAPA yang berwenang mengonfirmasi pelunasan masih PENDING
+                // BUSINESS CONFIRMATION — karena itu permission ini TIDAK
+                // ditambahkan ke daftar role marketing; role admin memperolehnya
+                // lewat all_permissions dan superadmin lewat bypass.
+                'settlement.create' => 'Mengonfirmasi pelunasan (settlement) pinjaman SHM',
+                // Ticket 89B: master policy diskon bunga pelunasan (data-driven).
+                // Permission teknis mengikuti pola existing; TIDAK diberikan ke
+                // marketing dan role authority bisnis tetap PENDING.
+                'settlement.policy.manage' => 'Mengelola policy diskon bunga pelunasan SHM',
                 // Ticket 46: master data Nasabah SHM.
                 //
                 // Nasabah SHM adalah entity tersendiri, terpisah dari anggota

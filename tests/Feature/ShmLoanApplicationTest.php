@@ -37,7 +37,8 @@ use Tests\TestCase;
  * - rate resmi tetap 2% dan tidak ada kolom rate tersendiri.
  *
  * Yang TIDAK diuji: formula bunga (PENDING), keputusan approval (workflow
- * existing, ticket berikutnya), upload foto (infrastructure PENDING).
+ * existing, ticket berikutnya). Upload foto jaminan diuji khusus di
+ * ShmLoanCollateralPhotoTest (Ticket 77).
  */
 class ShmLoanApplicationTest extends TestCase
 {
@@ -85,6 +86,8 @@ class ShmLoanApplicationTest extends TestCase
                 'product_id' => ShmLoanProduct::factory()->create()->id,
                 'principal' => '460000000',
                 'tenor_months' => 48,
+                // T82 — jatuh tempo pertama dipilih Marketing (bukan auto).
+                'first_due_date' => now()->addMonth()->startOfMonth()->toDateString(),
                 'purpose' => 'UNTUK MODAL USAHA',
                 'loan_sequence' => 1,
                 'disbursement_method' => 'Tunai',
@@ -215,6 +218,9 @@ class ShmLoanApplicationTest extends TestCase
         // Data finansial tersimpan (decimal, bukan float).
         $this->assertSame(460000000.0, (float) $application->principal);
         $this->assertSame(48, $application->tenor_months);
+        // T82 — product_id & first_due_date tersimpan pada pengajuan.
+        $this->assertNotNull($application->shm_loan_product_id);
+        $this->assertSame(now()->addMonth()->startOfMonth()->toDateString(), $application->first_due_date->toDateString());
         $this->assertSame(5000000.0, (float) $application->income_fixed);
         $this->assertSame(2000000.0, (float) $application->expense_household);
         $this->assertSame('flat', $application->calculation_method);
@@ -489,8 +495,10 @@ class ShmLoanApplicationTest extends TestCase
     // E. DOMAIN GUARDRAILS
     // -----------------------------------------------------------------
 
-    public function test_rate_is_official_two_percent_without_stored_rate_column(): void
+    public function test_no_stored_rate_column_and_no_universal_rate_fallback(): void
     {
+        // T82 — konstanta legacy masih ada tetapi BUKAN lagi rate pinjaman;
+        // rate = f(product, tenor) tanpa kolom rate pada pengajuan.
         $this->assertSame(2.0, ShmLoan::OFFICIAL_RATE_PERCENT);
 
         // Rate tidak pernah disimpan di pengajuan — sumber nilai tunggal.
@@ -509,18 +517,45 @@ class ShmLoanApplicationTest extends TestCase
 
     public function test_application_routes_coexist_with_existing_loan_routes(): void
     {
+        // T77 menambah satu route GET foto jaminan (jaminan/{collateral}/foto).
+        // T86 menambah tiga route pembayaran (GET index, GET show, POST store).
+        // T87 menambah satu route alokasi pembayaran (POST allocate).
+        // T89 menambah tiga route pelunasan (GET index, GET show, POST store).
+        // T89B menambah workflow pelunasan + master policy diskon.
         $expected = [
             'shm.loans.index',
+            // T86 — transaksi pembayaran pinjaman SHM.
+            // T87 — alokasi pembayaran ke angsuran (POST).
+            'shm.loans.payments.allocate',
+            'shm.loans.payments.index',
+            'shm.loans.payments.show',
+            'shm.loans.payments.store',
+            // T89/T89B — pelunasan / settlement.
+            'shm.loans.pelunasan.approve',
+            'shm.loans.pelunasan.complete',
+            'shm.loans.pelunasan.index',
+            'shm.loans.pelunasan.payment',
+            'shm.loans.pelunasan.payment.verify',
+            'shm.loans.pelunasan.policies.index',
+            'shm.loans.pelunasan.policies.store',
+            'shm.loans.pelunasan.policies.toggle',
+            'shm.loans.pelunasan.policies.update',
+            'shm.loans.pelunasan.reject',
+            'shm.loans.pelunasan.show',
+            'shm.loans.pelunasan.store',
             'shm.loans.pengajuan',
             'shm.loans.pengajuan.daftar',
             'shm.loans.pengajuan.disburse',
             'shm.loans.pengajuan.edit',
+            'shm.loans.pengajuan.jaminan.foto',
             'shm.loans.pengajuan.pdf',
             'shm.loans.pengajuan.show',
             'shm.loans.pengajuan.store',
             'shm.loans.pengajuan.submit-approval',
             'shm.loans.pengajuan.update',
             'shm.loans.products.index',
+            // T83 — action eksplisit pembangkitan jadwal angsuran.
+            'shm.loans.schedule.generate',
             'shm.loans.show',
             'shm.loans.simulation',
             'shm.loans.simulation.pdf',
@@ -541,5 +576,122 @@ class ShmLoanApplicationTest extends TestCase
             ->get('/shm/pinjaman/pengajuan')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page->component('Shm/Loans/Pengajuan'));
+    }
+
+    // -----------------------------------------------------------------
+    // F. T82 — KONTRAK PRODUK: rate = f(product, tenor) & first due date
+    // -----------------------------------------------------------------
+
+    /**
+     * Produk bergaya BSM Prioritas (tier eksak) — tier default factory
+     * dihapus agar resolusi benar-benar diuji.
+     */
+    private function prioritasLikeProduct(): ShmLoanProduct
+    {
+        $product = ShmLoanProduct::factory()->create();
+        $product->rateTiers()->delete();
+
+        foreach ([[12, 18, 1.30], [24, 30, 1.40]] as [$min, $max, $rate]) {
+            $product->rateTiers()->create([
+                'min_tenor_months' => $min,
+                'max_tenor_months' => $max,
+                'rate_percent' => $rate,
+                'rate_period' => 'monthly',
+                'calculation_method' => 'flat',
+            ]);
+        }
+
+        return $product;
+    }
+
+    public function test_product_and_valid_tenor_resolve_correct_rate(): void
+    {
+        $product = $this->prioritasLikeProduct();
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pengajuan'] = array_merge($payload['pengajuan'], [
+            'product_id' => $product->id,
+            'tenor_months' => 18,
+        ]);
+
+        $this->storeAs($this->admin, $payload)
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $application = ShmLoanApplication::query()->sole();
+
+        $this->assertSame(18, $application->tenor_months);
+        $this->assertSame($product->id, $application->shm_loan_product_id);
+        // Rate EXAKT dari tier 12–18 → 1.30% (bukan universal 2%).
+        $this->assertSame(1.3, $application->officialRatePercent());
+    }
+
+    public function test_invalid_tenor_is_rejected_by_backend(): void
+    {
+        $product = $this->prioritasLikeProduct();
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pengajuan'] = array_merge($payload['pengajuan'], [
+            'product_id' => $product->id,
+            'tenor_months' => 22, // gap 19–23
+        ]);
+
+        $this->storeAs($this->admin, $payload)
+            ->assertSessionHasErrors('pengajuan.tenor_months');
+
+        $this->assertSame(0, ShmLoanApplication::query()->count(), 'Pengajuan dengan tenor gap tidak boleh tersimpan.');
+    }
+
+    public function test_client_cannot_override_authoritative_rate(): void
+    {
+        $product = $this->prioritasLikeProduct();
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pengajuan'] = array_merge($payload['pengajuan'], [
+            'product_id' => $product->id,
+            'tenor_months' => 18,
+            // Upaya payload klien mengirim rate — diabaikan (tidak ada kolom,
+            // tidak ada pemetaan); rate tetap hasil resolusi backend.
+            'rate' => 9.99,
+            'rate_percent' => 9.99,
+        ]);
+        $payload['rate'] = 9.99;
+
+        $this->storeAs($this->admin, $payload)
+            ->assertSessionHasNoErrors();
+
+        $application = ShmLoanApplication::query()->sole();
+
+        $this->assertFalse(Schema::hasColumn('shm_loan_applications', 'rate_percent'));
+        $this->assertSame(1.3, $application->officialRatePercent(), 'Rate klien tidak pernah menjadi authoritative.');
+    }
+
+    public function test_first_due_date_is_stored_as_date_type(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pengajuan']['first_due_date'] = '2027-03-15';
+
+        $this->storeAs($this->admin, $payload)->assertSessionHasNoErrors();
+
+        $application = ShmLoanApplication::query()->sole();
+
+        $this->assertSame('2027-03-15', $application->first_due_date->toDateString());
+        $this->assertSame('date', Schema::getColumnType('shm_loan_applications', 'first_due_date'));
+    }
+
+    public function test_first_due_date_is_not_auto_calculated(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        // Marketing belum mengisi → TIDAK boleh diisi otomatis/di-default
+        // (bukan disbursement + 1 bulan, bukan hari ini).
+        $payload['pengajuan']['first_due_date'] = '';
+
+        $this->storeAs($this->admin, $payload)->assertSessionHasNoErrors();
+
+        $application = ShmLoanApplication::query()->sole();
+
+        $this->assertNull($application->first_due_date, 'Tanpa input Marketing, first_due_date harus tetap null.');
     }
 }

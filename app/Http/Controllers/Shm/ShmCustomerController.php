@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Shm\StoreShmCustomerRequest;
 use App\Http\Requests\Shm\UpdateShmCustomerRequest;
+use App\Models\Member;
 use App\Models\ShmApplication;
 use App\Models\ShmCustomer;
 use App\Services\ShmCustomerService;
@@ -97,9 +98,34 @@ class ShmCustomerController extends Controller
     /**
      * Form pembuatan nasabah SHM.
      */
-    public function create(): Response
+    public function create(Request $request): Response
     {
+        $search = $request->input('search');
+
+        // Daftar anggota koperasi eligible untuk dipilih sebagai sumber Nasabah SHM
+        $members = Member::query()
+            ->where('status', 'active')
+            ->search($search)
+            ->with(['savingsAccounts.savingProduct'])
+            ->orderBy('full_name')
+            ->limit(20)
+            ->get()
+            ->map(fn (Member $member): array => [
+                'id' => $member->id,
+                'member_number' => $member->member_number,
+                'full_name' => $member->full_name,
+                'identity_number' => $member->identity_number,
+                'phone' => $member->phone,
+                'address' => $member->address,
+                'status' => $member->status,
+                'has_active_shm_customer' => $member->shmCustomers()->where('is_active', true)->exists(),
+            ]);
+
         return Inertia::render('Shm/Customers/Create', [
+            'members' => $members,
+            'filters' => [
+                'search' => $search ?? '',
+            ],
             'flash' => [
                 'success' => session('success'),
                 'error' => session('error'),
@@ -139,6 +165,8 @@ class ShmCustomerController extends Controller
                 'created_at' => $application->created_at,
             ]);
 
+        $customer->load('member');
+
         return Inertia::render('Shm/Customers/Show', [
             'customer' => [
                 'id' => $customer->id,
@@ -153,6 +181,13 @@ class ShmCustomerController extends Controller
                 'has_location' => $customer->hasLocation(),
                 'is_active' => $customer->is_active,
                 'created_at' => $customer->created_at,
+                'member' => $customer->member ? [
+                    'id' => $customer->member->id,
+                    'member_number' => $customer->member->member_number,
+                    'full_name' => $customer->member->full_name,
+                    'identity_number' => $customer->member->identity_number,
+                    'status' => $customer->member->status,
+                ] : null,
             ],
             'applications' => $applications,
             'permissions' => [

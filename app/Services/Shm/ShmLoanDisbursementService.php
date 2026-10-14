@@ -2,6 +2,7 @@
 
 namespace App\Services\Shm;
 
+use App\Models\SavingProduct;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Services\AuditLogger;
@@ -30,14 +31,33 @@ use RuntimeException;
  * 'approved' yang boleh dicairkan; belum diajukan/pending/rejected ditolak.
  * Guard ada di service (server), bukan hanya persembunyian tombol UI.
  *
- * TIDAK ada formula bunga/cicilan/jadwal di ticket ini: rate_percent hanya
- * disalin dari konstanta resmi (2%), rate_period tetap null (periode PENDING
- * BUSINESS CONFIRMATION), dan field finansial pengajuan TIDAK diubah.
+ * KONTRAK FINANSIAL T82 — RATE = f(PRODUCT, TENOR): bersamaan dengan
+ * pembuatan loan (transaksi yang sama), record pinjaman menstempel rate
+ * hasil resolusi EXAKT produk + tenor (ShmProductRateService) beserta
+ * kontrak baseline T79 yang tetap berlaku:
+ *
+ *   rate_percent       = tier rate produk untuk tenor pengajuan (EXAKT)
+ *   rate_period        = 'monthly'
+ *   calculation_method = 'flat'
+ *   first_due_date     = tanggal jatuh tempo pertama dari pengajuan
+ *                        (DIPILIH MARKETING — bukan hasil hitung otomatis)
+ *
+ * Universal 2% (ShmLoan::OFFICIAL_RATE_PERCENT) TIDAK dipakai lagi di sini
+ * (T82): tenor di luar range eksak produk (termasuk gap) MENOLAK pencairan
+ * — tanpa interpolasi, fallback, nearest, maupun default rate. Pembangkitan
+ * jadwal tetap menjadi tanggung jawab ShmRepaymentScheduleService (T80),
+ * dan field finansial pengajuan TIDAK diubah.
  */
 class ShmLoanDisbursementService
 {
     /** Percobaan pembuatan nomor pinjaman sebelum dianggap gagal. */
     private const NUMBER_ATTEMPTS = 5;
+
+    public function __construct(
+        private readonly ShmProductRateService $productRates,
+        private readonly ShmDisbursementCostService $costs,
+        private readonly ShmSavingsIntegrationService $savingsIntegration,
+    ) {}
 
     /**
      * Cairkan pengajuan yang approval-nya sudah 'approved' menjadi satu
@@ -100,6 +120,77 @@ class ShmLoanDisbursementService
                 ]);
             }
 
+            // 5b. T82 — first_due_date WAJIB diisi Marketing sebelum
+            //     pencairan; TIDAK pernah dihitung otomatis dari tanggal
+            //     pencairan (bukan disbursement + 1 bulan).
+            if ($locked->first_due_date === null) {
+                throw ValidationException::withMessages([
+                    'application' => sprintf(
+                        'Pengajuan %s belum memiliki tanggal jatuh tempo pertama (first due date). Isi pada form pengajuan — ditentukan Marketing, bukan dihitung otomatis.',
+                        $locked->application_number,
+                    ),
+                ]);
+            }
+
+            // 5c. T82 — resolusi rate EXAKT product + tenor. Tenor di luar
+            //     range/gap MENOLAK pencairan (tanpa fallback/interpolasi).
+            $quote = $this->productRates->resolve(
+                $locked->product,
+                (int) $locked->tenor_months,
+            );
+
+            // 5d. T85 — kalkulasi biaya pencairan (admin/provisi/asuransi/
+            //     notaris/simpanan) berbasis principal ASLI pengajuan.
+            //     Backend authoritative: total_deduction & net_disbursement
+            //     TIDAK PERNAH datang dari frontend.
+            $costBreakdown = $this->costs->calculate(
+                (float) $locked->principal,
+                (int) $locked->tenor_months,
+                (float) ($locked->notary_fee ?? 0),
+            );
+
+            // 5e. T85 — net_disbursement negatif DITOLAK: tidak ada pinjaman
+            //     aktif dengan dana bersih di bawah 0.
+            if ($costBreakdown['net_disbursement'] < 0) {
+                throw ValidationException::withMessages([
+                    'application' => sprintf(
+                        'Pencairan ditolak: total biaya potongan (%s) melebihi plafon (%s) sehingga dana bersih menjadi negatif.',
+                        number_format($costBreakdown['total_deduction'], 0, ',', '.'),
+                        number_format((float) $locked->principal, 0, ',', '.'),
+                    ),
+                ]);
+            }
+
+            // 5f. T89C — Alokasi potongan Simpanan Pokok dan Simpanan Wajib ke rekening anggota sumber
+            $customer = $locked->customer;
+            $member = $customer?->member;
+
+            if ($member && $this->savingsIntegration) {
+                // Simpanan Pokok: Rp100.000 (fixed)
+                if ((float) $costBreakdown['principal_savings'] > 0) {
+                    $this->savingsIntegration->deposit(
+                        $member,
+                        SavingProduct::CATEGORY_PRINCIPAL,
+                        (float) $costBreakdown['principal_savings'],
+                        sprintf('shm-disbursement-principal:%d', $locked->id),
+                        sprintf('Setoran Simpanan Pokok dari pencairan pinjaman SHM %s', $locked->application_number),
+                        $actorId,
+                    );
+                }
+
+                // Simpanan Wajib: Rp25.000 × tenor
+                if ((float) $costBreakdown['mandatory_savings'] > 0) {
+                    $this->savingsIntegration->deposit(
+                        $member,
+                        SavingProduct::CATEGORY_MANDATORY,
+                        (float) $costBreakdown['mandatory_savings'],
+                        sprintf('shm-disbursement-mandatory:%d', $locked->id),
+                        sprintf('Setoran Simpanan Wajib dari pencairan pinjaman SHM %s', $locked->application_number),
+                        $actorId,
+                    );
+                }
+            }
+
             // 6. Buat tepat SATU running loan. Pemetaan hanya dari field yang
             //    sudah ada pada pengajuan; nomor dibuat server (bukan payload).
             $loan = ShmLoan::create([
@@ -109,13 +200,26 @@ class ShmLoanDisbursementService
                 'shm_loan_application_id' => $locked->id,
                 'principal' => $locked->principal,
                 'tenor_months' => $locked->tenor_months,
-                // Rate resmi dari konstanta tunggal; periode TIDAK ditebak.
-                'rate_percent' => ShmLoan::OFFICIAL_RATE_PERCENT,
-                'rate_period' => null,
-                // Snapshot pilihan eksplisit pengguna pada pengajuan (bukan
-                // formula sistem); tanpa rate_period tidak ada jadwal yang
-                // dapat dibangun (lihat ShmLoan::hasExplicitCalculation).
-                'calculation_method' => $locked->calculation_method,
+                // Kontrak finansial distempel DI DALAM transaksi yang sama
+                // dengan pembuatan loan (atomik): rate = hasil resolusi
+                // EXAKT produk+tenor (T82) — bukan universal 2%, dan tidak
+                // mungkin ada loan aktif dengan konfigurasi finansial
+                // setengah terisi.
+                'rate_percent' => $quote->ratePercent,
+                'rate_period' => $quote->ratePeriod,
+                'calculation_method' => $quote->calculationMethod,
+                // T85 — snapshot biaya pencairan (immutable historical):
+                // disimpan SEKALI saat pencairan, tidak pernah dihitung ulang.
+                'admin_fee' => $costBreakdown['admin_fee'],
+                'provision_fee' => $costBreakdown['provision_fee'],
+                'insurance_fee' => $costBreakdown['insurance_fee'],
+                'notary_fee' => $costBreakdown['notary_fee'],
+                'principal_savings' => $costBreakdown['principal_savings'],
+                'mandatory_savings' => $costBreakdown['mandatory_savings'],
+                'total_deduction' => $costBreakdown['total_deduction'],
+                'net_disbursement' => $costBreakdown['net_disbursement'],
+                // Jatuh tempo pertama dari pengajuan (Marketing-pilih).
+                'first_due_date' => $locked->first_due_date->toDateString(),
                 'purpose' => $locked->purpose,
                 'status' => ShmLoan::STATUS_ACTIVE,
                 'disbursed_at' => now()->toDateString(),
@@ -143,6 +247,10 @@ class ShmLoanDisbursementService
                     'tenor_months' => $loan->tenor_months,
                     'status' => $loan->status,
                     'disbursed_at' => $loan->disbursed_at?->toDateString(),
+                    // T85 — hasil finansial pencairan pada event YANG SAMA
+                    // (bukan audit event baru).
+                    'total_deduction' => (string) $loan->total_deduction,
+                    'net_disbursement' => (string) $loan->net_disbursement,
                 ],
             );
 

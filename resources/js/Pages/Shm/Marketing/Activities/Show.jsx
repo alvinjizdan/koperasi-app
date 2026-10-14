@@ -97,6 +97,28 @@ export default function Show({ activity, can_update_result, flash, shm }) {
                         </div>
                         <div className="sm:col-span-2">
                             <dt className="text-[11px] uppercase tracking-wider text-slate-400">
+                                Lokasi nasabah SHM
+                            </dt>
+                            <dd className="mt-0.5 flex items-center gap-1 text-sm text-slate-700">
+                                {activity.customer.latitude !== null && activity.customer.longitude !== null ? (
+                                    <>
+                                        <MapPin className="h-4 w-4 text-emerald-600" />
+                                        <span className="shrink-0">
+                                            {Number(activity.customer.latitude).toFixed(5)}, {Number(
+                                                activity.customer.longitude,
+                                            ).toFixed(5)}
+                                        </span>
+                                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                                            Sudah terkunci
+                                        </span>
+                                    </>
+                                ) : (
+                                    <span className="text-slate-400">Belum diisi</span>
+                                )}
+                            </dd>
+                        </div>
+                        <div className="sm:col-span-2">
+                            <dt className="text-[11px] uppercase tracking-wider text-slate-400">
                                 Lokasi saat Check-in
                             </dt>
                             <dd className="mt-0.5 flex items-center gap-1 text-sm text-slate-700">

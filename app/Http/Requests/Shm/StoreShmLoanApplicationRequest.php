@@ -22,9 +22,16 @@ use Illuminate\Validation\Rule;
  *   TIDAK PERNAH menebak metode;
  * - rate TIDAK diterima dari klien sama sekali (rate resmi 2% dari domain).
  *
- * Field GAP T66 (Unit Kerja, NIP, lahir, tanggungan, saldo modal/non modal,
- * batas hutang, data tambahan analisa) tidak ada dalam payload maupun skema
- * (PENDING BUSINESS CONFIRMATION).
+ * Field GAP T66 (data tambahan analisa) tetap tidak ada dalam payload maupun
+ * skema (PENDING BUSINESS CONFIRMATION).
+ *
+ * Ticket 77 — payload boleh berupa multipart/form-data bila ada foto
+ * jaminan (`jaminan.*.foto`); aturan lain tidak berubah.
+ *
+ * Ticket 76-FIX — field Data Pribadi kini menjadi DATA PENGAJUAN
+ * (`shm_loan_applications`), bukan data master nasabah. Sembilan field di
+ * Section 1 bersifat nullable & manual — tanpa formula, tanpa format resmi
+ * (PENDING BUSINESS CONFIRMATION untuk NIP/telepon/tanggal lahir).
  */
 class StoreShmLoanApplicationRequest extends FormRequest
 {
@@ -48,10 +55,29 @@ class StoreShmLoanApplicationRequest extends FormRequest
             // Section 1 — Data Pribadi: referensi ke nasabah SHM.
             'pribadi.customer_id' => ['required', 'integer', Rule::exists('shm_customers', 'id')],
 
+            // Ticket 76-FIX — Data Pribadi adalah snapshot per pengajuan
+            // (`shm_loan_applications`), bukan data master nasabah. Semua
+            // nullable; tanpa formula & tanpa format resmi (PENDING BUSINESS
+            // CONFIRMATION).
+            'pribadi.unit_kerja' => ['nullable', 'string', 'max:150'],
+            // String: NIP dapat memiliki leading zero.
+            'pribadi.nip' => ['nullable', 'string', 'max:50'],
+            'pribadi.telepon_rumah' => ['nullable', 'string', 'max:30'],
+            'pribadi.tempat_lahir' => ['nullable', 'string', 'max:100'],
+            'pribadi.tanggal_lahir' => ['nullable', 'date'],
+            'pribadi.jumlah_tanggungan' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'pribadi.saldo_modal' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
+            'pribadi.saldo_non_modal' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
+            'pribadi.batas_hutang' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
+
             // Section 2 — Pengajuan Pinjaman.
             'pengajuan.product_id' => ['nullable', 'integer', Rule::exists('shm_loan_products', 'id')->where('is_active', true)],
             'pengajuan.principal' => ['required', 'numeric', 'min:1', 'max:'.$maxAmount],
             'pengajuan.tenor_months' => ['required', 'integer', 'min:1', 'max:600'],
+            // Ticket 82 — jatuh tempo pertama DIPILIH Marketing (date, bukan
+            // datetime, bukan hasil hitung otomatis dari tanggal pencairan).
+            // Wajib diisi sebelum pencairan (gate di ShmLoanDisbursementService).
+            'pengajuan.first_due_date' => ['nullable', 'date'],
             'pengajuan.purpose' => ['nullable', 'string', 'max:255'],
             'pengajuan.loan_sequence' => ['nullable', 'integer', 'min:1', 'max:9999'],
             'pengajuan.disbursement_method' => ['nullable', Rule::in(['Tunai', 'Debet Tabungan', 'Bank'])],
@@ -89,6 +115,12 @@ class StoreShmLoanApplicationRequest extends FormRequest
             'jaminan.*.status_pengikatan' => ['nullable', 'string', 'max:100'],
             'jaminan.*.tanggal_pengikatan' => ['nullable', 'date'],
             'jaminan.*.nilai_hak_tanggungan' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
+            // Ticket 77 — foto jaminan (multipart). Daftar format resmi bisnis
+            // belum dikonfirmasi (PENDING BUSINESS CONFIRMATION); gunakan
+            // format gambar yang aman & umum (JPEG/PNG/WebP) tanpa
+            // executable/script, dan batas 2 MB sebagai batas teknis wajar
+            // untuk satu berkas gambar dokumentasi jaminan.
+            'jaminan.*.foto' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
 
             // Section 6 — Catatan Kasir / SC.
             'catatan.date' => ['nullable', 'date'],
@@ -111,6 +143,9 @@ class StoreShmLoanApplicationRequest extends FormRequest
             'persetujuan.approved_amount' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
             'persetujuan.provision_fee' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
             'persetujuan.administration_fee' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
+            // Ticket 85 — biaya notaris custom (non-negatif; tanpa preset &
+            // tanpa batas maksimum — PENDING BUSINESS CONFIRMATION).
+            'persetujuan.notary_fee' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
             'persetujuan.method' => ['nullable', Rule::in($methods)],
             'persetujuan.notes' => ['nullable', 'string'],
 
@@ -140,6 +175,8 @@ class StoreShmLoanApplicationRequest extends FormRequest
             'persetujuan.method.in' => 'Metode perhitungan tidak dikenal. Pilih salah satu metode yang didukung.',
             'jaminan.*.jenis.required' => 'Jenis jaminan wajib diisi.',
             'jaminan.*.nama.required' => 'Nama jaminan wajib diisi.',
+            'jaminan.*.foto.mimes' => 'Foto jaminan hanya boleh berupa gambar JPEG, PNG, atau WebP.',
+            'jaminan.*.foto.max' => 'Ukuran foto jaminan maksimal 2 MB.',
             'agunan.*.jenis.required' => 'Jenis barang agunan wajib diisi.',
             'persyaratan.*.text.required' => 'Isi persyaratan tambahan atau hapus baris kosong.',
         ];

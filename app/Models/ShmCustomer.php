@@ -6,6 +6,7 @@ use Database\Factories\ShmCustomerFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -36,6 +37,7 @@ class ShmCustomer extends Model
     use HasFactory;
 
     protected $fillable = [
+        'member_id',
         'customer_number',
         'name',
         'nik',
@@ -50,11 +52,22 @@ class ShmCustomer extends Model
     protected function casts(): array
     {
         return [
+            'member_id' => 'integer',
             'is_active' => 'boolean',
             // Desimal agar koordinat tidak bergeser saat disimpan.
             'latitude' => 'decimal:7',
             'longitude' => 'decimal:7',
         ];
+    }
+
+    /**
+     * Anggota koperasi yang menjadi sumber data nasabah SHM ini (T89C).
+     *
+     * @return BelongsTo<Member, $this>
+     */
+    public function member(): BelongsTo
+    {
+        return $this->belongsTo(Member::class, 'member_id');
     }
 
     /**

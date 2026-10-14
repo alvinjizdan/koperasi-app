@@ -122,6 +122,14 @@ class Member extends Model
     }
 
     /**
+     * Nasabah SHM yang bersumber dari anggota ini (T89C).
+     */
+    public function shmCustomers(): HasMany
+    {
+        return $this->hasMany(ShmCustomer::class, 'member_id');
+    }
+
+    /**
      * Pinjaman milik anggota.
      */
     public function loans(): HasMany

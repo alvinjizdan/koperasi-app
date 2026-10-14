@@ -31,6 +31,11 @@ class StoreShmCustomerRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'member_id' => [
+                'required',
+                'integer',
+                'exists:members,id',
+            ],
             'name' => [
                 'required',
                 'string',
@@ -78,6 +83,8 @@ class StoreShmCustomerRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'member_id.required' => 'Anggota koperasi sumber wajib dipilih.',
+            'member_id.exists' => 'Anggota koperasi yang dipilih tidak ditemukan.',
             'name.required' => 'Nama nasabah wajib diisi.',
             'name.max' => 'Nama nasabah tidak boleh melebihi 150 karakter.',
             'phone.regex' => 'Nomor telepon hanya boleh berisi angka dan tanda +, -, spasi, atau tanda kurung.',
@@ -114,11 +121,12 @@ class StoreShmCustomerRequest extends FormRequest
     /**
      * Data yang diteruskan ke service dalam bentuk ternormalisasi.
      *
-     * @return array{name: string, nik: string|null, phone: string|null, email: string|null, address: string|null, latitude: string|null, longitude: string|null}
+     * @return array<string, mixed>
      */
     public function payload(): array
     {
         return [
+            'member_id' => (int) $this->input('member_id'),
             'name' => (string) $this->input('name'),
             'nik' => $this->input('nik'),
             'phone' => $this->input('phone'),

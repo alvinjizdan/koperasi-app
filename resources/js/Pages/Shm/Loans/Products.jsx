@@ -8,12 +8,13 @@ import { formatDate } from '@/utils/format';
 import { Search, Landmark } from 'lucide-react';
 
 /**
- * Daftar produk Pinjaman SHM (Ticket 64).
+ * Daftar produk Pinjaman SHM (Ticket 64; kontrak rate T82).
  *
- * Master ini TERPISAH dari produk pinjaman koperasi. Tidak ada kolom rate
- * default: rate resmi SHM adalah 2%, tetapi periodisasi (per bulan/per tahun)
- * dan formula angsuran masih PENDING BUSINESS CONFIRMATION sehingga tidak
- * dikunci di master. Halaman bersifat baca.
+ * Master ini TERPISAH dari produk pinjaman koperasi. Sejak T82 halaman ini
+ * menampilkan kontrak produk resmi: kategori, nama, status aktif, tier rate
+ * EXAKT per rentang tenor (per bulan, flat — rate = f(product, tenor);
+ * universal 2% tidak berlaku), dan ringkasan syarat (eligibility). Halaman
+ * bersifat baca (seed-driven master; tanpa CRUD).
  */
 export default function Products({ products, sort, filters }) {
     const handleSort = useTableSort('shm.loans.products.index');
@@ -36,6 +37,43 @@ export default function Products({ products, sort, filters }) {
     const columns = [
         { key: 'code', label: 'Kode', sortable: true },
         { key: 'name', label: 'Nama Produk', sortable: true },
+        {
+            key: 'category',
+            label: 'Kategori',
+            render: (row) => (
+                <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                    {row.category || '-'}
+                </span>
+            ),
+        },
+        {
+            key: 'rate_tiers',
+            label: 'Rate per Tenor (bulanan, flat)',
+            render: (row) =>
+                row.rate_tiers && row.rate_tiers.length > 0 ? (
+                    <ul className="space-y-0.5 text-xs">
+                        {row.rate_tiers.map((tier) => (
+                            <li key={`${tier.min_tenor_months}-${tier.max_tenor_months}`}>
+                                {tier.min_tenor_months === tier.max_tenor_months
+                                    ? `${tier.min_tenor_months} bulan`
+                                    : `${tier.min_tenor_months}–${tier.max_tenor_months} bulan`}
+                                : <span className="font-semibold">{Number(tier.rate_percent).toFixed(2)}%</span>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <span className="text-xs text-slate-400">-</span>
+                ),
+        },
+        {
+            key: 'eligibility_summary',
+            label: 'Syarat Produk',
+            render: (row) => (
+                <span className="line-clamp-2 max-w-xs text-xs">
+                    {row.eligibility_summary || '-'}
+                </span>
+            ),
+        },
         {
             key: 'description',
             label: 'Keterangan',
@@ -82,8 +120,9 @@ export default function Products({ products, sort, filters }) {
                         Produk Pinjaman SHM
                     </h1>
                     <p className="text-sm text-gray-500">
-                        Master pinjaman milik modul SHM. Terpisah dari produk
-                        pinjaman koperasi.
+                        Master pinjaman milik modul SHM — kategori, tier rate
+                        (product + tenor eksak; bulanan flat), dan syarat
+                        produk resmi. Terpisah dari produk pinjaman koperasi.
                     </p>
                 </div>
 

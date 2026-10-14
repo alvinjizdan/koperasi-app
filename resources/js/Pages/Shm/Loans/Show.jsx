@@ -1,5 +1,5 @@
 import React from 'react';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import ShmLayout from '@/Layouts/ShmLayout';
 import ReportTable from '@/Components/Admin/ReportTable';
 import { formatDate, formatDateTime, formatRupiah } from '@/utils/format';
@@ -8,6 +8,7 @@ import {
     Building2,
     Calculator,
     CalendarCheck,
+    CalendarDays,
     FileText,
     History,
     Landmark,
@@ -41,20 +42,57 @@ function Field({ label, children }) {
  * garis waktu dari audit trail existing.
  *
  * SELURUH angka berasal dari record yang sudah tersimpan — tidak ada
- * perhitungan bunga, jadwal angsuran, nominal angsuran, maupun pelunasan di
- * ticket ini. Tabel angsuran hanya tetap ditampilkan bila record memang
- * menyimpan pilihan eksplisit metode & periode rate (perilaku Ticket 64);
- * tanpa keduanya formula SHM masih PENDING BUSINESS CONFIRMATION.
+ * perhitungan bunga maupun pelunasan di ticket ini.
  *
- * Periode rate TIDAK pernah diasumsikan: hanya tampil bila record
- * menyimpannya.
+ * Ticket 83 — JADWAL ANGSURAN TERSIMPAN (shm_loan_installments):
+ * - Jadwal dibuat HANYA melalui action eksplisit "Generate Jadwal Angsuran"
+ *   (POST shm.loans.schedule.generate) — tidak pernah otomatis saat
+ *   pencairan/approval/membuka halaman ini.
+ * - Anchor jatuh tempo = first_due_date (dipilih Marketing); jadwal tampil
+ *   dari database (bukan simulasi). Blok simulasi T64 dipertahankan sebagai
+ *   pratinjau SAAT JADWAL BELUM ADA.
+ * - Setelah jadwal tersedia, tombol generate tidak lagi ditawarkan (tidak
+ *   ada regenerasi/overwrite dari UI).
  */
-export default function Show({ loan, result }) {
+export default function Show({
+    loan,
+    result,
+    schedule = null,
+    can_generate_schedule = false,
+}) {
     const rows = result?.rows ?? [];
+    const installments = schedule?.installments ?? [];
+    const scheduleGenerated = schedule?.generated ?? false;
     const application = loan.application ?? null;
     const timeline = loan.timeline ?? [];
     const jaminan = loan.jaminan ?? [];
     const agunan = loan.agunan ?? [];
+
+    // T83 — action EKSPLISIT; tidak pernah dipanggil otomatis oleh UI.
+    const generateSchedule = () => {
+        if (
+            !window.confirm(
+                [
+                    'Buat jadwal angsuran untuk pinjaman ini?',
+                    `No. Pinjaman: ${loan.loan_number}`,
+                    `Jatuh tempo pertama: ${
+                        loan.first_due_date
+                            ? formatDate(loan.first_due_date)
+                            : '—'
+                    }`,
+                    'Jadwal bersifat tetap setelah dibuat (tidak dapat dibuat ulang dari halaman ini).',
+                ].join('\n'),
+            )
+        ) {
+            return;
+        }
+
+        router.post(
+            route('shm.loans.schedule.generate', loan.id),
+            {},
+            { preserveScroll: true },
+        );
+    };
 
     const columns = [
         { key: 'period', label: 'No', align: 'center', render: (row) => row.period },
@@ -81,6 +119,61 @@ export default function Show({ loan, result }) {
             label: 'Saldo',
             align: 'right',
             render: (row) => formatRupiah(row.balance),
+        },
+    ];
+
+    // T83 — kolom tabel jadwal angsuran TERSIMPAN (paid/status mengikuti
+    // kolom/schema existing; pembayaran BELUM diimplementasikan).
+    const scheduleColumns = [
+        {
+            key: 'installment_number',
+            label: 'No',
+            align: 'center',
+            render: (row) => row.installment_number,
+        },
+        {
+            key: 'due_date',
+            label: 'Jatuh Tempo',
+            render: (row) => formatDate(row.due_date),
+        },
+        {
+            key: 'principal_amount',
+            label: 'Pokok',
+            align: 'right',
+            render: (row) => formatRupiah(row.principal_amount),
+        },
+        {
+            key: 'interest_amount',
+            label: 'Bunga',
+            align: 'right',
+            render: (row) => formatRupiah(row.interest_amount),
+        },
+        {
+            key: 'total_amount',
+            label: 'Total',
+            align: 'right',
+            render: (row) => formatRupiah(row.total_amount),
+        },
+        {
+            key: 'paid_amount',
+            label: 'Dibayar',
+            align: 'right',
+            render: (row) => formatRupiah(row.paid_amount),
+        },
+        {
+            key: 'remaining_amount',
+            label: 'Sisa',
+            align: 'right',
+            render: (row) => formatRupiah(row.remaining_amount),
+        },
+        {
+            key: 'status',
+            label: 'Status',
+            render: (row) => (
+                <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium capitalize text-slate-700">
+                    {row.status}
+                </span>
+            ),
         },
     ];
 
@@ -331,10 +424,61 @@ export default function Show({ loan, result }) {
                                 <Field label="No. Pinjaman">
                                     {loan.disbursement?.loan_number}
                                 </Field>
-                                <Field label="Nilai Dicairkan">
+                                <Field label="Plafond Pinjaman">
                                     {formatRupiah(loan.disbursement?.principal)}
                                 </Field>
+                                {/* T83 — jatuh tempo pertama (dipilih
+                                    Marketing; anchor jadwal angsuran). */}
+                                <Field label="Jatuh Tempo Pertama">
+                                    {loan.first_due_date
+                                        ? formatDate(loan.first_due_date)
+                                        : 'Belum ditentukan'}
+                                </Field>
                             </dl>
+
+                            {/* T85 — Rincian Biaya Pencairan & Dana Bersih */}
+                            {loan.disbursement?.costs?.total_deduction != null && (
+                                <div className="mt-4 border-t border-slate-100 pt-4">
+                                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                        Rincian Biaya Pencairan & Dana Bersih
+                                    </h3>
+                                    <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+                                        <Field label="Plafond">
+                                            {formatRupiah(loan.disbursement.principal)}
+                                        </Field>
+                                        <Field label="Biaya Admin (2%)">
+                                            {formatRupiah(loan.disbursement.costs.admin_fee)}
+                                        </Field>
+                                        <Field label="Biaya Provisi (3%)">
+                                            {formatRupiah(loan.disbursement.costs.provision_fee)}
+                                        </Field>
+                                        <Field label="Asuransi (1%)">
+                                            {formatRupiah(loan.disbursement.costs.insurance_fee)}
+                                        </Field>
+                                        <Field label="Biaya Notaris">
+                                            {formatRupiah(loan.disbursement.costs.notary_fee)}
+                                        </Field>
+                                        <Field label="Simpanan Pokok">
+                                            {formatRupiah(loan.disbursement.costs.principal_savings)}
+                                        </Field>
+                                        <Field label="Simpanan Wajib">
+                                            {formatRupiah(loan.disbursement.costs.mandatory_savings)}
+                                        </Field>
+                                        <Field label="Total Potongan">
+                                            <span className="font-semibold text-rose-600">
+                                                {formatRupiah(loan.disbursement.costs.total_deduction)}
+                                            </span>
+                                        </Field>
+                                        <div className="sm:col-span-2 rounded-lg bg-emerald-50 p-3">
+                                            <Field label="Dana Bersih Diterima">
+                                                <span className="text-base font-bold text-emerald-700">
+                                                    {formatRupiah(loan.disbursement.costs.net_disbursement)}
+                                                </span>
+                                            </Field>
+                                        </div>
+                                    </dl>
+                                </div>
+                            )}
                         </section>
 
                         {/* 5. Jaminan & Barang Agunan */}
@@ -401,14 +545,72 @@ export default function Show({ loan, result }) {
                     </section>
                 </div>
 
-                {/* Tabel Angsuran — perilaku Ticket 64 yang sudah ada. */}
+                {/* T83 — Jadwal Angsuran TERSIMPAN + action eksplisit. */}
                 <section className="rounded-lg bg-white p-5 shadow">
-                    <h2 className="mb-3 text-sm font-semibold uppercase text-slate-600">
-                        Tabel Angsuran
-                    </h2>
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                        <h2 className="text-sm font-semibold uppercase text-slate-600">
+                            Jadwal Angsuran
+                        </h2>
 
-                    {result ? (
+                        {scheduleGenerated ? (
+                            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                                Sudah dibuat · {installments.length}{' '}
+                                Angsuran
+                            </span>
+                        ) : (
+                            <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                                Belum dibuat
+                            </span>
+                        )}
+                    </div>
+
+                    {!scheduleGenerated && (
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
+                            <div>
+                                <p className="text-xs text-gray-500">
+                                    Jatuh tempo pertama
+                                </p>
+                                <p className="font-medium">
+                                    {loan.first_due_date
+                                        ? formatDate(loan.first_due_date)
+                                        : 'Belum ditentukan'}
+                                </p>
+                            </div>
+
+                            {can_generate_schedule ? (
+                                <button
+                                    type="button"
+                                    onClick={generateSchedule}
+                                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+                                >
+                                    <CalendarDays className="h-4 w-4" />
+                                    Generate Jadwal Angsuran
+                                </button>
+                            ) : (
+                                <p className="text-xs text-slate-500">
+                                    Pinjaman ini belum memenuhi prasyarat
+                                    pembangkitan jadwal (harus aktif, sudah
+                                    dicairkan, dan memiliki jatuh tempo
+                                    pertama).
+                                </p>
+                            )}
+                        </div>
+                    )}
+
+                    {scheduleGenerated ? (
+                        <ReportTable
+                            columns={scheduleColumns}
+                            rows={installments}
+                            emptyTitle="Belum ada angsuran"
+                            emptyDescription="Jadwal angsuran akan tampil di sini."
+                        />
+                    ) : result ? (
                         <>
+                            <p className="mb-2 text-xs text-slate-500">
+                                Pratinjau simulasi (belum tersimpan sebagai
+                                jadwal) — gunakan tombol di atas untuk
+                                membuat jadwal angsuran resmi.
+                            </p>
                             <div className="flex flex-wrap gap-4 rounded-lg bg-white p-4 text-sm shadow">
                                 <div>
                                     <p className="text-xs text-gray-500">Metode</p>

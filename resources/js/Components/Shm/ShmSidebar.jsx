@@ -165,9 +165,38 @@ const shmNavigation = [
                 route: "shm.loans.simulation",
                 permission: "shm.view",
             },
+            {
+                name: "Produk Pinjaman",
+                route: "shm.loans.products.index",
+                permission: "shm.view",
+            },
             { name: "Jaminan" },
-            { name: "Pembayaran / Angsuran" },
-            { name: "Pelunasan" },
+            // Ticket 86: halaman transaksi pembayaran pinjaman SHM sudah ada;
+            // permission baca = shm.view (sama dengan halaman Pinjaman lain).
+            // Pencatatan pembayaran sendiri memerlukan shm.payment.create.
+            {
+                name: "Pembayaran / Angsuran",
+                route: "shm.loans.payments.index",
+                permission: "shm.view",
+            },
+            // Ticket 89: halaman Pelunasan / Settlement SHM sudah ada;
+            // permission baca = shm.view (sama dengan halaman Pinjaman
+            // lain). KONFIRMASI pelunasan sendiri memerlukan
+            // shm.settlement.create — authority masih PENDING BUSINESS
+            // CONFIRMATION, sehingga preview dapat dibuka tetapi tombol
+            // konfirmasi tidak ditawarkan selama kontrak belum lengkap.
+            {
+                name: "Pelunasan",
+                route: "shm.loans.pelunasan.index",
+                permission: "shm.view",
+            },
+            // Ticket 89B: master policy diskon bunga pelunasan (data-driven).
+            // Baca = shm.view; tulis = shm.settlement.policy.manage.
+            {
+                name: "Policy Diskon Pelunasan",
+                route: "shm.loans.pelunasan.policies.index",
+                permission: "shm.view",
+            },
             { name: "Laporan" },
         ],
     },

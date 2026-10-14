@@ -20,6 +20,9 @@ class DatabaseSeeder extends Seeder
             PermissionSeeder::class,
             RoleSeeder::class,
             SettingsSeeder::class,
+            // Ticket 82 — matriks produk & rate resmi Pinjaman SHM
+            // (deterministik, updateOrCreate — aman dijalankan ulang).
+            ShmLoanProductSeeder::class,
         ]);
 
         // Akun Superadmin awal hanya dibuat bila belum ada sama sekali.

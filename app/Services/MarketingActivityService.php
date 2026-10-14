@@ -26,6 +26,14 @@ class MarketingActivityService
      * sudah terdaftar, transaksi sebelumnya dikembalikan tanpa dampak ganda,
      * termasuk ketika request yang sama tiba bersamaan.
      *
+     * Lokasi nasabah SHM (shm_customers.latitude/longitude) dikunci pada
+     * check-in pertama yang valid. Check-in berikutnya TIDAK mengubah koordinat
+     * master nasabah; hanya merekam koordinat aktivitas sendiri.
+     *
+     * Lock bersifat idempotent: hanya baris marketing_activities yang berhasil
+     * dibuat yang berhak mengunci koordinat. Bila aktivitas gagal dibuat (constraint,
+     * validasi, dll), koordinat nasabah tidak disentuh.
+     *
      * @param  array{shm_customer_id: int, latitude: numeric, longitude: numeric, result?: ?string, notes?: ?string, idempotency_key?: ?string}  $data
      */
     public function checkIn(array $data, int $marketingId): MarketingActivity
@@ -66,6 +74,22 @@ class MarketingActivityService
                 'notes' => $data['notes'] ?? null,
                 'idempotency_key' => $idempotencyKey,
             ]);
+
+            // Kunci koordinat nasabah hanya pada check-in pertama yang valid.
+            // Baris dikunci dulu, lalu dicek ulang: bila masih belum memiliki lokasi,
+            // koordinat check-in disimpan sebagai lokasi master nasabah. Pembaruan
+            // bersyarat ini mencegah dua marketing bersamaan saling menimpa
+            // koordinat pertama.
+            if (! $customer->hasLocation()) {
+                $fresh = ShmCustomer::query()->lockForUpdate()->whereKey($customer->id)->first();
+
+                if ($fresh !== null && ! $fresh->hasLocation()) {
+                    $fresh->fill([
+                        'latitude' => $data['latitude'],
+                        'longitude' => $data['longitude'],
+                    ])->save();
+                }
+            }
 
             AuditLogger::log(
                 'marketing.activity.checked_in',

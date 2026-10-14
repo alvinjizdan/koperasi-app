@@ -12,15 +12,21 @@ use App\Models\AuditLog;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
+use App\Models\ShmLoanApplicationCollateral;
+use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanProduct;
+use App\Services\AuditLogger;
 use App\Services\Shm\ShmLoanApplicationPdf;
 use App\Services\Shm\ShmLoanApplicationService;
 use App\Services\Shm\ShmLoanDisbursementService;
 use App\Services\Shm\ShmLoanSimulationPdf;
 use App\Services\Shm\ShmLoanSimulationService;
+use App\Services\Shm\ShmRepaymentScheduleService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
@@ -53,6 +59,7 @@ class ShmLoanController extends Controller
         private readonly ShmLoanApplicationService $applications,
         private readonly ShmLoanApplicationPdf $applicationPdf,
         private readonly ShmLoanDisbursementService $disbursement,
+        private readonly ShmRepaymentScheduleService $schedule,
     ) {}
 
     /**
@@ -67,6 +74,7 @@ class ShmLoanController extends Controller
 
         $query = ShmLoanProduct::query()
             ->withCount('loans')
+            ->with('rateTiers')
             ->search($filters['search']);
 
         if ($filters['status'] === 'active') {
@@ -88,8 +96,19 @@ class ShmLoanController extends Controller
                 'id' => $product->id,
                 'code' => $product->code,
                 'name' => $product->name,
+                // T82 — kategori & syarat produk dari master (read-only).
+                'category' => $product->category,
                 'description' => $product->description,
+                'eligibility_summary' => $product->eligibility_summary,
                 'is_active' => $product->is_active,
+                // Tier rate EXAKT per rentang tenor (monthly, flat).
+                'rate_tiers' => $product->rateTiers->map(fn ($tier): array => [
+                    'min_tenor_months' => $tier->min_tenor_months,
+                    'max_tenor_months' => $tier->max_tenor_months,
+                    'rate_percent' => (float) $tier->rate_percent,
+                    'rate_period' => $tier->rate_period,
+                    'calculation_method' => $tier->calculation_method,
+                ])->all(),
                 'loans_count' => $product->loans_count ?? 0,
                 'created_at' => $product->created_at,
             ]);
@@ -189,10 +208,99 @@ class ShmLoanController extends Controller
             ]);
         }
 
+        // T83 — jadwal angsuran TERSIMPAN (shm_loan_installments) disajikan
+        // dari database; halaman ini TIDAK pernah membangkitkan jadwal.
+        $installments = $loan->installments;
+
         return Inertia::render('Shm/Loans/Show', [
             'loan' => $this->presentLoanDetail($loan),
             'result' => $result,
+            'schedule' => [
+                'generated' => $installments->isNotEmpty(),
+                'installments' => $installments->map(fn (ShmLoanInstallment $installment): array => [
+                    'installment_number' => $installment->installment_number,
+                    'due_date' => $installment->due_date?->format('Y-m-d'),
+                    'principal_amount' => $installment->principal_amount,
+                    'interest_amount' => $installment->interest_amount,
+                    'total_amount' => $installment->total_amount,
+                    'paid_amount' => $installment->paid_amount,
+                    'remaining_amount' => $installment->remaining_amount,
+                    'status' => $installment->status,
+                ])->values()->all(),
+            ],
+            // Tombol hanya ditawarkan saat jadwal belum ada dan pinjaman
+            // memenuhi prasyarat dasar; guard sesungguhnya tetap di service.
+            'can_generate_schedule' => $installments->isEmpty()
+                && $loan->status === ShmLoan::STATUS_ACTIVE
+                && $loan->disbursed_at !== null,
         ]);
+    }
+
+    /**
+     * T83 — ACTION EKSPLISIT pembangkitan jadwal angsuran.
+     *
+     * Hanya dipanggil saat officer menekan tombol pada Detail Pinjaman —
+     * TIDAK pernah otomatis saat pencairan/approval/membuka halaman.
+     * Controller hanya orchestration: otorisasi (scope kepemilikan yang sama
+     * dengan halaman detail) + pemanggilan service + flash + audit. Seluruh
+     * logika finansial tetap di ShmRepaymentScheduleService (T80/T83).
+     *
+     * Idempoten: bila jadwal sudah ada, service mengembalikan jadwal
+     * eksisting tanpa duplikat/overwrite — flash "sudah tersedia" dan TIDAK
+     * ada audit baru (no-op bukan perubahan state).
+     */
+    public function generateSchedule(Request $request, ShmLoan $loan): RedirectResponse
+    {
+        // Scope otorisasi IDENTIK dengan halaman detail (shm.view +
+        // kepemilikan) — endpoint POST tidak menjadi bypass visibility.
+        $this->authorizeLoanRecordOwnership($request, $loan);
+
+        $hadSchedule = $loan->installments()->exists();
+
+        try {
+            $installments = $this->schedule->generate($loan);
+        } catch (ValidationException $exception) {
+            // Alasan eksplisit (mis. first_due_date belum ditentukan) tanpa
+            // menulis satu baris angsuran pun.
+            return redirect()
+                ->route('shm.loans.show', $loan)
+                ->withErrors($exception->errors())
+                ->with('error', (string) $exception->getMessage());
+        }
+
+        if ($hadSchedule) {
+            return redirect()
+                ->route('shm.loans.show', $loan)
+                ->with('success', 'Jadwal angsuran sudah tersedia.');
+        }
+
+        // Tepat SATU audit untuk pembangkitan NYATA (perubahan state).
+        AuditLogger::log(
+            'shm.loan.schedule.generated',
+            ShmLoan::class,
+            $loan->id,
+            $loan->loan_number,
+            sprintf(
+                'Jadwal angsuran pinjaman %s dibuat: %d angsuran, jatuh tempo pertama %s.',
+                $loan->loan_number,
+                $installments->count(),
+                $loan->first_due_date?->toDateString() ?? '-',
+            ),
+            [
+                'shm_loan_id' => $loan->id,
+                'loan_number' => $loan->loan_number,
+                'installments_count' => $installments->count(),
+                'first_due_date' => $loan->first_due_date?->toDateString(),
+                'rate_percent' => (string) $loan->rate_percent,
+                'rate_period' => $loan->rate_period,
+                'calculation_method' => $loan->calculation_method,
+                'tenor_months' => $loan->tenor_months,
+            ],
+        );
+
+        return redirect()
+            ->route('shm.loans.show', $loan)
+            ->with('success', 'Jadwal angsuran berhasil dibuat.');
     }
 
     /**
@@ -256,9 +364,11 @@ class ShmLoanController extends Controller
      * setengah matang ke database.
      *
      * Data yang dikirim murni domain SHM: daftar nasabah dari
-     * `shm_customers` (TIDAK pernah dari `members`), produk dari
-     * `shm_loan_products`, rate resmi = 2%, dan opsi metode/periode dari
-     * service simulasi existing sebagai satu-satunya source of truth.
+     * `shm_customers` (TIDAK pernah dari `members`), produk + tier rate
+     * dari `shm_loan_products`/`shm_loan_product_rate_tiers` (T82 — rate
+     * diturunkan frontend dari product+tenor untuk TAMPILAN saja; backend
+     * tetap resolve ulang), dan opsi metode/periode dari service simulasi
+     * existing.
      */
     public function pengajuan(): Response
     {
@@ -440,13 +550,31 @@ class ShmLoanController extends Controller
     {
         return [
             'today' => now()->format('Y-m-d'),
-            'rate' => ShmLoan::OFFICIAL_RATE_PERCENT,
-            'products' => ShmLoanProduct::query()->active()->orderBy('name')->get(['id', 'code', 'name']),
+            // T82 — rate TIDAK dikirim sebagai angka universal: frontend
+            // menurunkan rate dari tier produk + tenor (tampilan saja;
+            // backend tetap resolve ulang).
+            'products' => ShmLoanProduct::query()->active()
+                ->with('rateTiers')
+                ->orderBy('name')
+                ->get(['id', 'code', 'name', 'category'])
+                ->map(fn (ShmLoanProduct $product): array => [
+                    'id' => $product->id,
+                    'code' => $product->code,
+                    'name' => $product->name,
+                    'category' => $product->category,
+                    'rate_tiers' => $product->rateTiers->map(fn ($tier): array => [
+                        'min_tenor_months' => $tier->min_tenor_months,
+                        'max_tenor_months' => $tier->max_tenor_months,
+                        'rate_percent' => (float) $tier->rate_percent,
+                    ])->all(),
+                ]),
             'customers' => ShmCustomer::query()
                 ->active()
                 ->orderBy('name')
                 ->limit(200)
-                ->get(['id', 'customer_number', 'name', 'nik', 'phone', 'address', 'is_active', 'created_at'])
+                ->get([
+                    'id', 'customer_number', 'name', 'nik', 'phone', 'address', 'is_active', 'created_at',
+                ])
                 ->map(fn (ShmCustomer $customer): array => [
                     'id' => $customer->id,
                     'customer_number' => $customer->customer_number,
@@ -531,6 +659,58 @@ class ShmLoanController extends Controller
     }
 
     /**
+     * Ticket 77 — penyajian satu foto jaminan pengajuan pinjaman SHM.
+     *
+     * Berkas disimpan pada disk PRIVATE Laravel (storage/app/private), sehingga
+     * tidak dapat diakses langsung dari web. Route ini satu-satunya jalan
+     * membacanya dan menerapkan aturan yang SAMA dengan halaman pengajuan:
+     * - permission `shm.view` (middleware route), dan
+     * - ownership pengajuan (tanpa `shm.view_all` hanya pemilik yang boleh).
+     * Kolateral yang tidak termasuk dalam pengajuan yang dirujuk tidak akan
+     * pernah ditemukan (404) — tidak ada jalur baca silang antar pengajuan.
+     */
+    public function collateralPhoto(
+        Request $request,
+        ShmLoanApplication $application,
+        ShmLoanApplicationCollateral $collateral,
+    ): SymfonyResponse {
+        $this->authorizeLoanOwnership($request, $application);
+
+        abort_unless(
+            $collateral->shm_loan_application_id === $application->id,
+            404,
+        );
+        abort_if($collateral->photo_path === null, 404);
+
+        $disk = Storage::disk('local');
+
+        abort_unless($disk->exists($collateral->photo_path), 404);
+
+        $contents = $disk->get($collateral->photo_path);
+
+        // Validasi FormRequest membatasi foto ≤ 2 MB, sehingga buffering
+        // penuh ke memori aman — dan mengikuti pola PDF export yang SUDAH
+        // terbukti (response string-body). StreamedResponse dari
+        // Storage::response() memberi body kosong pada PHP built-in dev
+        // server; pola string-body bekerja di semua SAPI.
+        if (! is_string($contents) || $contents === '') {
+            abort(404);
+        }
+
+        $mime = match (strtolower(pathinfo($collateral->photo_path, PATHINFO_EXTENSION))) {
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            default => 'image/jpeg',
+        };
+
+        return response($contents, 200, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline; filename="foto-jaminan-'.$collateral->id.'"',
+            'Cache-Control' => 'private, max-age=86400',
+        ]);
+    }
+
+    /**
      * Bentuk data pengajuan (11 section) untuk props Inertia.
      *
      * @return array<string, mixed>
@@ -548,6 +728,8 @@ class ShmLoanController extends Controller
             'status' => $application->status,
             'application_date' => $application->application_date?->format('Y-m-d'),
             'created_at' => $application->created_at,
+            // T82 — rate produk (f(product, tenor)); null bila produk/tenor
+            // belum menghasilkan tier (tanpa fallback 2%).
             'rate' => $application->officialRatePercent(),
             // Ticket 68 — keputusan dari ShmApproval existing (null = belum
             // diajukan); status keputusan TIDAK disimpan di kolom `status`.
@@ -587,9 +769,24 @@ class ShmLoanController extends Controller
                 'code' => $application->product->code,
                 'name' => $application->product->name,
             ] : null,
+            // Ticket 76-FIX — Data Pribadi adalah DATA PENGAJUAN (snapshot per
+            // aplikasi di `shm_loan_applications`), bukan data master nasabah.
+            'pribadi' => [
+                'unit_kerja' => $application->unit_kerja,
+                'nip' => $application->nip,
+                'telepon_rumah' => $application->telepon_rumah,
+                'tempat_lahir' => $application->tempat_lahir,
+                'tanggal_lahir' => $application->tanggal_lahir?->format('Y-m-d'),
+                'jumlah_tanggungan' => $application->jumlah_tanggungan,
+                'saldo_modal' => $application->saldo_modal,
+                'saldo_non_modal' => $application->saldo_non_modal,
+                'batas_hutang' => $application->batas_hutang,
+            ],
             'pengajuan' => [
                 'principal' => $application->principal,
                 'tenor_months' => $application->tenor_months,
+                // T82 — jatuh tempo pertama dipilih Marketing (date-only).
+                'first_due_date' => $application->first_due_date?->format('Y-m-d'),
                 'purpose' => $application->purpose,
                 'loan_sequence' => $application->loan_sequence,
                 'disbursement_method' => $application->disbursement_method,
@@ -631,6 +828,14 @@ class ShmLoanController extends Controller
                 'status_pengikatan' => $collateral->binding_status,
                 'tanggal_pengikatan' => $collateral->binding_date?->format('Y-m-d'),
                 'nilai_hak_tanggungan' => $collateral->rights_value,
+                // Ticket 77 — nomor nasabah jaminan SELALU mengikuti nasabah
+                // pengajuan (bukan kolom duplikat pada baris jaminan).
+                'customer_number' => $application->customer?->customer_number,
+                // Foto: hanya URL route terotorisasi — path filesystem tidak
+                // pernah diekspos; null = jaminan tanpa foto (backward compat).
+                'foto_url' => $collateral->photo_path !== null
+                    ? route('shm.loans.pengajuan.jaminan.foto', [$application->id, $collateral->id])
+                    : null,
             ])->all(),
             'catatan' => [
                 'date' => $application->kasir_note_date?->format('Y-m-d'),
@@ -651,6 +856,8 @@ class ShmLoanController extends Controller
                 'approved_amount' => $application->approved_amount,
                 'provision_fee' => $application->provision_fee,
                 'administration_fee' => $application->administration_fee,
+                // Ticket 85 — biaya notaris custom.
+                'notary_fee' => $application->notary_fee,
                 'method' => $application->calculation_method,
                 'notes' => $application->approval_notes,
             ],
@@ -681,11 +888,25 @@ class ShmLoanController extends Controller
         $date = static fn ($value): string => $value?->format('Y-m-d') ?? '';
 
         return [
-            'pribadi' => ['customer_id' => (string) $application->shm_customer_id],
+            'pribadi' => [
+                'customer_id' => (string) $application->shm_customer_id,
+                // Ticket 76-FIX — nilai Data Pribadi milik pengajuan ini.
+                'unit_kerja' => $text($application->unit_kerja),
+                'nip' => $text($application->nip),
+                'telepon_rumah' => $text($application->telepon_rumah),
+                'tempat_lahir' => $text($application->tempat_lahir),
+                'tanggal_lahir' => $date($application->tanggal_lahir),
+                'jumlah_tanggungan' => $application->jumlah_tanggungan !== null ? (string) $application->jumlah_tanggungan : '',
+                'saldo_modal' => $money($application->saldo_modal),
+                'saldo_non_modal' => $money($application->saldo_non_modal),
+                'batas_hutang' => $money($application->batas_hutang),
+            ],
             'pengajuan' => [
                 'product_id' => $application->shm_loan_product_id !== null ? (string) $application->shm_loan_product_id : '',
                 'principal' => $money($application->principal),
                 'tenor_months' => (string) $application->tenor_months,
+                // T82 — jatuh tempo pertama dipilih Marketing (date-only).
+                'first_due_date' => $date($application->first_due_date),
                 'purpose' => $text($application->purpose),
                 'loan_sequence' => $application->loan_sequence !== null ? (string) $application->loan_sequence : '',
                 'disbursement_method' => $text($application->disbursement_method),
@@ -726,8 +947,14 @@ class ShmLoanController extends Controller
                 'status_pengikatan' => $text($collateral->binding_status),
                 'tanggal_pengikatan' => $date($collateral->binding_date),
                 'nilai_hak_tanggungan' => $money($collateral->rights_value),
-                // Kunci lokal UI (tidak pernah dikirim ke backend).
-                'foto' => '',
+                // Ticket 77 — `foto` = berkas BARU yang dipilih pengguna saat
+                // ini (null bila tidak ada penggantian); `foto_url` = foto
+                // tersimpan yang sedang ditampilkan. Keduanya tidak pernah
+                // diserialisasi sebagai path filesystem.
+                'foto' => null,
+                'foto_url' => $collateral->photo_path !== null
+                    ? route('shm.loans.pengajuan.jaminan.foto', [$application->id, $collateral->id])
+                    : null,
                 'picked' => false,
             ])->values()->all(),
             'catatan' => [
@@ -749,6 +976,8 @@ class ShmLoanController extends Controller
                 'approved_amount' => $money($application->approved_amount),
                 'provision_fee' => $money($application->provision_fee),
                 'administration_fee' => $money($application->administration_fee),
+                // Ticket 85 — biaya notaris custom.
+                'notary_fee' => $money($application->notary_fee),
                 'method' => $text($application->calculation_method),
                 'notes' => $text($application->approval_notes),
             ],
@@ -807,6 +1036,8 @@ class ShmLoanController extends Controller
             'rate_percent' => $loan->rate_percent,
             'rate_period' => $loan->rate_period,
             'calculation_method' => $loan->calculation_method,
+            // T83 — jatuh tempo pertama (Marketing-pilih) tampil di detail.
+            'first_due_date' => $loan->first_due_date?->format('Y-m-d'),
             'outstanding' => $loan->outstanding(),
             'location' => $loan->location,
             'purpose' => $loan->purpose,
@@ -879,6 +1110,19 @@ class ShmLoanController extends Controller
                 'disbursed_at' => $loan->disbursed_at?->format('Y-m-d'),
                 'principal' => $loan->principal,
                 'status' => $loan->status,
+                // T85 — snapshot biaya pencairan (immutable historical).
+                // Seluruh nilai dibaca dari record yang sudah tersimpan;
+                // TIDAK dihitung ulang di backend maupun frontend.
+                'costs' => [
+                    'admin_fee' => $loan->admin_fee,
+                    'provision_fee' => $loan->provision_fee,
+                    'insurance_fee' => $loan->insurance_fee,
+                    'notary_fee' => $loan->notary_fee,
+                    'principal_savings' => $loan->principal_savings,
+                    'mandatory_savings' => $loan->mandatory_savings,
+                    'total_deduction' => $loan->total_deduction,
+                    'net_disbursement' => $loan->net_disbursement,
+                ],
             ],
             // Jaminan & barang agunan mengikuti pengajuan asal; daftar bebas
             // yang sudah tersimpan. TIDAK ada master collateral baru (T70).

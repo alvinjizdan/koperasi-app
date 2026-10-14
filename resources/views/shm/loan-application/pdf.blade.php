@@ -137,13 +137,44 @@
         <td class="label">Tanggal menjadi nasabah SHM</td>
         <td class="value">{{ $application->customer?->created_at?->format('d/m/Y') ?? '-' }}</td>
     </tr>
+    {{-- Ticket 76-FIX — Data Pribadi adalah nilai milik pengajuan ini, bukan master nasabah. --}}
     <tr>
-        <td class="label">Unit Kerja / NIP / Tempat-Tanggal Lahir / Jumlah Tanggungan</td>
-        <td class="value">Belum tersedia (PENDING BUSINESS CONFIRMATION)</td>
+        <td class="label">Unit Kerja</td>
+        <td class="value">{{ ($application->unit_kerja) ?: '-' }}</td>
     </tr>
     <tr>
-        <td class="label">Saldo Modal / Saldo Non Modal / Batas Hutang</td>
-        <td class="value">Belum tersedia (PENDING BUSINESS CONFIRMATION)</td>
+        <td class="label">NIP</td>
+        <td class="value">{{ ($application->nip) ?: '-' }}</td>
+    </tr>
+    <tr>
+        <td class="label">Telepon Rumah</td>
+        <td class="value">{{ ($application->telepon_rumah) ?: '-' }}</td>
+    </tr>
+    <tr>
+        <td class="label">Tempat, Tanggal Lahir</td>
+        <td class="value">
+            @if($application->tempat_lahir || $application->tanggal_lahir)
+                {{ trim(($application->tempat_lahir ?: '').', '.($application->tanggal_lahir?->format('d/m/Y') ?: ''), ', ') }}
+            @else
+                -
+            @endif
+        </td>
+    </tr>
+    <tr>
+        <td class="label">Jumlah Tanggungan</td>
+        <td class="value">{{ $application->jumlah_tanggungan ?? '-' }}</td>
+    </tr>
+    <tr>
+        <td class="label">Saldo Modal</td>
+        <td class="value">{{ $application->saldo_modal !== null ? 'Rp '.number_format((float) $application->saldo_modal, 0, ',', '.') : '-' }}</td>
+    </tr>
+    <tr>
+        <td class="label">Saldo Non Modal</td>
+        <td class="value">{{ $application->saldo_non_modal !== null ? 'Rp '.number_format((float) $application->saldo_non_modal, 0, ',', '.') : '-' }}</td>
+    </tr>
+    <tr>
+        <td class="label">Batas Hutang</td>
+        <td class="value">{{ $application->batas_hutang !== null ? 'Rp '.number_format((float) $application->batas_hutang, 0, ',', '.') : '-' }}</td>
     </tr>
 </table>
 
@@ -272,13 +303,31 @@
                 <tr>
                     <td colspan="8"><strong>Keterangan:</strong> {{ ($collateral->notes) ?? '-' }}</td>
                 </tr>
+                @if (isset($collateralPhotos[$collateral->id]))
+                    <tr>
+                        <td colspan="8">
+                            <strong>Foto:</strong><br />
+                            {{-- Ticket 77 — foto disematkan sebagai data URI dari
+                                 storage privat; path filesystem TIDAK pernah
+                                 ditulis ke dokumen. Foto yang hilang dari disk
+                                 dilewati dengan tenang (tanpa gambar rusak). --}}
+                            <img
+                                src="{{ $collateralPhotos[$collateral->id] }}"
+                                alt="Foto jaminan {{ $collateral->collateral_name }}"
+                                style="max-width: 240px; max-height: 180px; border: 1px solid #cbd5e1;"
+                            />
+                        </td>
+                    </tr>
+                @endif
             @endforeach
         </tbody>
     </table>
 @endif
 <p class="note">
-    Foto jaminan: PENDING INFRASTRUCTURE — penyimpanan berkas belum tersedia,
-    sehingga foto tidak disertakan pada dokumen ini.
+    Foto jaminan disertakan pada dokumen ini hanya bila berkas tersimpan;
+    dokumen tetap sah tanpa foto. Nilai hak tanggungan, metode appraisal,
+    dan ketentuan pengikatan mengikuti konfirmasi bisnis KSP
+    (PENDING BUSINESS CONFIRMATION).
 </p>
 
 <h2>6. Keterangan / Catatan oleh Kasir / SC</h2>
@@ -328,6 +377,7 @@
     <tr><td class="label">Persetujuan Pinjaman Sebesar</td><td class="value">{{ $application->approved_amount !== null ? 'Rp '.number_format((float) $application->approved_amount, 0, ',', '.') : '-' }}</td></tr>
     <tr><td class="label">Biaya Provisi</td><td class="value">{{ $application->provision_fee !== null ? 'Rp '.number_format((float) $application->provision_fee, 0, ',', '.') : '-' }}</td></tr>
     <tr><td class="label">Biaya Administrasi</td><td class="value">{{ $application->administration_fee !== null ? 'Rp '.number_format((float) $application->administration_fee, 0, ',', '.') : '-' }}</td></tr>
+    <tr><td class="label">Biaya Notaris</td><td class="value">{{ $application->notary_fee !== null ? 'Rp '.number_format((float) $application->notary_fee, 0, ',', '.') : '-' }}</td></tr>
     <tr><td class="label">Jangka waktu</td><td class="value">{{ $application->tenor_months }} kali angsuran</td></tr>
     <tr>
         <td class="label">Jasa / rate</td>

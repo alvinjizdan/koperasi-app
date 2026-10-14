@@ -103,15 +103,24 @@ class MarketingActivityController extends Controller
      */
     public function store(StoreMarketingActivityRequest $request): RedirectResponse
     {
+        // Deteksi apakah nasabah belum memiliki lokasi sebelum check-in ini,
+        // supaya dapat diberitahu bila koordinat baru saja dikunci.
+        $customerBefore = ShmCustomer::query()->find($request->validated()['shm_customer_id']);
+        $hadLocationBefore = $customerBefore !== null && $customerBefore->hasLocation();
+
         $activity = $this->activityService->checkIn(
             $request->validated(),
             // marketing_id dari pengguna yang login, bukan dari input.
             (int) $request->user()->id,
         );
 
+        $lockNote = ! $hadLocationBefore
+            ? ' Lokasi nasabah berhasil dikunci dari koordinat check-in pertama.'
+            : '';
+
         return redirect()
             ->route('shm.marketing.activities.show', $activity->id)
-            ->with('success', 'Check-in kunjungan berhasil dicatat pada '.$activity->checked_in_at->format('d/m/Y H:i').'.');
+            ->with('success', 'Check-in kunjungan berhasil dicatat pada '.$activity->checked_in_at->format('d/m/Y H:i').'.'.$lockNote);
     }
 
     /**
@@ -144,6 +153,8 @@ class MarketingActivityController extends Controller
                     'customer_number' => $activity->customer->customer_number,
                     'name' => $activity->customer->name,
                     'address' => $activity->customer->address,
+                    'latitude' => $activity->customer->latitude,
+                    'longitude' => $activity->customer->longitude,
                 ],
                 // Jarak hanya informasi, bukan syarat check-in. Titik pembanding
                 // adalah lokasi tersimpan pada nasabah SHM, bukan pada anggota.

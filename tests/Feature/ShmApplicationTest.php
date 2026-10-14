@@ -236,9 +236,15 @@ class ShmApplicationTest extends TestCase
             ->assertSessionHasErrors('shm_customer_id');
     }
 
-    public function test_application_can_create_new_customer_inline(): void
+    public function test_application_inline_new_customer_without_member_never_auto_selects_an_active_member(): void
     {
-        $before = ShmCustomer::query()->count();
+        // T89F-2 — negatif assertion: dengan DUA anggota koperasi aktif,
+        // pembuatan nasabah SHM inline tanpa member_id harus DITOLAK.
+        // Tidak boleh memilih anggota aktif pertama (A) maupun anggota (B).
+        $memberB = Member::factory()->create();
+
+        $beforeCustomers = ShmCustomer::query()->count();
+        $beforeMembers = Member::query()->count();
 
         $this->actingAs($this->marketing)
             ->post(route('shm.applications.store'), [
@@ -249,18 +255,15 @@ class ShmApplicationTest extends TestCase
                 ],
                 'notes' => 'Pengajuan nasabah baru',
             ])
-            ->assertSessionHasNoErrors();
+            ->assertSessionHasErrors('member_id');
 
-        // Nasabah baru dibuat sebagai master nasabah SHM, bukan anggota koperasi.
-        $this->assertSame($before + 1, ShmCustomer::query()->count());
-        $this->assertSame(1, Member::query()->count());
-
-        $application = ShmApplication::query()->firstOrFail();
-        $customer = ShmCustomer::query()->latest('id')->firstOrFail();
-
-        $this->assertSame('Nasabah Baru Dari Flow', $customer->name);
-        $this->assertSame($customer->id, $application->shm_customer_id);
-        $this->assertMatchesRegularExpression('/^NSB-\d{8}-[0-9A-F]{8}$/', $customer->customer_number);
+        // Status database, bukan sekadar pesan error.
+        $this->assertSame($beforeCustomers, ShmCustomer::query()->count());
+        $this->assertSame($beforeMembers, Member::query()->count());
+        $this->assertDatabaseMissing('shm_customers', ['name' => 'Nasabah Baru Dari Flow']);
+        $this->assertDatabaseMissing('shm_customers', ['member_id' => $this->member->id]);
+        $this->assertDatabaseMissing('shm_customers', ['member_id' => $memberB->id]);
+        $this->assertDatabaseCount('shm_customers', $beforeCustomers);
     }
 
     public function test_application_rejects_inactive_customer(): void

@@ -5,6 +5,7 @@ namespace App\Services\Shm;
 use App\Models\ShmLoanApplication;
 use Dompdf\Dompdf;
 use Dompdf\Options;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -22,15 +23,25 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * Nama file: `pengajuan-pinjaman-{application_number}.pdf` (identifier
  * pengajuan, tanpa data pelanggan lain).
+ *
+ * Ticket 77 — foto jaminan disematkan sebagai data URI (base64) dari disk
+ * privat. dompdf dibuat dengan `isRemoteEnabled = false`, jadi satu-satunya
+ * gambar yang bisa muncul adalah yang sudah berada di memori; path
+ * filesystem TIDAK pernah menyentuh template. Foto yang berkasnya hilang
+ * dilewati dengan tenang — dokumen tetap valid tanpa foto.
  */
 class ShmLoanApplicationPdf
 {
+    /** Batas ukuran satu foto yang disematkan (byte) — pengaman memori. */
+    private const MAX_EMBEDDED_PHOTO_BYTES = 2_000_000;
+
     public function download(ShmLoanApplication $application): Response
     {
         $html = view('shm.loan-application.pdf', [
             'application' => $application,
             'generatedAt' => now(),
             'methods' => ShmLoanSimulationService::supportedMethods(),
+            'collateralPhotos' => $this->collateralPhotos($application),
         ])->render();
 
         // Pola yang sama dengan PDF simulasi: naikkan memory_limit hanya
@@ -46,6 +57,51 @@ class ShmLoanApplicationPdf
                 @ini_set('memory_limit', $previousLimit);
             }
         }
+    }
+
+    /**
+     * Ticket 77 — data URI foto jaminan (id jaminan => `data:image/...;base64,...`).
+     *
+     * Hanya berkas yang benar-benar ada di disk dan berada di bawah batas
+     * ukuran yang disertakan; selebihnya dilewati tanpa error sehingga
+     * jaminan tanpa foto (data lama) tetap dirender normal.
+     *
+     * @return array<int, string>
+     */
+    private function collateralPhotos(ShmLoanApplication $application): array
+    {
+        $photos = [];
+        $disk = Storage::disk('local');
+
+        foreach ($application->collaterals as $collateral) {
+            if ($collateral->photo_path === null) {
+                continue;
+            }
+
+            if (! $disk->exists($collateral->photo_path)) {
+                continue;
+            }
+
+            $contents = $disk->get($collateral->photo_path);
+
+            if ($contents === null || $contents === false || $contents === '') {
+                continue;
+            }
+
+            if (strlen($contents) > self::MAX_EMBEDDED_PHOTO_BYTES) {
+                continue;
+            }
+
+            $mime = match (strtolower(pathinfo($collateral->photo_path, PATHINFO_EXTENSION))) {
+                'png' => 'image/png',
+                'webp' => 'image/webp',
+                default => 'image/jpeg',
+            };
+
+            $photos[$collateral->id] = 'data:'.$mime.';base64,'.base64_encode($contents);
+        }
+
+        return $photos;
     }
 
     private function render(string $html, ShmLoanApplication $application): Response

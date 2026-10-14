@@ -754,6 +754,9 @@ class ShmLoanMonitoringTest extends TestCase
                 'product_id' => $this->product->id,
                 'principal' => '10000000',
                 'tenor_months' => '12',
+                // T82 — jatuh tempo pertama wajib diisi Marketing sebelum
+                // pencairan (fixture mengisinya secara eksplisit).
+                'first_due_date' => now()->addMonth()->startOfMonth()->toDateString(),
                 'purpose' => 'Modal usaha',
                 'loan_sequence' => '',
                 'disbursement_method' => '',
