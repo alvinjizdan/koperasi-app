@@ -129,6 +129,18 @@ class ShmCollectionCase extends Model
     }
 
     /**
+     * Riwayat record Promise to Pay pada case ini (Ticket 97) — append-only
+     * dengan FK RESTRICT; multiple PTP per case disimpan sebagai riwayat
+     * (hanya SATU berstatus OPEN berkat partial unique index).
+     *
+     * @return HasMany<ShmCollectionPtp, $this>
+     */
+    public function ptps(): HasMany
+    {
+        return $this->hasMany(ShmCollectionPtp::class, 'shm_collection_case_id');
+    }
+
+    /**
      * Scope case aktif: status selain RESOLVED — definisi yang sama dengan
      * partial unique index `shm_collection_cases_active_unique`.
      *

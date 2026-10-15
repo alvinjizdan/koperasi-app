@@ -28,6 +28,7 @@ use App\Http\Controllers\Shm\ShmApplicationController;
 use App\Http\Controllers\Shm\ShmApprovalController;
 use App\Http\Controllers\Shm\ShmCollectionActivityController;
 use App\Http\Controllers\Shm\ShmCollectionController;
+use App\Http\Controllers\Shm\ShmCollectionPtpController;
 use App\Http\Controllers\Shm\ShmCreditCheckController;
 use App\Http\Controllers\Shm\ShmCustomerController;
 use App\Http\Controllers\Shm\ShmDashboardController;
@@ -695,6 +696,25 @@ Route::prefix('shm')->name('shm.')->group(function () {
             // -----------------------------------------------------------------
             Route::post('/collection/{case}/transition', [ShmCollectionController::class, 'transition'])
                 ->name('collection.cases.transition');
+
+            // -----------------------------------------------------------------
+            // Ticket 97 — Record Promise to Pay (PTP) Collection.
+            //
+            // Dua POST di gate modul `shm.view` yang SAMA (pola T93/T94:
+            // permission view existing + otorisasi tulis mutlak di
+            // ShmCollectionPtpService — pemilik case saja, tanpa fallback
+            // admin/shm.view_all; tidak ada permission baru). PTP hanya bisa
+            // dicatat saat case PROMISE_TO_PAY & tanpa PTP OPEN (guard di
+            // service); pembuatan TIDAK mengubah status case (transisi case
+            // tetap endpoint T94 di atas) dan TIDAK membuat pembayaran.
+            // Path 3 segmen {case}/ptp & 4 segmen literal ptp/{ptp}/transition
+            // tidak konflik dengan GET /collection/{loan} maupun POST lain.
+            // Riwayat PTP dibaca lewat payload halaman detail (/collection/{loan}).
+            // -----------------------------------------------------------------
+            Route::post('/collection/{case}/ptp', [ShmCollectionPtpController::class, 'store'])
+                ->name('collection.ptp.store');
+            Route::post('/collection/ptp/{ptp}/transition', [ShmCollectionPtpController::class, 'transition'])
+                ->name('collection.ptp.transition');
 
             Route::get('/pinjaman/{loan}', [ShmLoanController::class, 'show'])
                 ->name('loans.show');

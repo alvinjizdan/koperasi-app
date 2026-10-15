@@ -47,6 +47,21 @@ import {
  * penalty, collector, escalation otomatis, maupun perubahan status pinjaman
  * — semuanya masih PENDING BUSINESS CONFIRMATION. State angsuran adalah
  * turunan tampilan, bukan status DB baru.
+ *
+ * Ticket 96 menambahkan section Kepemilikan & Eskalasi: pemilik Marketing
+ * (dari pengajuan asal, dikirim server — bukan fallback), status case
+ * otoritatif, state eskalasi (`escalation.is_escalated`), dan konteks
+ * otoritas BM/PD dari contract T91. TIDAK ada assignee palsu
+ * (`assigned_authority` selalu null — mekanisme assignment = PENDING), tidak
+ * ada dropdown user, dan tidak ada aksi mutasi baru di sini.
+ *
+ * Ticket 97 menambahkan section Promise to Pay: record janji bayar
+ * persisten (tanggal/nominal/catatan/pembuat — semua dikirim server),
+ * riwayat multiple PTP, form Catat PTP (hanya pemilik + case
+ * PROMISE_TO_PAY + tanpa PTP OPEN), dan aksi manual Tandai Terpenuhi/Tidak
+ * Dipenuhi/Batalkan (graph dikirim server). TIDAK ada kalkulasi
+ * terlambat/terpenuhi otomatis dari tanggal maupun pembayaran, dan
+ * pencatatan PTP tidak pernah mengubah status case.
  */
 function Field({ label, children }) {
     return (
@@ -102,13 +117,25 @@ const ACTIVITY_RESULT_META = {
 
 // Status lifecycle Collection Case = contract T91 (via ALLOWED_TRANSITIONS
 // T92 yang dikirim server); label Indonesia hanya tampilan. PROMISE_TO_PAY di
-// sini murni STATE WORKFLOW — tanpa form/field detail PTP (ticket PTP nanti).
+// sini murni STATE WORKFLOW — detail janji (tanggal/nominal/catatan) berada
+// di record PTP persisten terpisah (Ticket 97), bukan di status ini.
 const CASE_STATUS_META = {
     OPEN: { label: 'Open', className: 'bg-slate-100 text-slate-600' },
     IN_PROGRESS: { label: 'In Progress', className: 'bg-sky-50 text-sky-700' },
     PROMISE_TO_PAY: { label: 'Promise to Pay', className: 'bg-amber-50 text-amber-700' },
     ESCALATED: { label: 'Escalated', className: 'bg-rose-50 text-rose-700' },
     RESOLVED: { label: 'Resolved', className: 'bg-emerald-50 text-emerald-700' },
+};
+
+// Status record PTP (Ticket 97) = state model minimal yang dieja sama
+// dengan backend; label Indonesia hanya tampilan. MISSED/FULFILLED TIDAK
+// PERNAH terjadi otomatis — seluruh perubahan status lewat aksi manual
+// eksplisit pemilik pada endpoint PTP.
+const PTP_STATUS_META = {
+    OPEN: { label: 'Aktif (OPEN)', className: 'bg-amber-50 text-amber-700' },
+    FULFILLED: { label: 'Terpenuhi', className: 'bg-emerald-50 text-emerald-700' },
+    MISSED: { label: 'Tidak Dipenuhi', className: 'bg-rose-50 text-rose-700' },
+    CANCELLED: { label: 'Dibatalkan', className: 'bg-slate-100 text-slate-600' },
 };
 
 /**
@@ -253,6 +280,75 @@ function ActivityForm({ caseId }) {
             </div>
             <InputError message={errors['collection.otorisasi']} className="mt-2" />
         </form>
+    );
+}
+
+/**
+ * Kepemilikan & eskalasi Collection (Ticket 96).
+ *
+ * Seluruh datang dari server: `owner` (Marketing pemilik dari pengajuan
+ * asal — tanpa fallback user), `status` (state otoritatif lifecycle T92),
+ * dan `escalation` (state + konteks otoritas BM/PD dari contract T91).
+ * TIDAK ada assignee palsu: `assigned_authority` selalu null karena
+ * mekanisme assignment/reassignment BM/PD masih PENDING BUSINESS
+ * CONFIRMATION. Tidak ada dropdown user maupun form assignment di sini —
+ * section ini murni representasi baca.
+ */
+function CollectionOwnership({ collectionCase }) {
+    const { owner, status, escalation } = collectionCase;
+    const statusMeta = CASE_STATUS_META[status] ?? {
+        label: status,
+        className: 'bg-slate-100 text-slate-600',
+    };
+    const authorityLabels = {
+        branch_manager: 'Branch Manager',
+        president_director: 'President Director',
+    };
+    const isEscalated = escalation?.is_escalated ?? false;
+
+    return (
+        <section className="rounded-lg bg-white p-5 shadow">
+            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                <Users className="h-4 w-4 text-slate-400" />
+                Kepemilikan & Eskalasi
+            </h2>
+
+            <dl className="grid grid-cols-2 gap-4 md:grid-cols-3">
+                <Field label="Pemilik">
+                    <span className="text-slate-800">
+                        Marketing — {owner?.name ?? `#${owner?.user_id}`}
+                    </span>
+                </Field>
+                <Field label="Status">
+                    <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusMeta.className}`}
+                    >
+                        {statusMeta.label}
+                    </span>
+                </Field>
+                <Field label="Eskalasi">
+                    <span
+                        className={
+                            isEscalated ? 'font-semibold text-rose-700' : 'text-slate-700'
+                        }
+                    >
+                        {isEscalated ? 'Dieskalasi' : 'Belum dieskalasi'}
+                    </span>
+                </Field>
+            </dl>
+
+            {isEscalated && (
+                <p className="mt-3 text-xs text-slate-500">
+                    Otoritas eskalasi (contract T91):{' '}
+                    {(escalation?.authorities ?? [])
+                        .map((authority) => authorityLabels[authority] ?? authority)
+                        .join(' / ')}
+                    . Penanganan operasional tetap oleh Marketing pemilik case
+                    — penugasan spesifik otoritas (assignment BM/PD) belum
+                    ditentukan.
+                </p>
+            )}
+        </section>
     );
 }
 
@@ -451,6 +547,275 @@ function CollectionResolution({ collectionCase }) {
             {errors?.['collection.resolusi'] && (
                 <p className="mt-3 text-xs text-rose-600">
                     {errors['collection.resolusi']}
+                </p>
+            )}
+        </section>
+    );
+}
+
+/**
+ * Record Promise to Pay (Ticket 97).
+ *
+ * Seluruh datang dari server: riwayat record (`ptp.history`), penanda PTP
+ * aktif (`ptp.has_open`), hak pembuatan (`ptp.can_create`), dan graph
+ * transisi per record (`allowed_transitions` — KOSONG untuk non-pemilik,
+ * sehingga React tidak pernah menawarkan aksi ke non-owner). TIDAK ada
+ * perhitungan "terlambat/terpenuhi/gagal" dari tanggal hari ini maupun
+ * pembayaran: FULFILLED/MISSED/CANCELLED semuanya aksi manual eksplisit
+ * pemilik yang dikirim ke endpoint PTP (backend otoritatif).
+ *
+ * Pencatatan PTP hanya tersedia saat case berstatus PROMISE_TO_PAY dan
+ * tanpa PTP OPEN (guard di backend); pembuatan PTP TIDAK mengubah status
+ * case — transisi case tetap melalui workflow Collection (Ticket 94).
+ */
+function PromiseToPay({ collectionCase }) {
+    const { id: caseId, status: caseStatus, can_record, ptp } = collectionCase;
+    const { errors } = usePage().props;
+    const history = ptp?.history ?? [];
+    const currentOpen = history.find((item) => item.status === 'OPEN') ?? null;
+    const latest = currentOpen ?? history[0] ?? null;
+
+    const { data, setData, post, processing, reset } = useForm({
+        promised_date: '',
+        promised_amount: '',
+        notes: '',
+    });
+
+    const submit = (event) => {
+        event.preventDefault();
+        post(route('shm.collection.ptp.store', caseId), {
+            preserveScroll: true,
+            onSuccess: () => reset(),
+        });
+    };
+
+    const transitionTo = (ptpId, toStatus) => {
+        router.post(
+            route('shm.collection.ptp.transition', ptpId),
+            { status: toStatus },
+            { preserveScroll: true },
+        );
+    };
+
+    // Label aksi — murni presentasi; target valid selalu datang dari
+    // `allowed_transitions` server (React tidak menghitung graph PTP).
+    const transitionLabels = {
+        FULFILLED: 'Tandai Terpenuhi',
+        MISSED: 'Tandai Tidak Dipenuhi',
+        CANCELLED: 'Batalkan PTP',
+    };
+
+    const statusMeta = (status) =>
+        PTP_STATUS_META[status] ?? { label: status, className: 'bg-slate-100 text-slate-600' };
+
+    return (
+        <section className="rounded-lg bg-white p-5 shadow">
+            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
+                <CalendarDays className="h-4 w-4 text-slate-400" />
+                Promise to Pay
+            </h2>
+
+            {latest ? (
+                <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <dl className="grid grid-cols-2 gap-4 md:grid-cols-3">
+                        <Field label="Tanggal Janji">
+                            <span className="text-slate-800">
+                                {formatDate(latest.promised_date)}
+                            </span>
+                        </Field>
+                        <Field label="Nominal Janji">
+                            <span className="text-slate-800">
+                                {formatRupiah(latest.promised_amount)}
+                            </span>
+                        </Field>
+                        <Field label="Status">
+                            <span
+                                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusMeta(latest.status).className}`}
+                            >
+                                {statusMeta(latest.status).label}
+                            </span>
+                        </Field>
+                        <Field label="Catatan">
+                            <span className="text-slate-800">
+                                {latest.notes ?? '—'}
+                            </span>
+                        </Field>
+                        <Field label="Dibuat oleh">
+                            <span className="text-slate-800">
+                                Marketing — {latest.creator?.name ?? `#${latest.creator?.id}`}
+                            </span>
+                        </Field>
+                        <Field label="Dibuat pada">
+                            <span className="text-slate-800">
+                                {formatDateTime(latest.created_at)}
+                            </span>
+                        </Field>
+                    </dl>
+
+                    {currentOpen && currentOpen.allowed_transitions.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {currentOpen.allowed_transitions.map((toStatus) => (
+                                <button
+                                    key={toStatus}
+                                    type="button"
+                                    onClick={() => transitionTo(currentOpen.id, toStatus)}
+                                    className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1"
+                                >
+                                    {transitionLabels[toStatus] ?? toStatus}
+                                </button>
+                            ))}
+                            <p className="self-center text-xs text-slate-500">
+                                Penyelesaian PTP = aksi manual eksplisit —
+                                tidak dihitung otomatis dari pembayaran.
+                            </p>
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <p className="mb-4 text-sm text-slate-500">
+                    Belum ada record Promise to Pay pada case ini.
+                </p>
+            )}
+
+            {ptp?.can_create ? (
+                <form
+                    onSubmit={submit}
+                    className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4"
+                >
+                    <p className="mb-3 text-xs font-semibold uppercase text-slate-500">
+                        Catat PTP
+                    </p>
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                            <InputLabel htmlFor="promised_date" value="Tanggal Janji" />
+                            <TextInput
+                                id="promised_date"
+                                type="date"
+                                value={data.promised_date}
+                                className="mt-1 block w-full"
+                                onChange={(event) =>
+                                    setData('promised_date', event.target.value)
+                                }
+                            />
+                            <InputError
+                                message={errors.promised_date ?? errors['collection.ptp.tanggal']}
+                                className="mt-1"
+                            />
+                        </div>
+                        <div>
+                            <InputLabel htmlFor="promised_amount" value="Nominal Janji" />
+                            <TextInput
+                                id="promised_amount"
+                                type="number"
+                                min="0.01"
+                                step="0.01"
+                                value={data.promised_amount}
+                                className="mt-1 block w-full"
+                                onChange={(event) =>
+                                    setData('promised_amount', event.target.value)
+                                }
+                            />
+                            <InputError
+                                message={
+                                    errors.promised_amount ?? errors['collection.ptp.nominal']
+                                }
+                                className="mt-1"
+                            />
+                        </div>
+                        <div className="md:col-span-2">
+                            <InputLabel htmlFor="ptp_notes" value="Catatan (opsional)" />
+                            <textarea
+                                id="ptp_notes"
+                                value={data.notes}
+                                onChange={(event) => setData('notes', event.target.value)}
+                                rows={2}
+                                placeholder="Contoh: Pembayaran setelah tanggal gajian."
+                                className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            />
+                            <InputError message={errors.notes} className="mt-1" />
+                        </div>
+                    </div>
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                        <PrimaryButton disabled={processing}>Catat PTP</PrimaryButton>
+                        <p className="text-xs text-slate-500">
+                            Pencatatan PTP tidak mengubah status case dan tidak
+                            membuat pembayaran — transisi status case tetap
+                            melalui workflow Collection.
+                        </p>
+                    </div>
+                    <InputError
+                        message={errors['collection.ptp.duplikat']}
+                        className="mt-2"
+                    />
+                </form>
+            ) : (
+                can_record &&
+                caseStatus !== 'PROMISE_TO_PAY' && (
+                    <p className="mb-4 text-xs text-slate-500">
+                        PTP dapat dicatat setelah case berstatus Promise to
+                        Pay — ubah status lewat workflow Collection terlebih
+                        dahulu. Pembuatan PTP tidak mengubah status case
+                        otomatis.
+                    </p>
+                )
+            )}
+
+            {!can_record && (
+                <p className="mb-4 text-xs text-slate-500">
+                    Pencatatan &amp; mutasi PTP hanya tersedia bagi Marketing
+                    pemilik case ini.
+                </p>
+            )}
+
+            {history.length > 0 && (
+                <div>
+                    <h3 className="mb-2 text-xs font-semibold uppercase text-slate-500">
+                        Riwayat PTP
+                    </h3>
+                    <table className="w-full text-left text-xs">
+                        <thead className="border-b border-slate-200 text-slate-500">
+                            <tr>
+                                <th className="py-2 pr-3 font-semibold">Tanggal Janji</th>
+                                <th className="py-2 pr-3 font-semibold">Nominal</th>
+                                <th className="py-2 pr-3 font-semibold">Status</th>
+                                <th className="py-2 pr-3 font-semibold">Dibuat Oleh</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {history.map((item) => (
+                                <tr key={item.id} className="border-b border-slate-100">
+                                    <td className="py-2 pr-3 text-slate-700">
+                                        {formatDate(item.promised_date)}
+                                    </td>
+                                    <td className="py-2 pr-3 text-slate-700">
+                                        {formatRupiah(item.promised_amount)}
+                                    </td>
+                                    <td className="py-2 pr-3">
+                                        <span
+                                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusMeta(item.status).className}`}
+                                        >
+                                            {statusMeta(item.status).label}
+                                        </span>
+                                    </td>
+                                    <td className="py-2 pr-3 text-slate-700">
+                                        Marketing —{' '}
+                                        {item.creator?.name ?? `#${item.creator?.id}`}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {errors?.['collection.ptp.status'] && (
+                <p className="mt-3 text-xs text-rose-600">
+                    {errors['collection.ptp.status']}
+                </p>
+            )}
+            {errors?.['collection.otorisasi'] && (
+                <p className="mt-3 text-xs text-rose-600">
+                    {errors['collection.otorisasi']}
                 </p>
             )}
         </section>
@@ -887,14 +1252,18 @@ export default function Show({ collection, collection_case, timeline, today, fla
                     />
                 </section>
 
-                {/* Collection case workflow (Ticket 94) + resolution readiness (Ticket 95) */}
+                {/* Ownership & escalation context (Ticket 96) + case workflow
+                    (Ticket 94) + resolution readiness (Ticket 95) + PTP
+                    record (Ticket 97) */}
                 {collection_case && (
                     <>
+                        <CollectionOwnership collectionCase={collection_case} />
                         <CaseWorkflow
                             collectionCase={collection_case}
                             flash={flash}
                         />
                         <CollectionResolution collectionCase={collection_case} />
+                        <PromiseToPay collectionCase={collection_case} />
                     </>
                 )}
 

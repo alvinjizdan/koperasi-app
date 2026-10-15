@@ -9,6 +9,7 @@ use App\Http\Requests\Shm\StoreShmCollectionCaseTransitionRequest;
 use App\Models\AuditLog;
 use App\Models\ShmCollectionActivity;
 use App\Models\ShmCollectionCase;
+use App\Models\ShmCollectionPtp;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanInstallment;
@@ -56,6 +57,20 @@ use Inertia\Response;
  * guard finansial resolusi di service — tidak ada perhitungan finansial di
  * frontend, tidak ada resolusi otomatis, dan tidak ada pembuatan pembayaran
  * dari halaman Collection.
+ *
+ * Ticket 96 menambahkan representasi kepemilikan & konteks eskalasi pada
+ * payload case (owner Marketing dari pengajuan asal + status ESCALATED
+ * otoritatif + otoritas BM/PD dari contract T91). Murni PRESENTASI baca:
+ * TIDAK ada mutasi assignment/reassignment (mechanisme = PENDING BUSINESS
+ * CONFIRMATION), TIDAK ada role teknis BM/PD baru, TIDAK ada assignee yang
+ * dikarang, dan otorisasi mutasi tetap owner-only (guard ada di service).
+ *
+ * Ticket 97 menambahkan pembacaan riwayat record Promise to Pay pada payload
+ * case (eager-load `ptps` tanpa N+1; flag `can_create`/`has_open`/graph
+ * transisi per record semua server-derived). Pencatatan & mutasi status PTP
+ * ada di ShmCollectionPtpController + ShmCollectionPtpService (route
+ * terpisah, otorisasi di domain); status case TIDAK pernah berubah karena
+ * PTP, dan TIDAK ada logika terlambat/terpenuhi otomatis di sini.
  */
 class ShmCollectionController extends Controller
 {
@@ -149,7 +164,10 @@ class ShmCollectionController extends Controller
         $latestCase = ShmCollectionCase::query()
             ->where('shm_loan_id', $loan->getKey())
             ->latest('id')
-            ->with(['activities' => fn ($activities) => $activities->latestFirst()->with('actor:id,name')])
+            ->with([
+                'activities' => fn ($activities) => $activities->latestFirst()->with('actor:id,name'),
+                'ptps' => fn ($ptps) => $ptps->latest('id')->with('creator:id,name'),
+            ])
             ->first();
 
         // Halaman detail terbuka untuk kandidat Collection ATAU pinjaman yang
@@ -236,6 +254,19 @@ class ShmCollectionController extends Controller
      * - `can_resolve` = pemilik + belum RESOLVED + ready — SATU-satunya
      *   sumber tampilan tombol Selesaikan di frontend.
      *
+     * Kepemilikan & eskalasi (Ticket 96) — semuanya server-derived:
+     * - `owner` = Marketing pemilik dari pengajuan asal (sumber kebenaran;
+     *   tanpa fallback) beserta konteks role bisnis 'marketing';
+     * - `escalation` = status ESCALATED otoritatif + otoritas BM/PD dibaca
+     *   dari contract T91; `assigned_authority` SELALU null karena
+     *   mekanisme assignment/reassignment BM/PD = PENDING BUSINESS
+     *   CONFIRMATION (role teknis BM/PD belum ada) — frontend tidak pernah
+     *   menerima/menampilkan assignee palsu.
+     *
+     * Promise to Pay (Ticket 97) — `ptp` = riwayat record persisten + flag
+     * server (`has_open`, `can_create`) + graph transisi per record; tanpa
+     * perhitungan tanggal/pembayaran apa pun di payload maupun React.
+     *
      * @param  array{overdue_principal: string, overdue_interest: string, overdue_total: string, allocated_principal: string, allocated_interest: string, allocated_total: string, remaining_overdue: string}  $paymentProgress
      * @return array<string, mixed>|null
      */
@@ -256,6 +287,24 @@ class ShmCollectionController extends Controller
             'opened_at' => $case->opened_at->toDateTimeString(),
             'resolved_at' => $case->resolved_at?->toDateTimeString(),
             'marketing_id' => $case->marketing_id,
+            // Kepemilikan eksplisit (Ticket 96): Marketing pemilik dari
+            // pengajuan asal — id + nama sesungguhnya + konteks role bisnis;
+            // nama null HANYA bila akun Marketing terhapus (restrictOnDelete
+            // mencegahnya) — TIDAK pernah diganti user fallback.
+            'owner' => [
+                'user_id' => (int) $case->marketing_id,
+                'name' => $case->marketing?->name,
+                'context' => 'marketing',
+            ],
+            // Konteks eskalasi (Ticket 96) — baca dari status otoritatif +
+            // contract T91; tanpa assignee (assignment BM/PD = PENDING).
+            'escalation' => $this->presentEscalationContext($case),
+            // Riwayat PTP (Ticket 97) — record janji bayar persisten milik
+            // case; seluruhnya server-derived (riwayat, flag pembuatan, graph
+            // transisi per record). TIDAK ada status yang dihitung dari
+            // tanggal hari ini maupun dari pembayaran — FULFILLED/MISSED
+            // murni aksi manual eksplisit pemilik.
+            'ptp' => $this->presentCollectionPtp($case, $request),
             'can_record' => $isOwner,
             'allowed_transitions' => $isOwner
                 ? (ShmCollectionCase::ALLOWED_TRANSITIONS[$case->status] ?? [])
@@ -279,6 +328,86 @@ class ShmCollectionController extends Controller
                 ])
                 ->values()
                 ->all(),
+        ];
+    }
+
+    /**
+     * Konteks eskalasi Collection Case (Ticket 96) — representasi BACA dari
+     * status otoritatif + contract T91, tanpa mengarang assignee.
+     *
+     * - `is_escalated` = status case ESCALATED saat ini (bukan riwayat:
+     *   case RESOLVED selalu false — status terminal);
+     * - `authorities` = otoritas eskalasi bisnis (Branch Manager / President
+     *   Director) dibaca dari contract T91 (`collection_workflow.
+     *   escalation.authorities`) — role teknis mereka masih PENDING sehingga
+     *   TIDAK ada nama orang yang dikarang;
+     * - `assigned_authority` = SELALU null: mekanisme assignment/
+     *   reassignment BM/PD = PENDING BUSINESS CONFIRMATION (T91 Rule 2/12,
+     *   `assignment_algorithm`); tidak ada tabel/kolom assignment yang ada.
+     *
+     * @return array{is_escalated: bool, authorities: array<int, string>, assigned_authority: null}
+     */
+    private function presentEscalationContext(ShmCollectionCase $case): array
+    {
+        return [
+            'is_escalated' => $case->status === ShmCollectionCase::STATUS_ESCALATED,
+            'authorities' => array_values(
+                (array) config('shm-business-rule-contract.collection_workflow.escalation.authorities', []),
+            ),
+            'assigned_authority' => null,
+        ];
+    }
+
+    /**
+     * Riwayat Promise to Pay Collection Case (Ticket 97) — presentasi baca
+     * dari record persisten; tanpa perhitungan "terlambat/terpenuhi/gagal".
+     *
+     * - `history` = SEMUA record (terbaru di atas, eager-loaded tanpa N+1),
+     *   tiap record menyertakan pembuat (nama dari relasi) dan
+     *   `allowed_transitions` yang KOSONG kecuali record OPEN yang dilihat
+     *   PEMILIK case — React tidak pernah menghitung graph sendiri;
+     * - `has_open` = apakah ada PTP OPEN (penanda janji aktif);
+     * - `can_create` = pemilik + case PROMISE_TO_PAY + tanpa PTP OPEN —
+     *   SATU-satunya sumber tampilan form Catat PTP; server tetap
+     *   otoritatif lewat guard di ShmCollectionPtpService.
+     *
+     * Tidak ada pembacaan pembayaran maupun tanggal hari ini di sini:
+     * pencocokan pembayaran & penentuan MISSED otomatis = PENDING BUSINESS
+     * CONFIRMATION (contract Rule 8 `cannot_guess`).
+     *
+     * @return array{history: array<int, array<string, mixed>>, has_open: bool, can_create: bool}
+     */
+    private function presentCollectionPtp(ShmCollectionCase $case, Request $request): array
+    {
+        $isOwner = (int) $request->user()?->id === (int) $case->marketing_id;
+
+        $history = $case->ptps
+            ->map(fn (ShmCollectionPtp $ptp): array => [
+                'id' => $ptp->id,
+                'status' => $ptp->status,
+                'promised_date' => $ptp->promised_date->toDateString(),
+                'promised_amount' => round((float) $ptp->promised_amount, 2),
+                'notes' => $ptp->notes,
+                'created_at' => $ptp->created_at?->toDateTimeString(),
+                'creator' => [
+                    'id' => $ptp->creator?->id,
+                    'name' => $ptp->creator?->name,
+                ],
+                'allowed_transitions' => $isOwner && $ptp->status === ShmCollectionPtp::STATUS_OPEN
+                    ? ShmCollectionPtp::ALLOWED_TRANSITIONS[ShmCollectionPtp::STATUS_OPEN]
+                    : [],
+            ])
+            ->values()
+            ->all();
+
+        $hasOpen = $case->ptps->contains('status', ShmCollectionPtp::STATUS_OPEN);
+
+        return [
+            'history' => $history,
+            'has_open' => $hasOpen,
+            'can_create' => $isOwner
+                && $case->status === ShmCollectionCase::STATUS_PROMISE_TO_PAY
+                && ! $hasOpen,
         ];
     }
 
