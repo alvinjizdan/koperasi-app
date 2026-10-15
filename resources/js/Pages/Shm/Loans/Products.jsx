@@ -1,22 +1,26 @@
 import React, { useState } from 'react';
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import ShmLayout from '@/Layouts/ShmLayout';
 import ReportTable from '@/Components/Admin/ReportTable';
 import PrimaryButton from '@/Components/PrimaryButton';
 import useTableSort from '@/hooks/useTableSort';
 import { formatDate } from '@/utils/format';
-import { Search, Landmark } from 'lucide-react';
+import { Search, Landmark, PlusCircle, Pencil, CheckCircle2, AlertTriangle } from 'lucide-react';
 
 /**
- * Daftar produk Pinjaman SHM (Ticket 64; kontrak rate T82).
+ * Daftar produk Pinjaman SHM (Ticket 64; kontrak rate T82; CRUD T98-FIX).
  *
- * Master ini TERPISAH dari produk pinjaman koperasi. Sejak T82 halaman ini
- * menampilkan kontrak produk resmi: kategori, nama, status aktif, tier rate
- * EXAKT per rentang tenor (per bulan, flat — rate = f(product, tenor);
- * universal 2% tidak berlaku), dan ringkasan syarat (eligibility). Halaman
- * bersifat baca (seed-driven master; tanpa CRUD).
+ * Master ini TERPISAH dari produk pinjaman koperasi. Halaman menampilkan
+ * kontrak produk resmi: kategori, nama, status aktif, tier rate EXAKT per
+ * rentang tenor (per bulan, flat — rate = f(product, tenor); universal 2%
+ * tidak berlaku), dan ringkasan syarat (eligibility).
+ *
+ * Ticket 98-FIX menambahkan CRUD master (Tambah/Edit) yang dijaga backend
+ * dengan permission terpisah `shm.product.manage` (baca ≠ tulis); tombol
+ * hanya dirender bagi pemegang permission tersebut. Tier rate TIDAK dapat
+ * diubah lewat halaman ini — tetap seed-driven (T82).
  */
-export default function Products({ products, sort, filters }) {
+export default function Products({ products, sort, filters, canManage, flash }) {
     const handleSort = useTableSort('shm.loans.products.index');
 
     const [search, setSearch] = useState(filters.search || '');
@@ -109,22 +113,65 @@ export default function Products({ products, sort, filters }) {
             sortable: true,
             render: (row) => formatDate(row.created_at),
         },
+        ...(canManage
+            ? [
+                  {
+                      key: 'actions',
+                      label: '',
+                      render: (row) => (
+                          <Link
+                              href={route('shm.loans.products.edit', row.id)}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline"
+                          >
+                              <Pencil className="h-3.5 w-3.5" />
+                              Edit
+                          </Link>
+                      ),
+                  },
+              ]
+            : []),
     ];
 
     return (
         <ShmLayout title="Produk Pinjaman SHM">
             <div className="space-y-6">
-                <div>
-                    <h1 className="flex items-center gap-2 text-xl font-semibold text-gray-800">
-                        <Landmark className="h-5 w-5 text-slate-400" />
-                        Produk Pinjaman SHM
-                    </h1>
-                    <p className="text-sm text-gray-500">
-                        Master pinjaman milik modul SHM — kategori, tier rate
-                        (product + tenor eksak; bulanan flat), dan syarat
-                        produk resmi. Terpisah dari produk pinjaman koperasi.
-                    </p>
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                        <h1 className="flex items-center gap-2 text-xl font-semibold text-gray-800">
+                            <Landmark className="h-5 w-5 text-slate-400" />
+                            Produk Pinjaman SHM
+                        </h1>
+                        <p className="text-sm text-gray-500">
+                            Master pinjaman milik modul SHM — kategori, tier
+                            rate (product + tenor eksak; bulanan flat), dan
+                            syarat produk resmi. Terpisah dari produk pinjaman
+                            koperasi.
+                        </p>
+                    </div>
+                    {canManage && (
+                        <Link
+                            href={route('shm.loans.products.create')}
+                            className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                        >
+                            <PlusCircle className="h-4 w-4" />
+                            Tambah Produk
+                        </Link>
+                    )}
                 </div>
+
+                {flash?.success && (
+                    <div className="flex items-start gap-2 rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{flash.success}</span>
+                    </div>
+                )}
+
+                {flash?.error && (
+                    <div className="flex items-start gap-2 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{flash.error}</span>
+                    </div>
+                )}
 
                 <form onSubmit={applyFilters} className="flex flex-wrap items-end gap-3">
                     <div>

@@ -577,11 +577,34 @@ Route::prefix('shm')->name('shm.')->group(function () {
         // seluruh halaman; tidak ada permission baru, dan halaman bersifat
         // baca (tulis transaksi/pinjaman = PENDING BUSINESS CONFIRMATION).
         // -----------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // Ticket 98-FIX — CRUD master produk Pinjaman SHM.
+        //
+        // Baca memakai `shm.view` (grup di bawah); tulis memakai permission
+        // terpisah `shm.product.manage` (pola BUG-01: baca ≠ tulis) sehingga
+        // pemegang shm.view saja tidak dapat mengubah master. Route literal
+        // didaftarkan SEBELUM /pinjaman/{loan} agar tidak tertelan wildcard.
+        // CRUD ini hanya menyentuh baris master produk (code/nama/kategori/
+        // keterangan/syarat/status aktif); skema, tier rate, maupun histori
+        // pinjaman/pengajuan TIDAK berubah — rate tetap dari tier produk (T82).
+        // -----------------------------------------------------------------
+        Route::get('/pinjaman/produk/create', [ShmLoanController::class, 'createProduct'])
+            ->middleware('permission:shm.product.manage')
+            ->name('loans.products.create');
+        Route::post('/pinjaman/produk', [ShmLoanController::class, 'storeProduct'])
+            ->middleware('permission:shm.product.manage')
+            ->name('loans.products.store');
+        Route::get('/pinjaman/produk/{product}/edit', [ShmLoanController::class, 'editProduct'])
+            ->middleware('permission:shm.product.manage')
+            ->name('loans.products.edit');
+        Route::put('/pinjaman/produk/{product}', [ShmLoanController::class, 'updateProduct'])
+            ->middleware('permission:shm.product.manage')
+            ->name('loans.products.update');
+
         Route::middleware('permission:shm.view')->group(function () {
             // Master produk Pinjaman SHM.
             Route::get('/pinjaman/produk', [ShmLoanController::class, 'products'])
                 ->name('loans.products.index');
-
             // Simulasi Pinjaman SHM + ekspor PDF hasil simulasi.
             // Keduanya menerima input yang sama (`run=1` menandai submit)
             // sehingga PDF selalu identik dengan hasil di layar.

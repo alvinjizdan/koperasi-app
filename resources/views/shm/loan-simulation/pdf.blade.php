@@ -137,7 +137,7 @@
         <td class="value">
             {{ rtrim(rtrim(number_format((float) $result['rate_percent'], 4, ',', '.'), '0'), ',') }}%
             per {{ $result['rate_period'] === 'monthly' ? 'bulan' : 'tahun' }}
-            <span class="badge">Rate resmi SHM: 2%</span>
+            <span class="badge">Rate resmi = matriks produk (T82)</span>
         </td>
     </tr>
     <tr>
@@ -226,13 +226,13 @@
 </table>
 
 <div class="note">
-    Dokumen ini adalah HASIL SIMULASI, bukan persetujuan pinjaman. Rate bunga/jasa
-    2% adalah rate resmi SHM. Periodisasi rate (per bulan / per tahun), formula
-    angsuran (flat / efektif / anuitas), denda, dan seluruh formula biaya
-    (administrasi, provisi, asuransi, blokir dana) adalah
-    <strong>PENDING BUSINESS CONFIRMATION</strong> dan dipilih/diinput secara
-    eksplisit pada saat simulasi — bukan keputusan bisnis sistem.
-    Nilai rincian biaya diinput manual, bukan hasil perhitungan.
+    Dokumen ini adalah HASIL SIMULASI, bukan persetujuan pinjaman. Rate resmi
+    SHM mengikuti matriks produk (flat, bulanan — kontrak T79/T82); nilai 2%
+    hanyalah default awal form simulasi. Metode angsuran dan periode rate pada
+    simulasi ini dipilih/diinput secara eksplisit — bukan keputusan bisnis
+    sistem. Denda masih <strong>PENDING BUSINESS CONFIRMATION</strong> dan
+    tidak dihitung. Nilai rincian biaya diinput manual, bukan hasil
+    perhitungan; biaya pencairan resmi dihitung otomatis saat pencairan (T85).
 </div>
 </body>
 </html>

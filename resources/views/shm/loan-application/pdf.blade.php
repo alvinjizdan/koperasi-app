@@ -383,7 +383,7 @@
         <td class="label">Jasa / rate</td>
         <td class="value">
             {{ rtrim(rtrim(number_format($application->officialRatePercent(), 4, ',', '.'), '0'), ',') }}%
-            <span class="badge">Rate resmi SHM: 2%</span>
+            <span class="badge">Rate: tier produk (T82)</span>
         </td>
     </tr>
     <tr>

@@ -44,8 +44,10 @@ import {
  * dan resolusi tidak pernah terjadi otomatis (tombol memakai endpoint
  * workflow T94 yang sama, guard finansial ada di backend). Pencatatan/
  * transisi tidak membuat PTP/pembayaran, dan tidak menawarkan pembayaran,
- * penalty, collector, escalation otomatis, maupun perubahan status pinjaman
- * — semuanya masih PENDING BUSINESS CONFIRMATION. State angsuran adalah
+ * penalty, collector, escalation otomatis, maupun perubahan status pinjaman:
+ * pembayaran berada di modul Pembayaran SHM, tidak ada role collector
+ * (keputusan bisnis), dan penalty serta escalation otomatis masih PENDING
+ * BUSINESS CONFIRMATION. State angsuran adalah
  * turunan tampilan, bukan status DB baru.
  *
  * Ticket 96 menambahkan section Kepemilikan & Eskalasi: pemilik Marketing
@@ -1027,10 +1029,10 @@ export default function Show({ collection, collection_case, timeline, today, fla
                         Halaman <strong>read-only</strong> kecuali dua aksi
                         terbatas bagi pemilik case: pencatatan aktivitas
                         Collection (Ticket 93) dan transisi status workflow
-                        Collection Case (Ticket 94). Tidak ada aksi pembayaran,
-                        penalty, collector, maupun perubahan status pinjaman
-                        dari halaman ini — semuanya masih{' '}
-                        <strong>PENDING BUSINESS CONFIRMATION</strong>.
+                        Collection Case (Ticket 94). Pembayaran berjalan lewat
+                        modul Pembayaran SHM dan status pinjaman tidak berubah
+                        dari halaman ini; penalty serta escalation otomatis
+                        masih <strong>PENDING BUSINESS CONFIRMATION</strong>.
                     </p>
                 </div>
 

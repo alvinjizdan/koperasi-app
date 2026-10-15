@@ -24,13 +24,14 @@ use Tests\TestCase;
  * - ke-11 section tersedia dalam satu berkas halaman;
  * - accordion memakai state React lokal (tanpa request/navigasi backend);
  * - perhitungan penghasilan-pengeluaran memakai rumus sisa yang benar dan
- *   rate resmi tetap 2% (bukan nilai dari screenshot);
+ *   rate default legacy 2% (bukan nilai dari screenshot);
  * - tidak ada dependency ke anggota/simpanan koperasi untuk customer SHM;
  * - permukaan route loans & approval tidak diduplikasi;
  * - struktur sidebar Pinjaman sesuai target (7 anak, placeholder tanpa route).
  *
- * Yang TIDAK diuji: penyimpanan pengajuan (endpoint memang belum ada —
- * PENDING BUSINESS CONFIRMATION) dan formula bunga (juga PENDING).
+ * Yang TIDAK diuji: penyimpanan pengajuan (endpoint store ada — diuji di
+ * ShmLoanApplicationTest) dan pembangunan jadwal angsuran (baseline T79
+ * flat per bulan; diuji di ShmRepaymentScheduleTest).
  */
 class ShmLoanPengajuanTest extends TestCase
 {
@@ -348,7 +349,12 @@ class ShmLoanPengajuanTest extends TestCase
             'shm.loans.pengajuan.store',
             'shm.loans.pengajuan.submit-approval',
             'shm.loans.pengajuan.update',
+            // T98-FIX — CRUD master produk (baca ≠ tulis: shm.product.manage).
+            'shm.loans.products.create',
+            'shm.loans.products.edit',
             'shm.loans.products.index',
+            'shm.loans.products.store',
+            'shm.loans.products.update',
             // T83 — action eksplisit pembangkitan jadwal angsuran.
             'shm.loans.schedule.generate',
             'shm.loans.show',

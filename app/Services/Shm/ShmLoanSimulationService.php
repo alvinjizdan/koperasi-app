@@ -10,9 +10,9 @@ use InvalidArgumentException;
  * Ticket 64 — Simulasi Pinjaman SHM.
  *
  * Layanan ini TIDAK menentukan formula bisnis. Ia hanya:
- * 1. menerima input eksplisit pengguna (plafon, tenor, rate 2%, METODE, dan
- *    PERIODE rate — dua terakhir wajib dipilih karena formula & periodisasi
- *    SHM masih PENDING BUSINESS CONFIRMATION);
+ * 1. menerima input eksplisit pengguna (plafon, tenor, rate default legacy 2%,
+ *    METODE, dan PERIODE rate — dua terakhir wajib dipilih eksplisit; simulasi
+ *    adalah sandbox bebas dan sistem tidak pernah menebak metode/periode);
  * 2. memanggil `InterestCalculator` yang SUDAH ada sebagai satu-satunya
  *    mesin perhitungan bunga di aplikasi (rate koperasi tidak berubah);
  * 3. menyusun komponen pokok/jasa dari keluaran calculator menjadi tabel
@@ -22,12 +22,12 @@ use InvalidArgumentException;
  * dengan `business-rules.loan.months_per_year`. Karena itu:
  * - periode 'yearly'  -> annual_rate = rate
  * - periode 'monthly' -> annual_rate = rate × months_per_year
- * Konversi satuan ini bukan formula bunga baru; ia hanya menempatkan rate 2%
- * pada periode yang dipilih pengguna.
+ * Konversi satuan ini bukan formula bunga baru; ia hanya menempatkan rate
+ * default legacy 2% pada periode yang dipilih pengguna.
  *
  * Biaya (administrasi, provisi, asuransi, blokir dana) dihitung dari input
- * manual pengguna, BUKAN dari formula: seluruh formula biaya SHM masih
- * PENDING BUSINESS CONFIRMATION.
+ * manual pengguna, BUKAN dari matriks biaya resmi pencairan (T85) — simulasi
+ * tetap sandbox bebas.
  */
 class ShmLoanSimulationService
 {

@@ -286,8 +286,9 @@ export default function PaymentShow({ payment, timeline, flash }) {
                             {unallocated > 0 && (
                                 <p className="mt-2 text-xs text-slate-500">
                                     Sisa belum teralokasi disimpan apa adanya —
-                                    perlakuan akhir (pelunasan/refund) masih
-                                    PENDING BUSINESS CONFIRMATION.
+                                    dapat digunakan pada pelunasan (settlement,
+                                    workflow T89); perlakuan akuntansi/refund
+                                    tetap PENDING BUSINESS CONFIRMATION.
                                 </p>
                             )}
                         </>

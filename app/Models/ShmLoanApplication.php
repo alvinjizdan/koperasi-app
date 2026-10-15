@@ -18,8 +18,9 @@ use Illuminate\Support\Carbon;
  * catatan, persyaratan). Konversi application → loan dilakukan ticket
  * approval/pencairan berikutnya.
  *
- * Rate resmi SHM = 2% TIDAK disimpan sebagai kolom: selalu dibaca dari
- * ShmLoan::OFFICIAL_RATE_PERCENT sehingga tidak ada sumber nilai kedua.
+ * Rate resmi SHM TIDAK disimpan sebagai kolom: selalu diresolusi dari
+ * produk + tenor (officialRatePercent(), T82) sehingga tidak ada sumber
+ * nilai kedua.
  * Total penghasilan/pengeluaran/sisa adalah DERIVED dari komponen (tidak ada
  * nilai ganda).
  *
@@ -104,8 +105,9 @@ class ShmLoanApplication extends Model
         'shm_application_id',
         // Ticket 76-FIX — Data Pribadi adalah DATA PENGAJUAN (snapshot per
         // aplikasi), bukan data master nasabah. Nilai dimasukkan manual oleh
-        // staf tanpa formula; sumber & semantik bisnis resmi ketiga kolom
-        // saldo/batas tetap PENDING BUSINESS CONFIRMATION.
+        // staf tanpa formula; ketiga kolom saldo/batas adalah input manual
+        // per pengajuan (keputusan bisnis) — formula otomatis (bila ada)
+        // tetap PENDING BUSINESS CONFIRMATION.
         'unit_kerja',
         'nip',
         'telepon_rumah',

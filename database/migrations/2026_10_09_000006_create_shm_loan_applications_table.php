@@ -20,8 +20,8 @@ use Illuminate\Support\Facades\Schema;
  *   (lihat Ticket 68): hanya di baris ShmApproval sehingga tidak ada sumber
  *   status ganda. Nilai 'ditangguhkan' tidak dibuat (PENDING BUSINESS
  *   CONFIRMATION);
- * - rate resmi 2% TIDAK disimpan sebagai kolom — selalu dibaca dari
- *   ShmLoan::OFFICIAL_RATE_PERCENT sehingga tidak ada sumber nilai kedua;
+ * - rate TIDAK disimpan sebagai kolom — selalu diresolusi dari matriks
+ *   produk (f(produk, tenor) — T82) sehingga tidak ada sumber nilai kedua;
  * - total penghasilan/pengeluaran/sisa adalah DERIVED dari komponen di level
  *   aplikasi, bukan kolom, sehingga tidak ada nilai ganda;
  * - komponen income/expense default 0 agar angka bisa dihitung aman;

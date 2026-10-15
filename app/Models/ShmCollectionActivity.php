@@ -25,7 +25,9 @@ use Illuminate\Support\Carbon;
  *
  * YANG SENGAJA TIDAK ADA (bukan kelalaian):
  * - kolom WhatsApp/SMS/email/koordinat/attachment/PTP/escalation/payment —
- *   tiap domain memiliki ticket atau PENDING BUSINESS CONFIRMATION;
+ *   PTP kini berupa entity terpisah (`shm_collection_ptps`, T97); kolom
+ *   lainnya tetap di luar scope dan escalation otomatis masih PENDING
+ *   BUSINESS CONFIRMATION;
  * - automatic next_action scheduling — `next_action` murni teks operasional;
  * - batas waktu aktivitas (backdate/masa depan) — contract tidak mendefinisikan,
  *   sehingga TIDAK ada kebijakan tanggal yang dikarang di T93.

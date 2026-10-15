@@ -647,12 +647,13 @@ export default function Show({
                         </>
                     ) : (
                         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                            Formula angsuran pinjaman ini belum ditentukan.
-                            Metode (flat / efektif / anuitas) dan periode rate
-                            (per bulan / per tahun) adalah{' '}
-                            <strong>PENDING BUSINESS CONFIRMATION</strong>,
-                            sehingga tabel angsuran tidak ditampilkan. Rate
-                            tersimpan pada record ini:{' '}
+                            Pinjaman ini belum memiliki jadwal angsuran
+                            tersimpan dan kontrak perhitungan eksplisit
+                            (metode & periode) pada record — tabel angsuran
+                            tidak ditampilkan. Baseline resmi untuk produk
+                            SHM: metode flat, periode bulanan, rate dari
+                            matriks produk (T79/T82). Rate tersimpan pada
+                            record ini:{' '}
                             <strong>{Number(loan.rate_percent)}%</strong>.
                         </div>
                     )}

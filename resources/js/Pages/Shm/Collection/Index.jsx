@@ -16,8 +16,11 @@ import { Clock, Lock, Search } from 'lucide-react';
  * ada data yang dimuat penuh ke frontend.
  *
  * Tidak ada aksi pembayaran, penalty, collector, escalation, maupun
- * perubahan status di halaman ini: business rule tersebut masih PENDING
- * BUSINESS CONFIRMATION.
+ * perubahan status pinjaman di halaman ini: pembayaran berjalan lewat
+ * modul Pembayaran SHM, penagihan/aktivitas serta transisi status berada
+ * di halaman detail Collection, tidak ada role collector (keputusan
+ * bisnis), dan escalation otomatis/penalty masih PENDING BUSINESS
+ * CONFIRMATION.
  */
 export default function Index({ loans, sort, filters, products, today }) {
     const handleSort = useTableSort('shm.collection.index');
@@ -195,10 +198,10 @@ export default function Index({ loans, sort, filters, products, today }) {
                 <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                     <Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
                     <p>
-                        Halaman monitoring <strong>read-only</strong>. Tidak ada
-                        pembayaran, penalty, collector, escalation, maupun
-                        perubahan status pinjaman dari halaman ini — aturan
-                        tersebut masih <strong>PENDING BUSINESS CONFIRMATION</strong>.
+                        Halaman monitoring <strong>read-only</strong>. Pembayaran
+                        berjalan lewat modul Pembayaran SHM dan penagihan lewat
+                        detail Collection; penalty serta escalation otomatis
+                        masih <strong>PENDING BUSINESS CONFIRMATION</strong>.
                     </p>
                 </div>
 

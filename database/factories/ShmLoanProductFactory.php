@@ -39,7 +39,8 @@ class ShmLoanProductFactory extends Factory
     /**
      * Define the model's default state.
      *
-     * Rate default = 2% (rate resmi bunga/jasa SHM).
+     * Tier fixture = 2% (1–600 bulan) — angka fixture uji, bukan rate resmi;
+     * rate resmi = f(produk, tenor) dari matriks produk (T82).
      *
      * @return array<string, mixed>
      */

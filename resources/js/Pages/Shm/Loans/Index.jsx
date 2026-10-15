@@ -12,7 +12,7 @@ import { Calculator, Search } from 'lucide-react';
  *
  * Domain SHM: hanya membaca `shm_loans` yang berelasi ke `shm_customers`.
  * Pinjaman koperasi (`loans`) dan jadwal angsurannya tidak pernah dibaca di
- * sini. Rate yang tampil adalah rate resmi SHM (2%).
+ * sini. Rate yang tampil berasal dari tier rate produk (T82).
  */
 export default function Index({ loans, sort, filters }) {
     const handleSort = useTableSort('shm.loans.index');

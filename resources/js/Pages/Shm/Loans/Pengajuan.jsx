@@ -560,11 +560,11 @@ export default function Pengajuan({ today, products, customers, options, applica
                     <Info className="mt-0.5 h-4 w-4 shrink-0" />
                     <p>
                         Halaman ini menyimpan Pengajuan Pinjaman SHM ke
-                        server. Formula bunga dan workflow keputusan masih{' '}
-                        <strong>PENDING BUSINESS CONFIRMATION</strong>:
-                        keputusan approval tetap berjalan lewat modul Approval
-                        SHM yang sudah ada, dan tidak ada formula baru yang
-                        dibuat di sini.
+                        server. Rate bunga mengikuti matriks produk resmi
+                        (flat, bulanan — resolved backend, bukan input halaman
+                        ini); keputusan approval tetap berjalan lewat modul
+                        Approval SHM yang sudah ada, dan tidak ada formula baru
+                        yang dibuat di sini.
                     </p>
                 </div>
 
@@ -915,10 +915,12 @@ export default function Pengajuan({ today, products, customers, options, applica
                                         hanya menetapkan referensi
                                         `shm_customer_id`; mengedit Data
                                         Pribadi di sini TIDAK mengubah master
-                                        nasabah. Nilai dimasukkan manual —
-                                        sumber & semantik resmi Saldo Modal,
-                                        Saldo Non Modal, dan Batas Hutang masih
-                                        PENDING BUSINESS CONFIRMATION.
+                                        nasabah. Nilai dimasukkan manual:
+                                        Saldo Modal, Saldo Non Modal, dan Batas
+                                        Hutang adalah Data Pengajuan — dapat
+                                        berbeda antar pengajuan dan tidak
+                                        mengubah master nasabah; formula
+                                        otomatis (bila ada) belum ditentukan.
                                     </GapNote>
                                 </div>
                             )}
@@ -1109,8 +1111,10 @@ export default function Pengajuan({ today, products, customers, options, applica
                                         produksi. Rate mengikuti produk +
                                         tenor yang dipilih (tier rate resmi)
                                         — lihat bagian Persetujuan Pinjaman;
-                                        pembangkitan jadwal angsuran tetap
-                                        PENDING BUSINESS CONFIRMATION.
+                                        jadwal angsuran dibangkitkan lewat
+                                        aksi eksplisit pada detail pinjaman
+                                        (dengan metode & tanggal jatuh tempo
+                                        pertama yang dipilih pengguna).
                                     </GapNote>
                                 </div>
                             )}
@@ -1955,9 +1959,10 @@ export default function Pengajuan({ today, products, customers, options, applica
                                     </Field>
                                     <GapNote>
                                         Inspect: belum ada master/user/
-                                        relasi kolektor di aplikasi. Master
-                                        kolektor BARU tidak dibuat tanpa
-                                        business confirmation (PENDING).
+                                        relasi kolektor di aplikasi dan tidak
+                                        ada role kolektor (keputusan bisnis
+                                        yang berlaku); pemilik penagihan
+                                        collection adalah Marketing.
                                     </GapNote>
                                 </div>
                             )}
@@ -2066,7 +2071,7 @@ export default function Pengajuan({ today, products, customers, options, applica
                                         <div className="md:col-span-2">
                                             <Field
                                                 label="Metode perhitungan"
-                                                hint="Wajib dipilih secara eksplisit — formula dan periodisasi bunga masih PENDING BUSINESS CONFIRMATION."
+                                                hint="Wajib dipilih secara eksplisit — baseline resmi mengikuti metode flat dengan periode bulanan (kontrak T79); pilihan ini menjadi input jadwal angsuran."
                                             >
                                                 <select
                                                     value={

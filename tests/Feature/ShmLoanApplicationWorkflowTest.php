@@ -800,6 +800,8 @@ class ShmLoanApplicationWorkflowTest extends TestCase
 
         $this->assertStringContainsString($needle('777.000.000'), $content, 'PDF harus menampilkan nominal terbaru.');
         $this->assertStringContainsString($needle($application->application_number), $content);
-        $this->assertStringContainsString($needle('Rate resmi SHM: 2%'), $content);
+        // Token tanpa spasi: wrap dompdf memecah badge di spasi.
+        $this->assertStringContainsString($needle('tier'), $content);
+        $this->assertStringContainsString($needle('T82'), $content);
     }
 }

@@ -116,7 +116,7 @@ class ShmLoanDisbursementService
             //    pernah dikarang — ditolak dengan pesan eksplisit.
             if ($locked->shm_loan_product_id === null) {
                 throw ValidationException::withMessages([
-                    'application' => 'Pengajuan tidak memiliki produk pinjaman sehingga pinjaman tidak dapat dibuat. Lengkapi produk sebelum pencairan (PENDING BUSINESS CONFIRMATION).',
+                    'application' => 'Pengajuan tidak memiliki produk pinjaman sehingga pinjaman tidak dapat dibuat. Lengkapi produk sebelum pencairan.',
                 ]);
             }
 

@@ -10,12 +10,12 @@ use Illuminate\Validation\Rule;
 /**
  * Ticket 64 — Validasi input Simulasi Pinjaman SHM.
  *
- * `method` dan `rate_period` WAJIB dipilih eksplisit: formula dan periodisasi
- * rate SHM masih PENDING BUSINESS CONFIRMATION sehingga sistem tidak boleh
- * menebaknya. Rate default = 2% (rate resmi bunga/jasa SHM).
+ * `method` dan `rate_period` WAJIB dipilih eksplisit: simulasi adalah sandbox
+ * bebas sehingga sistem tidak boleh menebak metode/periode. Rate default = 2%
+ * (nilai legacy form lama; rate resmi pinjaman = matriks produk — T82).
  *
- * Biaya bersifat opsional dan dimasukkan sebagai nominal (tanpa formula):
- * seluruh formula biaya SHM juga masih PENDING.
+ * Biaya bersifat opsional dan dimasukkan sebagai nominal (tanpa matriks biaya
+ * resmi pencairan T85) — simulasi tetap input manual.
  */
 class LoanSimulationRequest extends FormRequest
 {
@@ -102,7 +102,8 @@ class LoanSimulationRequest extends FormRequest
     }
 
     /**
-     * Rate default simulasi = 2% (rate resmi bunga/jasa SHM).
+     * Rate default simulasi = 2% (nilai legacy form lama; rate resmi
+     * pinjaman = matriks produk — T82).
      */
     public function ratePercent(): float
     {

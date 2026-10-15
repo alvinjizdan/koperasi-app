@@ -148,6 +148,16 @@ return [
                 'customer.view' => 'Melihat daftar & detail nasabah SHM',
                 'customer.create' => 'Menambah nasabah SHM',
                 'customer.update' => 'Mengubah data & status nasabah SHM',
+                // Ticket 98-FIX: master produk pinjaman SHM (CRUD kategori,
+                // deskripsi, syarat, status aktif). Baca tetap shm.view;
+                // tulis memakai permission terpisah (pola BUG-01) supaya
+                // pemegang shm.view saja TIDAK dapat mengubah master. TIDAK
+                // diberikan ke marketing; otoritas bisnis final (siapa yang
+                // berwenang mengelola master produk) tetap PENDING BUSINESS
+                // CONFIRMATION. Tier rate TIDAK disentuh CRUD ini — tetap
+                // seed-driven (T82; ShmProductRateService tetap satu-satunya
+                // sumber resolusi rate).
+                'product.manage' => 'Mengelola master produk pinjaman SHM',
             ],
         ],
 

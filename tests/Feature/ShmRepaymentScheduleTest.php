@@ -117,7 +117,7 @@ class ShmRepaymentScheduleTest extends TestCase
             app(ShmRepaymentScheduleService::class)->generate($loan);
             $this->fail('Generation must not succeed without the explicit calculation contract.');
         } catch (ScheduleConfigurationIncomplete $exception) {
-            $this->assertStringContainsString('PENDING BUSINESS CONFIRMATION', $exception->getMessage());
+            $this->assertStringContainsString('tidak lengkap atau tidak sesuai baseline', $exception->getMessage());
             $this->assertStringContainsString('rate_period', $exception->getMessage());
             $this->assertStringContainsString('calculation_method', $exception->getMessage());
             $this->assertStringContainsString('metode angsuran', $exception->getMessage());

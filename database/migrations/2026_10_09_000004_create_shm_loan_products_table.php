@@ -9,10 +9,10 @@ use Illuminate\Support\Facades\Schema;
  *
  * TERPISAH dari master pinjaman koperasi (`saving_products` / produk Loans):
  * SHM adalah domain finansial sendiri dan tidak membaca maupun menulis master
- * koperasi. Tidak ada kolom rate di tabel ini: rate resmi SHM memang 2%, tetapi
- * periodisasi (per bulan/per tahun) dan formula angsuran (flat/efektif/anuitas)
- * masih PENDING BUSINESS CONFIRMATION sehingga tidak boleh dikunci sebagai
- * default master. Nilai rate dibaca dari ShmLoan::OFFICIAL_RATE_PERCENT.
+ * koperasi. Tidak ada kolom rate di tabel ini: rate resmi kini dihitung dari
+ * tier rate produk (f(produk, tenor) — T82, ShmProductRateService), sementara
+ * periodisasi & formula mengikuti baseline resmi T79 (flat per bulan) yang
+ * diterapkan di level pinjaman, bukan di master produk.
  *
  * `code` UNIQUE dibuat server-side sehingga master tidak duplikat tanpa
  * tergantung pada kehati-hatian UI.

@@ -380,7 +380,7 @@ return [
             ],
 
             'cannot_guess' => true,
-            'implementation_note' => 'T80 mengimplementasikan pembangkitan pada ShmRepaymentScheduleService (boundary T75 dipertahankan: eligibility + idempotency + lockForUpdate + atomik). Pembangkitan tetap MENOLAK pinjaman tanpa kontrak baseline eksplisit (rate 2% + rate_period monthly + calculation_method flat). Pengisian kontrak tersebut saat pencairan DIIMPLEMENTASIKAN T81: ShmLoanDisbursementService menstempel monthly+flat+2% bersama pembuatan loan dalam transaksi yang sama; pembangkitan jadwal TETAP terpisah dari pencairan.',
+            'implementation_note' => 'T80 mengimplementasikan pembangkitan pada ShmRepaymentScheduleService (boundary T75 dipertahankan: eligibility + idempotency + lockForUpdate + atomik). Pembangkitan tetap MENOLAK pinjaman tanpa kontrak baseline eksplisit (rate produk dari tier resmi T82 + rate_period monthly + calculation_method flat). Pengisian kontrak tersebut saat pencairan DIIMPLEMENTASIKAN T81: ShmLoanDisbursementService menstempel monthly+flat+rate produk hasil resolusi tier (T82; stempel 2% pada T81 SUPERSEDED) bersama pembuatan loan dalam transaksi yang sama; pembangkitan jadwal TETAP terpisah dari pencairan.',
         ],
 
         /*
@@ -1087,7 +1087,7 @@ return [
         'frequency' => 'monthly',
         'number_of_installments' => 'tenor_months (sama banyaknya)',
         'data_model_status' => 'ESTABLISHED (T74) — structural schema only',
-        'implementation_status' => 'IMPLEMENTED (T80 pembangkitan + T81 stempel kontrak pencairan) — pembangkitan jadwal tersedia pada ShmRepaymentScheduleService; ShmLoanDisbursementService menstempel kontrak baseline eksplisit (rate 2%, rate_period monthly, calculation_method flat) pada setiap pinjaman hasil pencairan',
+        'implementation_status' => 'IMPLEMENTED (T80 pembangkitan + T81 stempel kontrak pencairan) — pembangkitan jadwal tersedia pada ShmRepaymentScheduleService; ShmLoanDisbursementService menstempel kontrak baseline eksplisit (rate produk hasil resolusi tier T82, rate_period monthly, calculation_method flat) pada setiap pinjaman hasil pencairan',
         'remaining_implementation_gaps' => [],
         'note' => 'Rule finansial (formula, frekuensi, pembulatan, angsuran terakhir) CONFIRMED BASELINE sejak T79; implementasi pembangkitan sejak T80.',
     ],
@@ -1824,8 +1824,8 @@ return [
             'status' => 'CONFIRMED as workflow technical status; business SOP rule tetap PENDING BUSINESS CONFIRMATION',
         ],
         'shm_loan' => [
-            'note' => 'Status pinjaman yang ada: active / closed. Rate resmi SHM = 2% (OFFICIAL_RATE_PERCENT). Baseline T79: monthly flat.',
-            'source' => 'app/Models/ShmLoan.php (OFFICIAL_RATE_PERCENT = 2.0)',
+            'note' => 'Status pinjaman yang ada: active / closed. Rate resmi SHM = f(produk, tenor) dari tier rate produk (T82); DEFAULT 2 pada kolom rate_percent adalah nilai historis T79, bukan fallback. Baseline T79: monthly flat.',
+            'source' => 'app/Models/ShmLoan.php; app/Services/Shm/ShmProductRateService.php (T82); OFFICIAL_RATE_PERCENT = 2.0 hanya legacy simulasi',
             'status' => 'CONFIRMED (rate surface, status, baseline rule); financial formula implementation tetap PENDING',
         ],
         'shm_credit_check' => [

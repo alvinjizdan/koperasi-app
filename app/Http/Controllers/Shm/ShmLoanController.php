@@ -7,7 +7,9 @@ use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Shm\LoanSimulationRequest;
 use App\Http\Requests\Shm\StoreShmLoanApplicationRequest;
+use App\Http\Requests\Shm\StoreShmLoanProductRequest;
 use App\Http\Requests\Shm\UpdateShmLoanApplicationRequest;
+use App\Http\Requests\Shm\UpdateShmLoanProductRequest;
 use App\Models\AuditLog;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
@@ -25,6 +27,7 @@ use App\Services\Shm\ShmRepaymentScheduleService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -39,14 +42,16 @@ use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
  * `shm_loan_*` dan `shm_customers`, tidak pernah menyentuh `loans`,
  * `installment_*`, `payments`, maupun `members`.
  *
- * Rate bunga/jasa resmi = 2% (ShmLoan::OFFICIAL_RATE_PERCENT). Formula dan
- * periodisasi TIDAK ditentukan sistem: halaman simulasi mewajibkan pemilihan
- * metode & periode secara eksplisit karena keduanya masih PENDING BUSINESS
- * CONFIRMATION.
+ * Rate bunga/jasa resmi = f(produk, tenor) dari matriks produk (T82).
+ * Halaman simulasi mewajibkan pemilihan metode & periode secara eksplisit
+ * (sandbox); baseline resmi untuk produk = flat + bulanan (T79) dan
+ * pembangkitan jadwal selalu memakai kontrak eksplisit.
  *
- * Otorisasi memakai permission `shm.view` yang sudah ada; tidak ada permission
- * baru dan tidak ada mekanisme ownership tambahan (data finansial melekat pada
- * nasabah SHM yang merupakan master bersama, sama seperti modul Nasabah).
+ * Otorisasi halaman memakai permission `shm.view` yang sudah ada. CRUD master
+ * produk (T98-FIX) memakai permission terpisah `shm.product.manage` (pola
+ * BUG-01: baca ≠ tulis); tidak ada mekanisme ownership tambahan (data
+ * finansial melekat pada nasabah SHM yang merupakan master bersama, sama
+ * seperti modul Nasabah).
  */
 class ShmLoanController extends Controller
 {
@@ -116,11 +121,102 @@ class ShmLoanController extends Controller
         return Inertia::render('Shm/Loans/Products', [
             'products' => $products,
             'sort' => $sortStatus,
+            // Tombol Tambah/Edit hanya tampil bagi pemegang shm.product.manage;
+            // backend tetap menegakkan permission pada route tulis.
+            'canManage' => Gate::allows('shm.product.manage'),
+            'flash' => [
+                'success' => session('success'),
+                'error' => session('error'),
+            ],
             'filters' => [
                 'search' => $filters['search'] ?? '',
                 'status' => $filters['status'],
             ],
         ]);
+    }
+
+    /**
+     * Form pembuatan master produk Pinjaman SHM (T98-FIX).
+     */
+    public function createProduct(): Response
+    {
+        return Inertia::render('Shm/Loans/ProductForm', [
+            'product' => null,
+            'categories' => $this->productCategories(),
+        ]);
+    }
+
+    /**
+     * Simpan master produk Pinjaman SHM baru (T98-FIX).
+     *
+     * Hanya menulis baris `shm_loan_products` (skema existing, tanpa
+     * migrasi). Produk baru TANPA tier rate: ShmProductRateService tetap
+     * menolak pengajuan sampai tier diisi — tanpa fallback 2% dan tanpa
+     * pembuatan tier otomatis.
+     */
+    public function storeProduct(StoreShmLoanProductRequest $request): RedirectResponse
+    {
+        $data = $request->validated();
+        $data['is_active'] = $request->boolean('is_active');
+
+        $product = ShmLoanProduct::query()->create($data);
+
+        return redirect()
+            ->route('shm.loans.products.index')
+            ->with('success', "Produk pinjaman SHM {$product->code} berhasil ditambahkan.");
+    }
+
+    /**
+     * Form edit master produk Pinjaman SHM (T98-FIX).
+     */
+    public function editProduct(ShmLoanProduct $product): Response
+    {
+        return Inertia::render('Shm/Loans/ProductForm', [
+            'product' => [
+                'id' => $product->id,
+                'code' => $product->code,
+                'name' => $product->name,
+                'category' => $product->category,
+                'description' => $product->description,
+                'eligibility_summary' => $product->eligibility_summary,
+                'is_active' => $product->is_active,
+                'loans_count' => $product->loans()->count(),
+            ],
+            'categories' => $this->productCategories(),
+        ]);
+    }
+
+    /**
+     * Perbarui master produk Pinjaman SHM (T98-FIX).
+     *
+     * Hanya menyentuh baris master. Histori pengajuan/pinjaman TIDAK
+     * berubah: rate pinjaman lama tetap snapshot di `shm_loans.rate_percent`
+     * dan produk nonaktif hanya menolak pengajuan/penggunaan BARU.
+     */
+    public function updateProduct(ShmLoanProduct $product, UpdateShmLoanProductRequest $request): RedirectResponse
+    {
+        $data = $request->validated();
+        $data['is_active'] = $request->boolean('is_active');
+
+        $product->update($data);
+
+        return redirect()
+            ->route('shm.loans.products.index')
+            ->with('success', "Produk pinjaman SHM {$product->code} berhasil diperbarui.");
+    }
+
+    /**
+     * Tiga kategori resmi T82 untuk dropdown form produk.
+     *
+     * @return array<int, array{id: string, label: string}>
+     */
+    private function productCategories(): array
+    {
+        return [
+            ['id' => ShmLoanProduct::CATEGORY_PERUMAHAN, 'label' => 'Perumahan'],
+            ['id' => ShmLoanProduct::CATEGORY_PERKAMPUNGAN, 'label' => 'Perkampungan'],
+            ['id' => ShmLoanProduct::CATEGORY_RO, 'label' => 'RO'],
+        ];
     }
 
     /**
@@ -358,9 +454,8 @@ class ShmLoanController extends Controller
      * toggle accordion TIDAK pernah melakukan request backend dan bukan
      * navigasi route.
      *
-     * Halaman ini masih FONDASI: belum ada endpoint penyimpanan pengajuan
-     * pinjaman SHM (tulis = PENDING BUSINESS CONFIRMATION), sehingga form
-     * hanya menyusun data di sisi klien dan tidak pernah menulis record
+     * Penyimpanan pengajuan dilakukan melalui endpoint store eksplisit (T68):
+     * form hanya menyusun data di sisi klien dan tidak pernah menulis record
      * setengah matang ke database.
      *
      * Data yang dikirim murni domain SHM: daftar nasabah dari
@@ -1067,10 +1162,10 @@ class ShmLoanController extends Controller
      * barang agunan yang tersimpan pada pengajuan tersebut.
      *
      * SELURUH nilai berasal dari record yang SUDAH tersimpan — tidak ada
-     * perhitungan baru. Rate tampil apa adanya (2%); periode rate dan metode
-     * angsuran hanya ditampilkan bila record memang menyimpannya, karena
-     * keduanya masih PENDING BUSINESS CONFIRMATION dan sistem tidak boleh
-     * mengasumsikan per-bulanan/per-tahunan maupun flat/efektif/anuitas.
+     * perhitungan baru. Rate tampil apa adanya (rate pinjaman = tier produk
+     * untuk tenor pengajuan — T82); periode rate dan metode angsuran hanya
+     * ditampilkan bila record memang menyimpannya (kolom nullable, hanya terisi
+     * bila dipilih eksplisit — baseline T79: flat per bulan).
      *
      * Nasabah selalu diambil dari `shm_customers` — tidak pernah `members` —
      * sehingga data koperasi dan data SHM tidak pernah tercampur.

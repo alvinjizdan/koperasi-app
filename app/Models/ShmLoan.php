@@ -16,10 +16,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * relasi ke `App\Models\Member`, tidak memakai tabel angsuran/pembayaran
  * koperasi, dan tidak membaca business rule pinjaman koperasi.
  *
- * Rate resmi SHM = 2% (`rate_percent` DEFAULT 2). Periode rate dan metode
- * angsuran TIDAK pernah diisi otomatis oleh sistem: keduanya hanya terisi
- * bila pengguna memilih secara eksplisit, karena periodisasi dan formula
- * masih PENDING BUSINESS CONFIRMATION.
+ * Rate resmi SHM = f(produk, tenor) dari tier rate produk (T82 — lihat
+ * ShmProductRateService); `rate_percent` DEFAULT 2 hanya nilai historis lama
+ * (T79) dan bukan fallback. Periode rate dan metode angsuran TIDAK pernah
+ * diisi otomatis oleh sistem: keduanya hanya terisi bila pengguna memilih
+ * secara eksplisit (baseline resmi: monthly + flat, T79).
  *
  * @property int $id
  * @property string $loan_number
@@ -236,8 +237,9 @@ class ShmLoan extends Model
     /**
      * Apakah record ini menyimpan pilihan eksplisit metode & periode rate?
      *
-     * Bila tidak, tabel angsuran tidak dapat dibangun karena formula SHM
-     * masih PENDING BUSINESS CONFIRMATION.
+     * Bila tidak, tabel angsuran tidak dapat dibangun: pembangkitan jadwal
+     * membutuhkan kontrak perhitungan eksplisit (baseline resmi flat +
+     * monthly, T79) tanpa menebak default.
      */
     public function hasExplicitCalculation(): bool
     {

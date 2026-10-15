@@ -12,11 +12,12 @@ use Illuminate\Support\Facades\Schema;
  * tidak membaca business rule koperasi. Nasabahnya adalah `shm_customers`.
  *
  * Batasan yang disengaja:
- * - `rate_percent` default 2 adalah rate resmi SHM;
+ * - `rate_percent` default 2 adalah nilai historis T79, bukan fallback;
+ *   rate resmi kini = f(produk, tenor) dari tier rate produk (T82);
  * - `rate_period` dan `calculation_method` NULLABLE dan TIDAK PERNAH diisi
  *   otomatis oleh sistem: keduanya hanya terisi bila pengguna memilih secara
- *   eksplisit, karena periodisasi dan formula angsuran masih PENDING
- *   BUSINESS CONFIRMATION. Tanpa keduanya tabel angsuran tidak dapat dibangun;
+ *   eksplisit (baseline resmi T79: flat per bulan). Tanpa keduanya tabel
+ *   angsuran tidak dapat dibangun;
  * - `status` dibatasi pada active|closed di level aplikasi;
  * - seluruh foreign key memakai RESTRICT agar riwayat pinjaman tidak hilang
  *   saat master/nasabah dihapus.
@@ -45,7 +46,9 @@ return new class extends Migration
             $table->decimal('principal', 18, 2);
             $table->unsignedInteger('tenor_months');
 
-            // Rate resmi SHM = 2%. Periodisasi & formula masih PENDING.
+            // Rate resmi SHM kini = f(produk, tenor) dari tier produk (T82);
+            // DEFAULT 2 adalah nilai historis T79, bukan fallback. Periode &
+            // metode = input eksplisit (baseline flat/monthly, T79).
             $table->decimal('rate_percent', 8, 4)->default(2);
             $table->string('rate_period', 10)->nullable();
             $table->string('calculation_method', 20)->nullable();

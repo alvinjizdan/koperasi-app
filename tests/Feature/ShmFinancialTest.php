@@ -27,7 +27,8 @@ use Tests\TestCase;
  *
  * Yang diuji:
  * - domain SHM terpisah dari domain koperasi (tabel, relasi, master);
- * - rate resmi SHM = 2% dan tidak mengubah rate koperasi;
+ * - default legacy 2% (factory & sandbox simulasi) tidak mengubah rate
+ *   koperasi; rate resmi pinjaman = f(produk, tenor) dari matriks produk (T82);
  * - halaman simulasi terbuka bagi pemegang permission shm.view existing dan
  *   ditolak bagi pengguna tanpa permission tersebut;
  * - input simulasi divalidasi (metode & periode wajib, tidak ditebak);
@@ -156,7 +157,8 @@ class ShmFinancialTest extends TestCase
     }
 
     // -----------------------------------------------------------------
-    // B. Rate resmi SHM = 2%
+    // B. Default legacy 2% (factory & sandbox simulasi) — rate resmi
+    //    produk = f(produk, tenor) dari matriks produk (T82).
     // -----------------------------------------------------------------
 
     public function test_new_shm_loan_defaults_to_official_rate_two_percent(): void

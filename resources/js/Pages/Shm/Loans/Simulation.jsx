@@ -17,12 +17,15 @@ const EMPTY_FEES = {
 /**
  * Simulasi Pinjaman SHM (Ticket 64).
  *
- * Rate default = 2% (rate resmi bunga/jasa SHM). Metode angsuran dan periode
- * rate WAJIB dipilih pengguna karena formula dan periodisasi SHM masih
- * PENDING BUSINESS CONFIRMATION — sistem tidak pernah menebaknya.
+ * Rate default = 2% (nilai awal legacy untuk sandbox; rate resmi produk
+ * mengikuti matriks produk — T82). Metode angsuran dan periode rate WAJIB
+ * dipilih pengguna: simulasi tidak pernah menebak input, dan produk resmi
+ * memakai baseline flat + bulanan (T79).
  *
- * Rincian biaya diinput manual sebagai nominal; tidak ada formula biaya,
- * provisi, asuransi, blokir dana, maupun denda di pihak sistem.
+ * Rincian biaya diinput manual sebagai nominal; biaya pencairan resmi
+ * (admin/provisi/asuransi/notaris/simpanan) dihitung otomatis saat
+ * pencairan (T85), bukan di halaman simulasi; denda tidak dihitung (masih
+ * PENDING).
  *
  * Form disubmit sebagai GET sehingga hasil simulasi dapat dibagikan/dicetak
  * ulang, dan tombol "Export PDF" memakai parameter yang sama sehingga PDF
@@ -173,8 +176,9 @@ export default function Simulation({ form: initial, result, rate, products, opti
                             Simulasi Pinjaman SHM
                         </h1>
                         <p className="text-sm text-gray-500">
-                            Kalkulasi pinjaman dengan rate resmi bunga/jasa SHM{' '}
-                            <strong>{Number(rate)}%</strong>. Periode rate dan
+                            Kalkulasi pinjaman dengan rate default legacy{' '}
+                            <strong>{Number(rate)}%</strong> (rate resmi
+                            pinjaman = matriks produk — T82). Periode rate dan
                             formula angsuran dipilih secara eksplisit.
                         </p>
                     </div>
@@ -183,11 +187,13 @@ export default function Simulation({ form: initial, result, rate, products, opti
                 <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
                     <Info className="mt-0.5 h-4 w-4 shrink-0" />
                     <p>
-                        Periodisasi rate (per bulan / per tahun), formula angsuran
-                        (flat / efektif / anuitas), denda, dan seluruh formula biaya
-                        adalah <strong>PENDING BUSINESS CONFIRMATION</strong>. Pilih
-                        metode &amp; periode secara sadar; sistem tidak menebak
-                        maupun mengarang formula.
+                        Untuk produk resmi, rate mengikuti matriks produk
+                        dengan metode flat dan periode bulanan (kontrak
+                        T79/T82 — CONFIRMED). Halaman simulasi ini tetap
+                        sandbox: metode &amp; periode dipilih sadar sebagai
+                        eksperimen; denda masih{' '}
+                        <strong>PENDING BUSINESS CONFIRMATION</strong> dan
+                        tidak dihitung sistem.
                     </p>
                 </div>
 
@@ -285,7 +291,7 @@ export default function Simulation({ form: initial, result, rate, products, opti
                                 className={inputClass}
                             />
                             <p className="mt-1 text-xs text-slate-500">
-                                Default rate resmi SHM: {Number(rate)}%
+                                Default legacy simulasi: {Number(rate)}% — rate resmi = matriks produk (T82)
                             </p>
                             {hasError('rate_percent') && (
                                 <p className="mt-1 text-xs text-rose-600">
@@ -408,9 +414,12 @@ export default function Simulation({ form: initial, result, rate, products, opti
                                     </div>
                                 ))}
                                 <p className="text-xs text-slate-500 md:col-span-3">
-                                    Nilai diinput manual. Formula biaya (administrasi,
-                                    provisi, asuransi, blokir dana) masih PENDING
-                                    BUSINESS CONFIRMATION.
+                                    Nilai diinput manual, bukan hasil hitungan
+                                    sistem. Komponen biaya pencairan resmi sudah
+                                    ditetapkan kontrak (administrasi 2%, provisi
+                                    3%, asuransi 1%, notaris custom, simpanan
+                                    pokok/wajib) dan dihitung otomatis saat
+                                    pencairan; blokir dana bukan komponen resmi.
                                 </p>
                             </div>
                         )}

@@ -17,7 +17,8 @@ class ShmLoanFactory extends Factory
     /**
      * Define the model's default state.
      *
-     * Rate default = 2% (rate resmi bunga/jasa SHM).
+     * Rate default legacy = OFFICIAL_RATE_PERCENT (2) — snapshot pabrik untuk
+     * simulasi; rate resmi pinjaman = f(produk, tenor) dari tier produk (T82).
      *
      * @return array<string, mixed>
      */

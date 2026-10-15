@@ -17,9 +17,9 @@ use Symfony\Component\HttpFoundation\Response;
  * bukan tabel angsuran.
  *
  * Seluruh data diambil dari relasi yang sudah di-eager-load controller;
- * Blade TIDAK melakukan query database. Rate ditampilkan dari domain object
- * yang sama (ShmLoan::OFFICIAL_RATE_PERCENT = 2%) — tidak ada nilai hardcode
- * kedua di template.
+ * Blade TIDAK melakukan query database. Rate ditampilkan dari resolusi
+ * tier produk pengajuan (officialRatePercent(), T82) — tidak ada nilai
+ * hardcode di template.
  *
  * Nama file: `pengajuan-pinjaman-{application_number}.pdf` (identifier
  * pengajuan, tanpa data pelanggan lain).

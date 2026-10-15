@@ -20,7 +20,8 @@ use Illuminate\Validation\Rule;
  * - nilai finansial non-negatif; tidak ada batas minimum usaha/eligibility;
  * - `persetujuan.method` divalidasi terhadap supportedMethods() — sistem
  *   TIDAK PERNAH menebak metode;
- * - rate TIDAK diterima dari klien sama sekali (rate resmi 2% dari domain).
+ * - rate TIDAK diterima dari klien sama sekali (rate resmi dari matriks
+ *   produk — T82).
  *
  * Field GAP T66 (data tambahan analisa) tetap tidak ada dalam payload maupun
  * skema (PENDING BUSINESS CONFIRMATION).

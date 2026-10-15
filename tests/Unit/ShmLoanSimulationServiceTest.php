@@ -13,9 +13,11 @@ use Tests\TestCase;
  * Ticket 64 — unit test simulasi pinjaman SHM.
  *
  * Test ini sengaja TIDAK mengunci nilai hasil perhitungan sebuah formula:
- * formula & periodisasi SHM masih PENDING BUSINESS CONFIRMATION. Yang diuji
+ * simulasi adalah sandbox bebas (metode & periode rate dipilih pengguna);
+ * baseline resmi T79 (flat per bulan) diuji pada suite angsuran terpisah.
+ * Yang diuji
  * hanyalah kontrak yang sudah pasti:
- * - rate resmi SHM = 2%;
+ * - konstanta legacy OFFICIAL_RATE_PERCENT = 2 (default form simulasi);
  * - tabel angsuran memiliki struktur No/Pokok/Jasa/Total/Saldo dengan jumlah
  *   baris = tenor;
  * - pokok terbayar seluruhnya dan saldo akhir 0 (konservasi, bukan formula);

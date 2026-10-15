@@ -31,10 +31,11 @@ use Tests\TestCase;
  * - customer wajib dari `shm_customers` (id anggota koperasi ditolak);
  * - validasi server-side tanpa aturan bisnis yang diarang;
  * - SHOW membuka kembali pengajuan tersimpan (11 section) dengan authorization;
- * - PDF berisi 11 section, identifier, nasabah, nominal, tenor, rate 2%,
- *   tanpa 16% screenshot dan tanpa data anggota koperasi;
+ * - PDF berisi 11 section, identifier, nasabah, nominal, tenor, rate dari
+ *   matriks produk (T82), tanpa 16% screenshot dan tanpa data anggota koperasi;
  * - rollback penuh bila child persistence gagal;
- * - rate resmi tetap 2% dan tidak ada kolom rate tersendiri.
+ * - rate resmi = f(produk, tenor); tidak ada kolom rate tersendiri di
+ *   pengajuan.
  *
  * Yang TIDAK diuji: formula bunga (PENDING), keputusan approval (workflow
  * existing, ticket berikutnya). Upload foto jaminan diuji khusus di
@@ -446,10 +447,13 @@ class ShmLoanApplicationTest extends TestCase
             $content,
         );
 
-        // Nominal, tenor, rate resmi 2%.
+        // Nominal, tenor, rate = tier produk (T82).
         $this->assertStringContainsString($needle('460.000.000'), $content);
         $this->assertStringContainsString($needle('48 kali angsuran'), $content);
-        $this->assertStringContainsString($needle('Rate resmi SHM: 2%'), $content);
+        // Badge PDF dapat ter-wrap di spasi (dompdf); assert token tanpa
+        // spasi agar tidak bergantung pada layout sel.
+        $this->assertStringContainsString($needle('tier'), $content);
+        $this->assertStringContainsString($needle('T82'), $content);
         $this->assertStringNotContainsString($needle('16%'), $content);
 
         // Seluruh 11 section.
@@ -553,7 +557,12 @@ class ShmLoanApplicationTest extends TestCase
             'shm.loans.pengajuan.store',
             'shm.loans.pengajuan.submit-approval',
             'shm.loans.pengajuan.update',
+            // T98-FIX — CRUD master produk (baca ≠ tulis: shm.product.manage).
+            'shm.loans.products.create',
+            'shm.loans.products.edit',
             'shm.loans.products.index',
+            'shm.loans.products.store',
+            'shm.loans.products.update',
             // T83 — action eksplisit pembangkitan jadwal angsuran.
             'shm.loans.schedule.generate',
             'shm.loans.show',
