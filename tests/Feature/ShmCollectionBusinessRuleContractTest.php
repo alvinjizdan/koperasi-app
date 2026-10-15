@@ -109,12 +109,16 @@ class ShmCollectionBusinessRuleContractTest extends TestCase
         $this->assertContains('president_director', $escalation['authorities']);
         $this->assertSame('marketing', $escalation['initial_level']);
 
-        // Tidak ada escalation otomatis & tidak ada angka threshold yang dikarang.
-        $this->assertFalse($escalation['automatic_escalation']);
-        $this->assertSame(
-            'PENDING BUSINESS CONFIRMATION (TIDAK ada angka threshold yang ditetapkan/dikarang)',
-            $escalation['threshold'],
+        // T99: eskalasi otomatis HANYA jalur 3 PTP MISSED per periode
+        // anchored (angka dari ticket, bukan tebakan); timing non-PTP tetap
+        // PENDING BUSINESS CONFIRMATION.
+        $this->assertSame('CONDITIONAL', $escalation['automatic_escalation']);
+        $this->assertSame(3, $escalation['missed_ptp_threshold']);
+        $this->assertStringContainsString(
+            '3 PTP MISSED',
+            $escalation['automatic_escalation_condition'],
         );
+        $this->assertStringContainsString('CONFIRMED (T99)', $escalation['threshold']);
         $this->assertStringContainsString('PENDING', $escalation['timing']);
 
         // Authority assignment ada pada dua role yang sama (Rule 2).
@@ -255,10 +259,10 @@ class ShmCollectionBusinessRuleContractTest extends TestCase
     }
 
     // ------------------------------------------------------------------
-    // 9. Promise to Pay (Rule 8)
+    // 9. Promise to Pay (Rule 8) — limit T99 CONFIRMED + sisa PENDING
     // ------------------------------------------------------------------
 
-    public function test_promise_to_pay_contract_records_fields_and_keeps_limits_pending(): void
+    public function test_promise_to_pay_contract_records_fields_and_t99_limits(): void
     {
         $ptp = $this->workflow()['promise_to_pay'];
 
@@ -269,11 +273,25 @@ class ShmCollectionBusinessRuleContractTest extends TestCase
         );
         $this->assertStringContainsString('PROMISE_TO_PAY', $ptp['status_effect']);
 
-        // Batasan PTP TIDAK ditebak — tetap PENDING.
+        // T99 CONFIRMED: kelayakan overdue ≥ 7 hari (due_date nyata) & kuota
+        // 3 per periode berlabuh — angka berasal dari ticket, bukan tebakan.
+        $this->assertSame(7, $ptp['eligibility']['overdue_min_days']);
+        $this->assertStringContainsString('due_date nyata', $ptp['eligibility']['basis']);
+        $this->assertSame(3, $ptp['quota']['max_per_period']);
+        $this->assertSame(
+            ['OPEN', 'FULFILLED', 'MISSED', 'CANCELLED'],
+            $ptp['quota']['counts_toward_quota'],
+        );
+        $this->assertFalse($ptp['quota']['failed_validation_counts']);
+        $this->assertStringContainsString('BERLABUH', $ptp['quota']['period']);
+        $this->assertStringContainsString('addMonthsNoOverflow', $ptp['quota']['period']);
+        $this->assertStringContainsString('CONFIRMED (T99)', $ptp['max_attempts']);
+        $this->assertStringContainsString('collection:ptp-missed', $ptp['broken_ptp_detection']);
+
+        // Batasan yang MEMANG belum diputuskan tetap PENDING — tidak diisi.
         $this->assertSame('PENDING BUSINESS CONFIRMATION', $ptp['grace_period']);
-        $this->assertSame('PENDING BUSINESS CONFIRMATION', $ptp['max_attempts']);
-        $this->assertStringContainsString('PENDING BUSINESS CONFIRMATION', $ptp['broken_ptp_detection']);
         $this->assertStringContainsString('PENDING BUSINESS CONFIRMATION', $ptp['broken_ptp_penalty']);
+        $this->assertStringContainsString('PENDING BUSINESS CONFIRMATION', $ptp['manual_missed_escalation_effect']);
         $this->assertTrue($ptp['cannot_guess']);
     }
 
@@ -334,11 +352,13 @@ class ShmCollectionBusinessRuleContractTest extends TestCase
 
         $items = $pending['items'];
 
-        $this->assertCount(17, $items);
-        $this->assertContains('exact_escalation_threshold', $items);
+        // T99 melepas dua item yang sudah CONFIRMED (escalation threshold
+        // jalur PTP & maksimum PTP per periode) — daftar kini 15 item.
+        $this->assertCount(15, $items);
+        $this->assertNotContains('exact_escalation_threshold', $items);
+        $this->assertNotContains('maximum_ptp_attempts', $items);
         $this->assertContains('automatic_escalation_timing', $items);
         $this->assertContains('exact_ptp_grace_period', $items);
-        $this->assertContains('maximum_ptp_attempts', $items);
         $this->assertContains('penalty_formula', $items);
         $this->assertContains('penalty_grace_period', $items);
         $this->assertContains('penalty_maximum', $items);

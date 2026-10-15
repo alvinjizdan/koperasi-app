@@ -596,12 +596,21 @@ class ShmCollectionOwnershipEscalationTest extends TestCase
                 ->all(),
         );
 
-        // Threshold eskalasi tetap PENDING di contract — tidak ditebak/diisi.
-        $this->assertSame(
-            'PENDING BUSINESS CONFIRMATION (TIDAK ada angka threshold yang ditetapkan/dikarang)',
-            config('shm-business-rule-contract.collection_workflow.escalation.threshold'),
+        // T99: threshold eskalasi jalur PTP CONFIRMED (3 PTP MISSED per
+        // periode anchored — dari ticket, bukan tebakan); threshold non-PTP
+        // tetap tanpa angka otomatis (faktor manusia).
+        $this->assertStringContainsString(
+            '3 PTP MISSED',
+            (string) config('shm-business-rule-contract.collection_workflow.escalation.threshold'),
         );
-        $this->assertFalse((bool) config('shm-business-rule-contract.collection_workflow.escalation.automatic_escalation'));
+        $this->assertSame(
+            'CONDITIONAL',
+            config('shm-business-rule-contract.collection_workflow.escalation.automatic_escalation'),
+        );
+        $this->assertSame(
+            3,
+            config('shm-business-rule-contract.collection_workflow.escalation.missed_ptp_threshold'),
+        );
         $this->assertTrue((bool) config('shm-business-rule-contract.collection_workflow.escalation.approval_workflow_unchanged'));
         $this->assertStringContainsString(
             'PENDING BUSINESS CONFIRMATION',

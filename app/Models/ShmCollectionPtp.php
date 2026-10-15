@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
- * Record Promise to Pay (PTP) SHM (Ticket 97).
+ * Record Promise to Pay (PTP) SHM (Ticket 97; kuota & jalur scheduler T99).
  *
  * SATU baris = satu janji bayar konkret (tanggal janji + nominal + catatan)
  * yang dibuat Marketing PEMILIK Collection Case selama case berstatus
@@ -23,20 +23,26 @@ use Illuminate\Support\Carbon;
  * - STATUS_FULFILLED: ditandai TERPENUHI secara EKSPLISIT oleh pemilik —
  *   TIDAK PERNAH dihitung otomatis dari pembayaran (pencocokan pembayaran =
  *   aturan masa depan yang masih PENDING).
- * - STATUS_MISSED: dicatat TIDAK DIPENUHI secara EKSPLISIT oleh pemilik —
- *   TIDAK PERNAH dihitung otomatis dari `promised_date < hari ini`
- *   (grace period & broken-PTP detection = PENDING BUSINESS CONFIRMATION).
+ * - STATUS_MISSED: dicatat TIDAK DIPENUHI — melalui aksi EKSPLISIT pemilik
+ *   (T97) MAUPUN scheduler `collection:ptp-missed` ketika PTP OPEN melewati
+ *   promised_date (CONFIRMED T99, idempoten; grace period tetap PENDING).
  * - STATUS_CANCELLED: dibatalkan secara eksplisit oleh pemilik.
  *
  * Transisi manual (tabel `ALLOWED_TRANSITIONS`): OPEN → FULFILLED|MISSED|
- * CANCELLED; ketiga status tujuan TERMINAL tanpa reopen.
+ * CANCELLED; ketiga status tujuan TERMINAL tanpa reopen. Jalur scheduler
+ * (T99) memakai graph yang sama — SATU tabel transisi untuk semua jalur.
+ *
+ * Kuota T99 (single source periode): maksimal 3 PTP per periode bulanan
+ * berlabuh — anchor = tanggal pembuatan PTP pertama pada case; hitung semua
+ * status (OPEN/FULFILLED/MISSED/CANCELLED). Perhitungan periode ada di
+ * quotaPeriodFor() (satunya-satunya tempat matematika anchor bulan).
  *
  * YANG SENGAJA TIDAK ADA (bukan kelalaian):
- * - kolom pembayaran/settlement/penalty/escalation reminder — tiap domain
- *   terpisah dan T97 tidak pernah menyentuhnya;
- * - automatic expiry / automatic MISSED / automatic FULFILLED dari tanggal
- *   atau nominal — contract T91 Rule 8 `cannot_guess` + grace period PENDING;
- * - scheduler/reminder/notifikasi WhatsApp-SMS-email — PENDING.
+ * - kolom pembayaran/settlement/penalty — tiap domain terpisah dan tidak
+ *   pernah disentuh oleh record ini;
+ * - automatic FULFILLED dari pembayaran/nominal — pencocokan pembayaran ke
+ *   PTP tetap PENDING BUSINESS CONFIRMATION;
+ * - reminder/notifikasi WhatsApp-SMS-email — PENDING.
  *
  * @property int $id
  * @property int $shm_collection_case_id
@@ -99,6 +105,58 @@ class ShmCollectionPtp extends Model
         self::STATUS_MISSED,
         self::STATUS_CANCELLED,
     ];
+
+    /**
+     * Periode quota PTP berlabuh (T99) — SATU-SATUNYA sumber matematika
+     * batas periode (guard pembuatan, payload UI, dan scheduler semua
+     * memanggil ini).
+     *
+     * Anchor = tanggal pembuatan PTP pertama pada sebuah Collection Case.
+     * Periode ke-N = [anchor + N bulan, anchor + (N+1) bulan − 1 hari]
+     * memakai addMonthsNoOverflow (konvensi Carbon/Laravel: anchor 31 Jan →
+     * periode berikutnya mulai 28/29 Feb, clamp akhir bulan tanpa overflow
+     * ke Maret). Periode saling menyambung — tanpa celah & tanpa tumpang
+     * tindih. BUKAN bulan kalender murni, BUKAN rolling 30 hari.
+     *
+     * Contoh anchor 10 Oktober: periode 0 = 10 Okt–9 Nov, periode 1 =
+     * 10 Nov–9 Des, dst.
+     *
+     * @param  Carbon|null  $anchor  Tanggal PTP pertama pada case (null = case belum punya PTP → tidak ada periode).
+     * @param  Carbon  $date  Tanggal yang periodenya dicari (hari ini untuk guard/scheduler).
+     * @return array{index: int, start: Carbon, end: Carbon}|null
+     */
+    public static function quotaPeriodFor(?Carbon $anchor, Carbon $date): ?array
+    {
+        if ($anchor === null) {
+            return null;
+        }
+
+        $anchor = $anchor->copy()->startOfDay();
+        $date = $date->copy()->startOfDay();
+
+        if ($date->lt($anchor)) {
+            $date = $anchor;
+        }
+
+        $index = ($date->year - $anchor->year) * 12 + ($date->month - $anchor->month);
+
+        // Koreksi maksimal satu langkah untuk clamp akhir bulan (mis. anchor
+        // 31 Jan: selisih bulan kasar bisa menunjuk melewati/mundur satu
+        // periode nyata yang dihasilkan addMonthsNoOverflow).
+        while ($index > 0 && $anchor->copy()->addMonthsNoOverflow($index)->gt($date)) {
+            $index--;
+        }
+
+        while ($anchor->copy()->addMonthsNoOverflow($index + 1)->lte($date)) {
+            $index++;
+        }
+
+        return [
+            'index' => $index,
+            'start' => $anchor->copy()->addMonthsNoOverflow($index),
+            'end' => $anchor->copy()->addMonthsNoOverflow($index + 1)->subDay(),
+        ];
+    }
 
     /**
      * @var array<int, string>

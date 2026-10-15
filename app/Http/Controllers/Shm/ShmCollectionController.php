@@ -17,6 +17,7 @@ use App\Models\ShmLoanPayment;
 use App\Models\ShmLoanPaymentAllocation;
 use App\Models\ShmLoanProduct;
 use App\Services\Shm\ShmCollectionCaseService;
+use App\Services\Shm\ShmCollectionPtpService;
 use App\Services\Shm\ShmCollectionQueryService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -71,6 +72,12 @@ use Inertia\Response;
  * ada di ShmCollectionPtpController + ShmCollectionPtpService (route
  * terpisah, otorisasi di domain); status case TIDAK pernah berubah karena
  * PTP, dan TIDAK ada logika terlambat/terpenuhi otomatis di sini.
+ *
+ * Ticket 99 memperkaya payload `ptp` dengan kelayakan (overdue ≥ 7 hari
+ * dari due_date angsuran nyata), kuota periode berlabuh (x/3 + periode +
+ * alasan pemblokiran) — seluruhnya dihitung oleh ShmCollectionPtpService,
+ * sumber yang sama dengan guard server-side; halaman ini tetap murni
+ * presentasi (otorisasi & validasi ada di domain).
  */
 class ShmCollectionController extends Controller
 {
@@ -80,6 +87,7 @@ class ShmCollectionController extends Controller
     public function __construct(
         private readonly ShmCollectionQueryService $collections,
         private readonly ShmCollectionCaseService $cases,
+        private readonly ShmCollectionPtpService $ptps,
     ) {}
 
     /**
@@ -401,13 +409,58 @@ class ShmCollectionController extends Controller
             ->all();
 
         $hasOpen = $case->ptps->contains('status', ShmCollectionPtp::STATUS_OPEN);
+        $eligibility = $this->ptps->eligibility($case);
+        $quota = $this->ptps->quotaState($case);
+
+        $canCreate = $isOwner
+            && $case->status === ShmCollectionCase::STATUS_PROMISE_TO_PAY
+            && ! $hasOpen
+            && $eligibility['eligible']
+            && $quota['available'];
+
+        // Alasan pemblokiran (mengikuti urutan guard server-side:
+        // kelayakan → duplikat OPEN → kuota) — teks dari server, bukan UI.
+        $blockedReason = null;
+
+        if ($isOwner
+            && $case->status === ShmCollectionCase::STATUS_PROMISE_TO_PAY
+            && ! $canCreate) {
+            if (! $eligibility['eligible']) {
+                $blockedReason = $eligibility['reason'];
+            } elseif ($hasOpen) {
+                $blockedReason = 'Masih ada PTP aktif (OPEN) — tandai Terpenuhi, Tidak Dipenuhi, atau Batalkan terlebih dahulu.';
+            } else {
+                $blockedReason = sprintf(
+                    'Kuota PTP periode %s s/d %s sudah penuh (%d/%d). PTP baru dapat dicatat mulai %s.',
+                    (string) $quota['period_start'],
+                    (string) $quota['period_end'],
+                    $quota['used'],
+                    $quota['limit'],
+                    $quota['period_end'] !== null
+                        ? Carbon::parse((string) $quota['period_end'])->addDay()->toDateString()
+                        : '-',
+                );
+            }
+        }
 
         return [
             'history' => $history,
             'has_open' => $hasOpen,
-            'can_create' => $isOwner
-                && $case->status === ShmCollectionCase::STATUS_PROMISE_TO_PAY
-                && ! $hasOpen,
+            'eligibility' => [
+                'eligible' => $eligibility['eligible'],
+                'overdue_min_days' => $eligibility['overdue_min_days'],
+                'reason' => $eligibility['reason'],
+            ],
+            'quota' => [
+                'anchor' => $quota['anchor'],
+                'period_start' => $quota['period_start'],
+                'period_end' => $quota['period_end'],
+                'used' => $quota['used'],
+                'limit' => $quota['limit'],
+                'remaining' => $quota['remaining'],
+            ],
+            'blocked_reason' => $blockedReason,
+            'can_create' => $canCreate,
         ];
     }
 

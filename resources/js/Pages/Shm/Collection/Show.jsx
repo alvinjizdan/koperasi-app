@@ -62,8 +62,13 @@ import {
  * riwayat multiple PTP, form Catat PTP (hanya pemilik + case
  * PROMISE_TO_PAY + tanpa PTP OPEN), dan aksi manual Tandai Terpenuhi/Tidak
  * Dipenuhi/Batalkan (graph dikirim server). TIDAK ada kalkulasi
- * terlambat/terpenuhi otomatis dari tanggal maupun pembayaran, dan
- * pencatatan PTP tidak pernah mengubah status case.
+ * terlambat/terpenuhi di halaman ini: FULFILLED tetap aksi manusia dari
+ * pembayaran, sementara MISSED dapat datang dari aksi manual ATAU dari
+ * scheduler backend `collection:ptp-missed` (T99 — server yang memutuskan,
+ * bukan kalkulasi tanggal di klien); pencatatan PTP tidak pernah mengubah
+ * status case. Ticket 99 menambahkan strip kuota (x/3 + periode berlabuh),
+ * alasan kelayakan/blokiran, dan pesan error guard `kelayakan`/`kuota` —
+ * seluruh angka & teks datang dari server.
  */
 function Field({ label, children }) {
     return (
@@ -556,19 +561,24 @@ function CollectionResolution({ collectionCase }) {
 }
 
 /**
- * Record Promise to Pay (Ticket 97).
+ * Record Promise to Pay (Ticket 97; aturan & payload T99).
  *
  * Seluruh datang dari server: riwayat record (`ptp.history`), penanda PTP
- * aktif (`ptp.has_open`), hak pembuatan (`ptp.can_create`), dan graph
- * transisi per record (`allowed_transitions` — KOSONG untuk non-pemilik,
- * sehingga React tidak pernah menawarkan aksi ke non-owner). TIDAK ada
- * perhitungan "terlambat/terpenuhi/gagal" dari tanggal hari ini maupun
- * pembayaran: FULFILLED/MISSED/CANCELLED semuanya aksi manual eksplisit
- * pemilik yang dikirim ke endpoint PTP (backend otoritatif).
+ * aktif (`ptp.has_open`), hak pembuatan (`ptp.can_create`), graph transisi
+ * per record (`allowed_transitions` — KOSONG untuk non-pemilik, sehingga
+ * React tidak pernah menawarkan aksi ke non-owner), kelayakan
+ * (`ptp.eligibility` — overdue ≥ 7 hari dari due_date angsuran nyata),
+ * kuota periode berlabuh (`ptp.quota` — x/3 + periode anchor), dan alasan
+ * pemblokiran (`ptp.blocked_reason`). FULFILLED tetap aksi manual eksplisit
+ * pemilik — TIDAK PERNAH otomatis dari pembayaran; MISSED dapat berasal
+ * dari aksi manual pemilik ATAU scheduler backend `collection:ptp-missed`
+ * ketika promised_date terlewat (T99) — React tidak pernah menghitung
+ * status/keterlambatan dari tanggal hari ini di sisi klien.
  *
- * Pencatatan PTP hanya tersedia saat case berstatus PROMISE_TO_PAY dan
- * tanpa PTP OPEN (guard di backend); pembuatan PTP TIDAK mengubah status
- * case — transisi case tetap melalui workflow Collection (Ticket 94).
+ * Pencatatan PTP hanya tersedia saat case berstatus PROMISE_TO_PAY, tanpa
+ * PTP OPEN, pinjaman masih layak (overdue ≥ 7 hari), dan kuota tersedia —
+ * seluruh guard ada di backend (server otoritatif); pembuatan PTP TIDAK
+ * mengubah status case, transisi case tetap melalui workflow Collection.
  */
 function PromiseToPay({ collectionCase }) {
     const { id: caseId, status: caseStatus, can_record, ptp } = collectionCase;
@@ -616,6 +626,32 @@ function PromiseToPay({ collectionCase }) {
                 <CalendarDays className="h-4 w-4 text-slate-400" />
                 Promise to Pay
             </h2>
+
+            <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-slate-600">
+                <span>
+                    Kuota PTP:{' '}
+                    <span className="font-semibold text-slate-800">
+                        {ptp?.quota?.used ?? 0}/{ptp?.quota?.limit ?? 3}
+                        {' '}periode ini
+                    </span>
+                </span>
+                {ptp?.quota?.period_start ? (
+                    <span>
+                        Periode berlabuh:{' '}
+                        <span className="font-semibold text-slate-800">
+                            {formatDate(ptp.quota.period_start)} –{' '}
+                            {formatDate(ptp.quota.period_end)}
+                        </span>
+                    </span>
+                ) : (
+                    <span>Periode berlabuh dimulai dari PTP pertama pada case ini.</span>
+                )}
+                {ptp?.eligibility && !ptp.eligibility.eligible && (
+                    <span className="text-rose-600">
+                        {ptp.eligibility.reason}
+                    </span>
+                )}
+            </div>
 
             {latest ? (
                 <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -751,15 +787,22 @@ function PromiseToPay({ collectionCase }) {
                     />
                 </form>
             ) : (
-                can_record &&
-                caseStatus !== 'PROMISE_TO_PAY' && (
-                    <p className="mb-4 text-xs text-slate-500">
-                        PTP dapat dicatat setelah case berstatus Promise to
-                        Pay — ubah status lewat workflow Collection terlebih
-                        dahulu. Pembuatan PTP tidak mengubah status case
-                        otomatis.
-                    </p>
-                )
+                <>
+                    {can_record &&
+                        caseStatus !== 'PROMISE_TO_PAY' && (
+                            <p className="mb-4 text-xs text-slate-500">
+                                PTP dapat dicatat setelah case berstatus
+                                Promise to Pay — ubah status lewat workflow
+                                Collection terlebih dahulu. Pembuatan PTP tidak
+                                mengubah status case otomatis.
+                            </p>
+                        )}
+                    {ptp?.blocked_reason && (
+                        <p className="mb-4 text-xs text-rose-600">
+                            {ptp.blocked_reason}
+                        </p>
+                    )}
+                </>
             )}
 
             {!can_record && (
@@ -813,6 +856,16 @@ function PromiseToPay({ collectionCase }) {
             {errors?.['collection.ptp.status'] && (
                 <p className="mt-3 text-xs text-rose-600">
                     {errors['collection.ptp.status']}
+                </p>
+            )}
+            {errors?.['collection.ptp.kelayakan'] && (
+                <p className="mt-3 text-xs text-rose-600">
+                    {errors['collection.ptp.kelayakan']}
+                </p>
+            )}
+            {errors?.['collection.ptp.kuota'] && (
+                <p className="mt-3 text-xs text-rose-600">
+                    {errors['collection.ptp.kuota']}
                 </p>
             )}
             {errors?.['collection.otorisasi'] && (

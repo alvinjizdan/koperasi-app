@@ -157,6 +157,39 @@ class ShmCollectionQueryService
     }
 
     /**
+     * Apakah pinjaman memiliki tunggakan berumur minimal $days hari (T99).
+     *
+     * Predikat overdue-nya IDENTIK dengan isCandidate/daftar
+     * (applyOverdueCondition — due_date < hari ini + outstanding aktual > 0)
+     * dengan tambahan potongan `due_date <= hari ini − $days`. Ambang umur
+     * dihitung dari JATUH TEMPO ANGSURAN NYATA — bukan created_at pinjaman,
+     * umur case, maupun tanggal frontend.
+     *
+     * @param  int  $days  Ambang umur overdue dalam hari (>= 0).
+     */
+    public function hasOverdueAtLeast(ShmLoan $loan, int $days, ?Carbon $today = null): bool
+    {
+        $today ??= today();
+        $cutoff = $today->copy()->subDays($days)->toDateString();
+
+        return ShmLoan::query()
+            ->whereKey($loan->getKey())
+            ->where('status', ShmLoan::STATUS_ACTIVE)
+            ->whereNotNull('disbursed_at')
+            ->whereHas('installments', function (Builder $installments) use ($cutoff, $today): Builder {
+                $this->applyOverdueCondition($installments, $today);
+
+                // whereDate (bukan where biasa): SQLite menyimpan kolom date
+                // dengan sufiks waktu ('Y-m-d 00:00:00') sehingga perbandingan
+                // teks `due_date <= '2026-10-08'` GAGAL tepat pada batas
+                // kesamaan. whereDate menormalkan ke tanggal dulu — inklusif
+                // & konsisten di SQLite/MySQL/PostgreSQL.
+                return $installments->whereDate('due_date', '<=', $cutoff);
+            })
+            ->exists();
+    }
+
+    /**
      * Apakah satu angsuran merupakan tunggakan (predikat PHP, identik SQL).
      *
      * Dipakai ringkasan dan presentation state detail — tanpa method ini

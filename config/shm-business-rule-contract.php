@@ -1516,12 +1516,31 @@ return [
             'recordable' => true,
             'fields' => ['promised_date', 'promised_amount', 'notes'],
             'status_effect' => 'collection status menjadi PROMISE_TO_PAY',
+
+            // -----------------------------------------------------------
+            // CONFIRMED T99 — aturan yang sudah diputuskan bisnis & dijaga
+            // server-side (ShmCollectionPtpService + scheduler
+            // `collection:ptp-missed`); guard ada di domain, bukan UI.
+            // -----------------------------------------------------------
+            'eligibility' => [
+                'overdue_min_days' => 7,
+                'basis' => 'CONFIRMED (T99): ada angsuran dengan due_date nyata ≤ hari ini − 7 hari dan outstanding obligation > 0 — bukan created_at pinjaman/case maupun tanggal frontend.',
+                'still_collection_candidate' => 'CONFIRMED (T99): loan juga harus tetap memenuhi predikat kelayakan Collection (isCandidate) saat pencatatan.',
+            ],
+            'quota' => [
+                'max_per_period' => 3,
+                'period' => 'CONFIRMED (T99): periode bulanan BERLABUH — anchor = tanggal pembuatan PTP pertama pada case; periode berikutnya maju per bulan kalender (anchor 10 Okt: 10 Okt–9 Nov, lalu 10 Nov–9 Des). BUKAN bulan kalender murni & BUKAN rolling 30 hari; akhir bulan ditangani addMonthsNoOverflow (anchor 31 Jan → periode berikutnya mulai 28/29 Feb) sehingga periode saling menyambung tanpa celah maupun tumpang tindih.',
+                'counts_toward_quota' => ['OPEN', 'FULFILLED', 'MISSED', 'CANCELLED'],
+                'failed_validation_counts' => false,
+                'failed_validation_note' => 'Guard dievaluasi dalam transaksi yang sama SEBELUM insert — validasi gagal tidak pernah menulis baris sehingga tidak terhitung.',
+            ],
             'grace_period' => 'PENDING BUSINESS CONFIRMATION',
-            'max_attempts' => 'PENDING BUSINESS CONFIRMATION',
-            'broken_ptp_detection' => 'PENDING BUSINESS CONFIRMATION (tidak ada automatic broken-PTP detection)',
+            'max_attempts' => 'CONFIRMED (T99): maksimal 3 PTP per periode bulanan berlabuh (lihat quota.max_per_period) — melepas pending T91 "maximum_ptp_attempts".',
+            'broken_ptp_detection' => 'CONFIRMED (T99): scheduler `collection:ptp-missed` menandai PTP OPEN dengan promised_date < hari ini menjadi MISSED — idempoten, actor system (audit actor_id null, tanpa user palsu); tanpa grace period (grace period tetap PENDING terpisah).',
             'broken_ptp_penalty' => 'PENDING BUSINESS CONFIRMATION (lihat juga domain penalty — TIDAK diimplementasikan)',
+            'manual_missed_escalation_effect' => 'PENDING BUSINESS CONFIRMATION (transisi MISSED manual milik pemilik tetap diizinkan T97 dan TIDAK dapat membypass kuota/kelayakan — keduanya dijaga saat pembuatan; dampak eskalasi dari MISSED manual belum dikonfirmasi bisnis, evaluasi eskalasi saat ini hanya di jalur scheduler).',
             'cannot_guess' => true,
-            'source' => 'T91 Rule 8',
+            'source' => 'T91 Rule 8 + T99',
         ],
 
         // ---------------------------------------------------------------
@@ -1531,9 +1550,11 @@ return [
             'initial_level' => 'marketing',
             'authorities' => ['branch_manager', 'president_director'],
             'workflow' => 'Marketing → Escalation → Branch Manager / President Director → Decision/Follow-up → Collection continues / Resolved',
-            'automatic_escalation' => false,
-            'threshold' => 'PENDING BUSINESS CONFIRMATION (TIDAK ada angka threshold yang ditetapkan/dikarang)',
-            'timing' => 'PENDING BUSINESS CONFIRMATION (tidak ada automatic escalation timing)',
+            'automatic_escalation' => 'CONDITIONAL',
+            'automatic_escalation_condition' => 'CONFIRMED (T99): HANYA setelah 3 PTP MISSED dalam periode anchored yang sama — dievaluasi scheduler `collection:ptp-missed` (idempoten; case RESOLVED/ESCALATED dilewati tanpa audit ganda). 3 pengajuan PTP tanpa MISSED TIDAK PERNAH mengeskalasi; FULFILLED/CANCELLED tidak pernah mengeskalasi.',
+            'missed_ptp_threshold' => 3,
+            'threshold' => 'CONFIRMED (T99): 3 PTP MISSED dalam periode anchored yang sama (jalur PTP — satu-satunya threshold otomatis). Threshold non-PTP (aging, nominal, dsb.) TIDAK ditetapkan — faktor tersebut tetap bahan keputusan MANUSIA (potential_factors), bukan angka otomatis.',
+            'timing' => 'PENDING BUSINESS CONFIRMATION (timing eskalasi di luar aturan 3 MISSED — kapan faktor non-PTP memicu eskalasi — belum ditentukan)',
             'potential_factors' => [
                 'aging',
                 'nominal_outstanding',
@@ -1541,7 +1562,7 @@ return [
                 'broken_promise_to_pay',
                 'kondisi_customer',
             ],
-            'potential_factors_note' => 'Faktor POTENSIAL yang membantu keputusan MANUSIA — bukan algoritma otomatis; threshold final belum ditentukan.',
+            'potential_factors_note' => 'Faktor POTENSIAL yang membantu keputusan MANUSIA — bukan algoritma otomatis; threshold non-PTP belum ditentukan (threshold otomatis yang ada = jalur PTP: 3 MISSED per periode anchored, lihat missed_ptp_threshold).',
             'assignment_authority' => ['branch_manager', 'president_director'],
             'assignment_algorithm' => 'PENDING BUSINESS CONFIRMATION (Rule 2 — JANGAN menebak struktur assignment; tidak ada automatic collector assignment)',
             'approval_workflow_unchanged' => true,
@@ -1677,15 +1698,19 @@ return [
         ],
 
         // ---------------------------------------------------------------
-        // PENDING BUSINESS RULE — daftar resmi T91 (17 item; JANGAN menebak)
+        // PENDING BUSINESS RULE — daftar resmi T91 (15 item; JANGAN menebak)
+        // T99 melepas 2 item yang sudah CONFIRMED: `exact_escalation_threshold`
+        // & `maximum_ptp_attempts` (lihat bagian promise_to_pay & escalation).
         // ---------------------------------------------------------------
         'pending_rules' => [
             'status' => 'PENDING BUSINESS CONFIRMATION',
             'items' => [
-                'exact_escalation_threshold',
+                // Catatan T99: `automatic_scheduler_or_job` & `collection_cadence`
+                // tetap pending untuk automation Collection LAIN selain sweep PTP
+                // `collection:ptp-missed` (keberadaan & frekuensi sweep PTP =
+                // pilihan teknis yang didokumentasikan di routes/console.php).
                 'automatic_escalation_timing',
                 'exact_ptp_grace_period',
-                'maximum_ptp_attempts',
                 'penalty_formula',
                 'penalty_grace_period',
                 'penalty_maximum',
@@ -2038,7 +2063,8 @@ return [
         'collection_internal_only_no_external_automation' => true,
         'no_escalation_threshold_invented' => true,
         'no_ptp_grace_or_attempt_limit_invented' => true,
-        'no_automatic_scheduler_or_notification' => true,
+        'no_automatic_notification' => true,
+        'automatic_ptp_missed_scheduler_t99' => true,
         't90_collection_eligibility_predicate_unchanged' => true,
         't91_contract_additive_no_existing_key_removed' => true,
     ],

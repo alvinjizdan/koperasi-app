@@ -40,10 +40,12 @@ use Tests\TestCase;
  * finansial/lifecycle (tanpa pembayaran/settlement/barubayar; saldo
  * pinjaman, status case, guard resolusi T95, ownership T96 tidak berubah).
  *
- * YANG TIDAK DIUJI SEBAGAI PERILAKU (karena sengaja TIDAK ada — PENDING
- * BUSINESS CONFIRMATION): grace period, MISSED/fulfilled otomatis dari
- * tanggal/pembayaran, jumlah percobaan maksimum, penalty, reminder/
- * notifikasi, eskalasi otomatis, collector, matching pembayaran ke PTP.
+ * YANG TIDAK DIUJI DI FILE INI (tetap tidak ada / PENDING BUSINESS
+ * CONFIRMATION): grace period, FULFILLED otomatis dari pembayaran, penalty,
+ * reminder/notifikasi, timing eskalasi di luar aturan 3 MISSED, collector,
+ * matching pembayaran ke PTP. Aturan T99 (kelayakan overdue ≥ 7 hari, kuota
+ * 3 PTP per periode berlabuh, sweep MISSED `collection:ptp-missed`,
+ * eskalasi setelah 3 MISSED) diuji pada ShmCollectionPtpEnforcementTest.
  */
 class ShmCollectionPtpTest extends TestCase
 {

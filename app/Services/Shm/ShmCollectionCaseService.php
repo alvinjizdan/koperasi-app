@@ -28,15 +28,20 @@ use Illuminate\Validation\ValidationException;
  *   RESOLVED permanen; pinjaman yang kembali eligible membuka case BARU.
  * - Lifecycle: 5 status contract T91 dengan tabel transisi
  *   `ShmCollectionCase::ALLOWED_TRANSITIONS`; RESOLVED tidak dapat dibuka
- *   kembali; tanpa automatic resolution/escalation di T92.
+ *   kembali; tanpa automatic resolution di T92; eskalasi otomatis HANYA
+ *   dari scheduler PTP (T99 — 3 PTP MISSED dalam periode anchored yang
+ *   sama) melalui `escalateFromScheduler()` dengan graph guard yang sama.
  * - Guard finansial resolusi (Ticket 95): transisi → RESOLVED hanya bila
  *   sisa tunggakan overdue pinjaman = 0 (agregat server-side dari kolom
  *   persisted — contract T91 Rule 10 `resolution_condition`). Pembayaran,
  *   alokasi, dan aktivitas TIDAK PERNAH mengubah status case otomatis;
  *   resolusi selalu aksi eksplisit pemilik.
- * - Otorisasi mutation = Marketing PEMILIK case/pinjaman secara eksplisit —
- *   tanpa fallback admin maupun `shm.view_all` (otorisasi teknis BM/PD =
- *   PENDING BUSINESS CONFIRMATION, lihat laporan T92).
+ * - Otorisasi mutation manual = Marketing PEMILIK case/pinjaman secara
+ *   eksplisit — tanpa fallback admin maupun `shm.view_all` (otorisasi
+ *   teknis BM/PD = PENDING BUSINESS CONFIRMATION, lihat laporan T92).
+ *   Pengecualian T99: `escalateFromScheduler()` adalah jalur SYSTEM (tanpa
+ *   session user, audit actor_id null + trigger 'scheduler') — bukan
+ *   bypass otorisasi pengguna karena trigger-nya aturan bisnis, bukan aksi.
  * - Audit transactional via AuditLogger existing (contract T91 Rule 14):
  *   `shm.collection.case.created` dan `shm.collection.case.status_changed`
  *   (mengikuti konvensi penamaan audit `shm.*` yang sudah dipakai modul SHM).
@@ -44,9 +49,10 @@ use Illuminate\Validation\ValidationException;
  * YANG SENGAJA TIDAK ADA (bukan kelalaian): automatic resolution berdasarkan
  * outstanding/pembayaran/settlement (Ticket 95 hanya menambahkan guard
  * sebaliknya — resolusi MANUSIA DITOLAK selama outstanding > 0; readiness
- * bukan auto-resolve), automatic escalation, assignment algorithm,
- * role Collector, detail Promise-to-Pay, penalty, notification,
- * scheduler/job — semuanya ticket terpisah atau PENDING BUSINESS CONFIRMATION.
+ * bukan auto-resolve), assignment algorithm, role Collector, approval
+ * Authority Promise-to-Pay, penalty, notification, automation collection
+ * selain sweep PTP T99 — semuanya ticket terpisah atau PENDING BUSINESS
+ * CONFIRMATION.
  */
 class ShmCollectionCaseService
 {
@@ -275,6 +281,72 @@ class ShmCollectionCaseService
     public function resolve(ShmCollectionCase $case, int $actorId, ?string $reason = null): ShmCollectionCase
     {
         return $this->transition($case, ShmCollectionCase::STATUS_RESOLVED, $actorId, $reason);
+    }
+
+    /**
+     * Transisi → ESCALATED oleh scheduler T99 (system transition, tanpa
+     * session user) — dipanggil ShmCollectionPtpService setelah sweep
+     * menemukan 3 PTP MISSED dalam satu periode anchored.
+     *
+     * Beda dengan transition() (owner-guarded, actor user): method ini jalur
+     * resmi untuk proses sistem — TIDAK ada guardOwner karena trigger =
+     * aturan bisnis, bukan aksi pengguna; audit tetap ditulis dengan
+     * actor_id null (kolom nullable; Auth::id() null pada konteks CLI) +
+     * trigger 'scheduler'. Guard yang TETAP berlaku: graph
+     * `ALLOWED_TRANSITIONS` (RESOLVED tidak pernah punya transisi keluar)
+     * dan idempotensi (sudah ESCALATED → no-op tanpa audit ganda; diserahkan
+     * ke caller untuk menilai apakah transisi benar-benar terjadi).
+     *
+     * @param  string  $reason  Alasan aturan (dicatat pada audit changes).
+     * @return ShmCollectionCase case dengan status terkini — ESCALATED bila
+     *                           transisi terjadi, tanpa perubahan bila graph
+     *                           menolak/sudah ESCALATED
+     */
+    public function escalateFromScheduler(ShmCollectionCase $case, string $reason): ShmCollectionCase
+    {
+        return DB::transaction(function () use ($case, $reason): ShmCollectionCase {
+            $locked = ShmCollectionCase::query()->lockForUpdate()->findOrFail($case->getKey());
+
+            if ($locked->status === ShmCollectionCase::STATUS_ESCALATED) {
+                return $locked;
+            }
+
+            $allowed = ShmCollectionCase::ALLOWED_TRANSITIONS[$locked->status] ?? [];
+
+            if (! in_array(ShmCollectionCase::STATUS_ESCALATED, $allowed, true)) {
+                return $locked;
+            }
+
+            $fromStatus = (string) $locked->status;
+            $locked->status = ShmCollectionCase::STATUS_ESCALATED;
+            $locked->save();
+
+            $loanNumber = $locked->loan()->value('loan_number');
+
+            AuditLogger::log(
+                'shm.collection.case.status_changed',
+                ShmCollectionCase::class,
+                $locked->id,
+                $loanNumber !== null ? (string) $loanNumber : null,
+                sprintf(
+                    'Status Collection Case pinjaman %s berubah %s → %s (scheduler). Alasan: %s.',
+                    $loanNumber ?? ('#'.$locked->shm_loan_id),
+                    $fromStatus,
+                    ShmCollectionCase::STATUS_ESCALATED,
+                    $reason,
+                ),
+                [
+                    'shm_loan_id' => $locked->shm_loan_id,
+                    'from_status' => $fromStatus,
+                    'to_status' => ShmCollectionCase::STATUS_ESCALATED,
+                    'reason' => $reason,
+                    'actor_id' => null,
+                    'trigger' => 'scheduler',
+                ],
+            );
+
+            return $locked;
+        });
     }
 
     /**
