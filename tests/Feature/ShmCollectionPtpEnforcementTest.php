@@ -804,7 +804,8 @@ class ShmCollectionPtpEnforcementTest extends TestCase
     }
 
     // ------------------------------------------------------------------
-    // E. Otorisasi (29–31): server otoritatif, tanpa Collector/permission baru
+    // E. Otorisasi (29–32): server otoritatif, tanpa role Collector
+    //    (permission collection grantable via T101)
     // ------------------------------------------------------------------
 
     public function test_29_non_owner_marketing_cannot_create_ptp_even_when_eligible(): void
@@ -827,20 +828,35 @@ class ShmCollectionPtpEnforcementTest extends TestCase
         $this->assertDatabaseCount('shm_collection_ptps', 0);
     }
 
-    public function test_31_no_collector_role_or_ptp_permission_and_sweep_needs_no_user(): void
+    public function test_31_no_collector_role_and_collection_permissions_are_grantable(): void
     {
-        // T99 tidak membuat role Collector maupun permission PTP baru —
-        // otorisasi mutation tetap owner-only di server.
+        // Role Collector TIDAK dibuat oleh ticket mana pun — Superadmin
+        // membuat role sendiri via UI Role & Permission (T101). Permission
+        // teknis Collection kini terdaftar & grantable; otorisasi mutation
+        // di domain tetap owner-only (test 29-30).
         $this->assertDatabaseMissing('roles', ['name' => 'collector']);
         $this->assertSame(
             [],
             Permission::query()->where('name', 'like', '%collector%')->pluck('name')->all(),
         );
         $this->assertSame(
-            [],
-            Permission::query()->where('name', 'like', '%ptp%')->pluck('name')->all(),
+            [
+                'shm.collection.activity.create',
+                'shm.collection.ptp.create',
+                'shm.collection.ptp.transition',
+                'shm.collection.transition',
+                'shm.collection.view',
+            ],
+            Permission::query()
+                ->where('name', 'like', 'shm.collection.%')
+                ->orderBy('name')
+                ->pluck('name')
+                ->all(),
         );
+    }
 
+    public function test_32_ptp_sweep_needs_no_user(): void
+    {
         // Sweep berjalan tanpa session & tanpa membuat user (jalur CLI).
         $usersBefore = User::count();
         $this->runSweep();

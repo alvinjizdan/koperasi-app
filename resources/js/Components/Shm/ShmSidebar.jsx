@@ -239,7 +239,9 @@ const shmNavigation = [
             {
                 name: "Monitoring",
                 route: "shm.collection.index",
-                permission: "shm.view",
+                // Ticket 101: mengikuti permission route (shm.collection.view)
+                // sehingga menu tidak terlihat bagi role tanpa hak Collection.
+                permission: "shm.collection.view",
             },
         ],
     },

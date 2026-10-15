@@ -158,6 +158,22 @@ return [
                 // seed-driven (T82; ShmProductRateService tetap satu-satunya
                 // sumber resolusi rate).
                 'product.manage' => 'Mengelola master produk pinjaman SHM',
+                // Ticket 101: arsitektur permission Collection yang
+                // configurable melalui UI Role & Permission. Menggantikan
+                // gate `shm.view` tunggal pada route Collection (T90/T93/
+                // T94/T97) dengan permission per-aksi, mengikuti pola
+                // payment/settlement (baca ≠ tulis, satu permission per
+                // route). Business rules TETAP: ownership pemilik case
+                // tetap guard kedua di service; role Collector TIDAK
+                // dibuat di sini — Superadmin membuat role sendiri lewat
+                // UI dan memberikan permission ini ketika dibutuhkan;
+                // matrix detail BM/PD tetap PENDING BUSINESS CONFIRMATION
+                // (docs/SHM-BUSINESS-DECISION-PACKAGE.md, pending #16).
+                'collection.view' => 'Melihat work queue & detail case Collection',
+                'collection.transition' => 'Memutasi status workflow case Collection',
+                'collection.activity.create' => 'Mencatat aktivitas follow-up pada case Collection',
+                'collection.ptp.create' => 'Mencatat Promise to Pay pada case Collection',
+                'collection.ptp.transition' => 'Menandai status PTP (kept/broken) pada case Collection',
             ],
         ],
 
@@ -317,6 +333,16 @@ return [
                 'shm.customer.view',
                 'shm.customer.create',
                 'shm.customer.update',
+                // Ticket 101: Marketing sebagai owner awal case Collection
+                // tetap menjalankan siklus Collection (T90-T99) melalui
+                // permission per-aksi yang kini configurable. Ownership
+                // pemilik case tetap berlaku di service — permission tidak
+                // membuka case milik Marketing lain.
+                'shm.collection.view',
+                'shm.collection.transition',
+                'shm.collection.activity.create',
+                'shm.collection.ptp.create',
+                'shm.collection.ptp.transition',
             ],
         ],
         'pengawas' => [

@@ -13,10 +13,12 @@ use Illuminate\Http\RedirectResponse;
  *
  * Controller sengaja minimal: SATU method POST. Otorisasi mutation mutlak
  * ada di domain service (Marketing pemilik case — tanpa fallback admin/
- * shm.view_all); route middleware `shm.view` = gate modul Collection mengikuti
- * pola `marketing.activities.store` (permission view existing untuk jalur
- * tulis yang otorisasinya ditentukan di domain), sehingga T93 tidak membuat
- * permission baru selama matrix BM/PD masih PENDING BUSINESS CONFIRMATION.
+ * shm.view_all); route middleware `shm.collection.activity.create` (T101)
+ * = gate jalur tulis yang configurable via UI Role & Permission, mengikuti
+ * pola `marketing.activities.store`. T93 awalnya berdiri di gate `shm.view`
+ * tanpa permission baru selama matrix BM/PD PENDING; T101 menambahkan
+ * permission teknis grantable — penerimaan authority (siapa yang boleh)
+ * tetap PENDING BUSINESS CONFIRMATION.
  *
  * Riwayat aktivitas TIDAK memerlukan endpoint GET terpisah: dibaca lewat
  * payload halaman detail Collection (`/collection/{loan}`) yang sudah menjadi

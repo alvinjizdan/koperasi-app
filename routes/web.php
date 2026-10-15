@@ -673,72 +673,6 @@ Route::prefix('shm')->name('shm.')->group(function () {
             Route::get('/pinjaman/pelunasan/{loan}', [ShmLoanSettlementController::class, 'show'])
                 ->name('loans.pelunasan.show');
 
-            // -----------------------------------------------------------------
-            // Ticket 90 — Collection monitoring & work queue (READ-ONLY).
-            //
-            // Hanya GET: daftar work queue + detail monitoring satu pinjaman
-            // tunggakan. Tidak ada route tulis di sini — pembayaran, penalty,
-            // collector, escalation, dan kunjungan masih PENDING BUSINESS
-            // CONFIRMATION, sehingga tidak ada action yang boleh ditawarkan.
-            // Permission `shm.view` existing (tanpa permission baru);
-            // ownership mengikuti modul pinjaman (authorizeLoanRecordOwnership).
-            // -----------------------------------------------------------------
-            Route::get('/collection', [ShmCollectionController::class, 'index'])
-                ->name('collection.index');
-            Route::get('/collection/{loan}', [ShmCollectionController::class, 'show'])
-                ->name('collection.show');
-
-            // -----------------------------------------------------------------
-            // Ticket 93 — Pencatatan Collection Activity pada case eksisting.
-            //
-            // POST tunggal di bawah gate modul `shm.view` yang SAMA dengan
-            // halaman Collection (pola marketing.activities.store: permission
-            // view existing + otorisasi tulis mutlak di domain). Otorisasi
-            // = Marketing PEMILIK case di ShmCollectionActivityService
-            // (tanpa fallback admin/shm.view_all; matrix BM/PD masih PENDING
-            // dari T91, sehingga tidak ada permission baru). Path 3 segmen —
-            // tidak konflik dengan /collection/{loan} (2 segmen). Riwayat
-            // aktivitas dibaca lewat payload halaman detail (/collection/{loan}),
-            // tanpa jalur baca ganda.
-            // -----------------------------------------------------------------
-            Route::post('/collection/{case}/activities', [ShmCollectionActivityController::class, 'store'])
-                ->name('collection.activities.store');
-
-            // -----------------------------------------------------------------
-            // Ticket 94 — Transisi workflow status Collection Case.
-            //
-            // POST tunggal di gate modul `shm.view` yang SAMA dengan halaman
-            // Collection (pola T92/T93: permission view existing + otorisasi
-            // tulis mutlak di ShmCollectionCaseService — pemilik case saja,
-            // tanpa fallback admin/shm.view_all; tidak ada permission baru).
-            // Path 3 segmen bernama literal — tidak konflik dengan
-            // GET /collection/{loan} (metode HTTP & jumlah segmen berbeda)
-            // maupun POST /collection/{case}/activities. Graph transisi = tabel
-            // ALLOWED_TRANSITIONS T92 (contract T91); PROMISE_TO_PAY murni
-            // status workflow tanpa detail PTP.
-            // -----------------------------------------------------------------
-            Route::post('/collection/{case}/transition', [ShmCollectionController::class, 'transition'])
-                ->name('collection.cases.transition');
-
-            // -----------------------------------------------------------------
-            // Ticket 97 — Record Promise to Pay (PTP) Collection.
-            //
-            // Dua POST di gate modul `shm.view` yang SAMA (pola T93/T94:
-            // permission view existing + otorisasi tulis mutlak di
-            // ShmCollectionPtpService — pemilik case saja, tanpa fallback
-            // admin/shm.view_all; tidak ada permission baru). PTP hanya bisa
-            // dicatat saat case PROMISE_TO_PAY & tanpa PTP OPEN (guard di
-            // service); pembuatan TIDAK mengubah status case (transisi case
-            // tetap endpoint T94 di atas) dan TIDAK membuat pembayaran.
-            // Path 3 segmen {case}/ptp & 4 segmen literal ptp/{ptp}/transition
-            // tidak konflik dengan GET /collection/{loan} maupun POST lain.
-            // Riwayat PTP dibaca lewat payload halaman detail (/collection/{loan}).
-            // -----------------------------------------------------------------
-            Route::post('/collection/{case}/ptp', [ShmCollectionPtpController::class, 'store'])
-                ->name('collection.ptp.store');
-            Route::post('/collection/ptp/{ptp}/transition', [ShmCollectionPtpController::class, 'transition'])
-                ->name('collection.ptp.transition');
-
             Route::get('/pinjaman/{loan}', [ShmLoanController::class, 'show'])
                 ->name('loans.show');
 
@@ -754,6 +688,55 @@ Route::prefix('shm')->name('shm.')->group(function () {
             Route::post('/pinjaman/{loan}/schedule', [ShmLoanController::class, 'generateSchedule'])
                 ->name('loans.schedule.generate');
         });
+
+        // -----------------------------------------------------------------
+        // Collection — monitoring, aktivitas, dan PTP (T90/T93/T94/T97).
+        //
+        // Ticket 101: setiap route Collection kini memakai permission
+        // PER-AKSI sendiri (`shm.collection.*` — configurable melalui UI
+        // Role & Permission), mengikuti pola payment/settlement/product
+        // (satu permission per route, di luar group `shm.view`). Sebelumnya
+        // seluruh route berdiri di gate tunggal `shm.view`.
+        //
+        // Business rules TETAP tidak berubah:
+        //   - Ownership: otorisasi tulis mutlak di domain (Marketing
+        //     PEMILIK case; tanpa fallback admin/shm.view_all) — permission
+        //     tidak menggantikan maupun membypass ownership.
+        //   - Scope baca: authorizeLoanRecordOwnership (shm.view_all untuk
+        //     cakupan seluruh data).
+        //   - Role Collector TIDAK dibuat di sini; Superadmin membuat role
+        //     sendiri via UI dan memberikan permission ini ketika perlu.
+        //   - Matrix detail BM/PD tetap PENDING BUSINESS CONFIRMATION
+        //     (docs/SHM-BUSINESS-DECISION-PACKAGE.md, pending #16).
+        //
+        // Route literal GET /collection didaftarkan SEBELUM /collection/
+        // {loan}. Path POST 3/4 segmen tidak konflik dengan GET 2 segmen
+        // (metode & jumlah segmen berbeda). Riwayat aktivitas/PTP dibaca
+        // lewat payload halaman detail (/collection/{loan}).
+        // -----------------------------------------------------------------
+        Route::get('/collection', [ShmCollectionController::class, 'index'])
+            ->middleware('permission:shm.collection.view')
+            ->name('collection.index');
+        Route::get('/collection/{loan}', [ShmCollectionController::class, 'show'])
+            ->middleware('permission:shm.collection.view')
+            ->name('collection.show');
+        Route::post('/collection/{case}/activities', [ShmCollectionActivityController::class, 'store'])
+            ->middleware('permission:shm.collection.activity.create')
+            ->name('collection.activities.store');
+        // Graph transisi = tabel ALLOWED_TRANSITIONS T92 (contract T91);
+        // PROMISE_TO_PAY murni status workflow tanpa detail PTP.
+        Route::post('/collection/{case}/transition', [ShmCollectionController::class, 'transition'])
+            ->middleware('permission:shm.collection.transition')
+            ->name('collection.cases.transition');
+        // PTP hanya bisa dicatat saat case PROMISE_TO_PAY & tanpa PTP OPEN
+        // (guard di service); pembuatan TIDAK mengubah status case dan
+        // TIDAK membuat pembayaran.
+        Route::post('/collection/{case}/ptp', [ShmCollectionPtpController::class, 'store'])
+            ->middleware('permission:shm.collection.ptp.create')
+            ->name('collection.ptp.store');
+        Route::post('/collection/ptp/{ptp}/transition', [ShmCollectionPtpController::class, 'transition'])
+            ->middleware('permission:shm.collection.ptp.transition')
+            ->name('collection.ptp.transition');
 
         // -----------------------------------------------------------------
         // Ticket 68 — edit/update Pengajuan Pinjaman & Ajukan Approval.

@@ -1630,10 +1630,11 @@ return [
         // RULE 13 — PERMISSION (konseptual; implementasi ticket berikutnya)
         // ---------------------------------------------------------------
         'permissions' => [
-            'status' => 'CONCEPTUAL ONLY — implementasi pada ticket implementasi berikutnya (Rule 13)',
+            'status' => 'CONCEPTUAL ONLY untuk matrix detail — permission teknis Collection (`shm.collection.*`) diimplementasikan pada T101 untuk grantability via UI Role & Permission (Rule 13 + T101)',
             'existing_basis' => [
                 'shm.view (route middleware Collection T90)',
                 'ownership mechanism existing (ownedBy / shm.view_all — canViewAllShm)',
+                'T101: route Collection memakai permission per-aksi shm.collection.* (menggantikan gate shm.view tunggal); basis ownership & scope TIDAK berubah',
             ],
             'marketing' => [
                 'view_collection',
@@ -1655,8 +1656,19 @@ return [
                 'not_initial_collection_owner',
             ],
             'new_permissions_added_by_t91' => false,
-            'detailed_matrix' => 'PENDING BUSINESS CONFIRMATION (pending #16 — matrix permission detail TIDAK diimplementasikan/ditebak di T91)',
-            'source' => 'T91 Rule 13',
+            // T101: permission teknis grantable (bukan authority bisnis).
+            // Pemberian authority ke role tetap keputusan Superadmin +
+            // matrix BM/PD yang masih PENDING di bawah.
+            'technical_permissions_added_by_t101' => [
+                'shm.collection.view',
+                'shm.collection.transition',
+                'shm.collection.activity.create',
+                'shm.collection.ptp.create',
+                'shm.collection.ptp.transition',
+            ],
+            'collector_role_created' => false,
+            'detailed_matrix' => 'PENDING BUSINESS CONFIRMATION (pending #16 — matrix permission detail TIDAK diimplementasikan/ditebak di T91; T101 hanya membuat permission teknis configurable, TIDAK memutuskan siapa yang menerimanya)',
+            'source' => 'T91 Rule 13 + T101 permission architecture',
         ],
 
         // ---------------------------------------------------------------

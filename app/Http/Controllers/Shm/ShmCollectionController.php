@@ -37,8 +37,9 @@ use Inertia\Response;
  *
  * Kelayakan, agregat, dan ringkasan tunggakan ada di
  * ShmCollectionQueryService (sumber tunggal predikat). Controller hanya:
- * otorisasi (permission route `shm.view` + ownership identik modul pinjaman),
- * parsing filter, sorting whitelist, pagination, dan presentasi props.
+ * otorisasi (permission route `shm.collection.view` — T101 + ownership
+ * identik modul pinjaman), parsing filter, sorting whitelist, pagination,
+ * dan presentasi props.
  *
  * Business rule yang masih PENDING (penalty, collector, cadence, escalation,
  * notification) TIDAK direpresentasikan sebagai fitur apa pun di sini —

@@ -15,10 +15,12 @@ use Illuminate\Http\RedirectResponse;
  *
  * Controller sengaja minimal: DUA method POST (buat PTP, ubah status PTP).
  * Otorisasi mutation mutlak ada di domain service (Marketing pemilik case —
- * tanpa fallback admin/`shm.view_all`); route middleware `shm.view` = gate
- * modul Collection mengikuti pola T93/T94 (permission view existing untuk
- * jalur tulis yang otorisasinya ditentukan di domain, tanpa permission baru
- * selama matrix BM/PD masih PENDING BUSINESS CONFIRMATION).
+ * tanpa fallback admin/`shm.view_all`); route middleware
+ * `shm.collection.ptp.create` / `shm.collection.ptp.transition` (T101) =
+ * gate jalur tulis yang configurable via UI Role & Permission (pola T93/
+ * T94). T97 awalnya berdiri di gate `shm.view` tanpa permission baru
+ * selama matrix BM/PD PENDING; T101 menambahkan permission teknis
+ * grantable — penerimaan authority tetap PENDING BUSINESS CONFIRMATION.
  *
  * Aktor = `$request->user()->id` dari session — frontend tidak pernah
  * memasok actor maupun status case. Riwayat PTP TIDAK memerlukan endpoint

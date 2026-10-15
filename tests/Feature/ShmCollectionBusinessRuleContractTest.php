@@ -411,15 +411,17 @@ class ShmCollectionBusinessRuleContractTest extends TestCase
     }
 
     // ------------------------------------------------------------------
-    // Permission konseptual (Rule 13) — registry tidak ditambah
+    // Permission konseptual matrix (Rule 13) + permission teknis (T101)
     // ------------------------------------------------------------------
 
-    public function test_permission_contract_is_conceptual_and_registry_stays_unchanged(): void
+    public function test_permission_contract_keeps_matrix_conceptual_and_no_collector_role(): void
     {
         $permissions = $this->workflow()['permissions'];
 
+        // Matrix detail (SIAPA menerima authority) tetap konseptual/pending.
         $this->assertStringContainsString('CONCEPTUAL ONLY', $permissions['status']);
         $this->assertFalse($permissions['new_permissions_added_by_t91']);
+        $this->assertFalse($permissions['collector_role_created']);
         $this->assertStringContainsString(
             'PENDING BUSINESS CONFIRMATION',
             $permissions['detailed_matrix'],
@@ -433,11 +435,26 @@ class ShmCollectionBusinessRuleContractTest extends TestCase
         // Basis permission tetap yang existing (T90).
         $this->assertStringContainsString('shm.view', $permissions['existing_basis'][0]);
 
-        // Registry permission TIDAK mendapat role collector / permission collection baru.
+        $this->assertSame(
+            [
+                'shm.collection.view',
+                'shm.collection.transition',
+                'shm.collection.activity.create',
+                'shm.collection.ptp.create',
+                'shm.collection.ptp.transition',
+            ],
+            $permissions['technical_permissions_added_by_t101'],
+        );
+
+        // Registry: role collector TIDAK dibuat; permission teknis
+        // Collection (T101) terdaftar sehingga grantable via UI.
         $registry = (string) file_get_contents(base_path('config/permissions.php'));
 
         $this->assertStringNotContainsString("'collector'", $registry);
-        $this->assertStringNotContainsString("'collection.", $registry);
+
+        foreach ($permissions['technical_permissions_added_by_t101'] as $name) {
+            $this->assertStringContainsString("'".substr($name, 4)."'", $registry);
+        }
     }
 
     // ------------------------------------------------------------------
