@@ -38,8 +38,11 @@ import {
  *   luar range eksak produk (gap) ditolak backend dengan validation error.
  *   Pilihan metode angsuran tetap memakai opsi service simulasi existing.
  * - Perhitungan penghasilan/pengeluaran memakai bilangan bulat rupiah
- *   (integer arithmetic), bukan floating point sembrono. Tidak ada aturan
- *   eligibility/DSCR tambahan — semua itu PENDING BUSINESS CONFIRMATION.
+ *   (integer arithmetic), bukan floating point sembrono. Sisa Penghasilan
+ *   = total penghasilan − total pengeluaran. Saat ini sistem belum
+ *   menerapkan ambang minimum penghasilan, DSCR, maupun aturan eligibility
+ *   tambahan pada angka cashflow ini (CONFIRMED T100 — contract
+ *   decision_domains.application_income_expense).
  */
 
 /** 11 section halaman ini, berurutan sesuai referensi. */
@@ -1196,10 +1199,10 @@ export default function Pengajuan({ today, products, customers, options, applica
                                         Total penghasilan dan total pengeluaran
                                         dihitung dari isian (bilangan bulat
                                         rupiah); Sisa Penghasilan = total
-                                        penghasilan − total pengeluaran. Tidak
-                                        ada ambang minimum, DSCR, atau aturan
-                                        eligibility lain — semuanya PENDING
-                                        BUSINESS CONFIRMATION.
+                                        penghasilan − total pengeluaran. Saat
+                                        ini sistem belum menerapkan ambang
+                                        minimum penghasilan, DSCR, maupun
+                                        aturan eligibility tambahan.
                                     </GapNote>
                                 </div>
                             )}

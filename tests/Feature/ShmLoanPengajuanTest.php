@@ -252,6 +252,23 @@ class ShmLoanPengajuanTest extends TestCase
         $this->assertStringNotContainsString('parseFloat', $source);
     }
 
+    public function test_income_note_states_current_behavior_not_pending(): void
+    {
+        $source = $this->pageSource();
+
+        // T100 — perilaku cashflow dijelaskan faktual (perhitungan ada,
+        // tanpa ambang minimum/DSCR/eligibility tambahan saat ini).
+        $this->assertStringContainsString('Saat ini sistem belum', $source);
+        $this->assertStringContainsString('ambang minimum penghasilan, DSCR', $source);
+
+        // Wording lama income/expense ("semuanya PENDING BUSINESS
+        // CONFIRMATION") tidak lagi ada pada catatan cashflow. Catatan
+        // pending LAIN (credit scoring, jaminan, analisa-tambahan,
+        // DITANGGUHKAN) tetap dipertahankan di halaman ini.
+        $this->assertStringNotContainsString('ambang minimum, DSCR, atau aturan', $source);
+        $this->assertStringContainsString('PENDING BUSINESS CONFIRMATION', $source);
+    }
+
     public function test_pengajuan_page_shows_product_driven_rate_not_universal_two_percent(): void
     {
         // T82 — konstanta legacy masih ada (simulasi) tetapi halaman

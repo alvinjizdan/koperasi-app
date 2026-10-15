@@ -245,6 +245,34 @@ class ShmLoanApplicationTest extends TestCase
         $this->assertSame('Slip gaji terakhir', $application->requirements()->first()->requirement);
     }
 
+    public function test_application_with_expenses_above_income_is_still_accepted(): void
+    {
+        // T100 — tanpa ambang minimum penghasilan/DSCR: sisa penghasilan
+        // negatif tetap diterima sebagai DATA aplikasi, bukan alasan tolak.
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['income'] = ['tetap' => '1000000', 'pasangan' => '', 'usaha' => ''];
+        $payload['expense'] = [
+            'potongan' => '',
+            'rumahTangga' => '5000000',
+            'pendidikan' => '',
+            'sewa' => '',
+            'listrik' => '',
+            'transportasi' => '',
+            'lain' => '',
+        ];
+
+        $this->storeAs($this->admin, $payload)
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $application = ShmLoanApplication::query()->sole();
+
+        $this->assertSame(1000000.0, $application->totalIncome());
+        $this->assertSame(5000000.0, $application->totalExpense());
+        $this->assertSame(-4000000.0, $application->remainingIncome());
+    }
+
     public function test_koperasi_member_id_cannot_be_used_as_shm_customer(): void
     {
         $member = Member::factory()->create();

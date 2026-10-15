@@ -529,6 +529,28 @@ class ShmBusinessRuleContractTest extends TestCase
         $this->assertTrue($semantics['cannot_guess']);
     }
 
+    public function test_t100_application_income_expense_rules_are_confirmed(): void
+    {
+        $income = Config::get('shm-business-rule-contract.decision_domains.application_income_expense');
+
+        // T100 — status cashflow aplikasi: data manual + turunan aritmetika,
+        // tanpa ambang minimum/DSCR/eligibility tambahan (bukan lagi pending).
+        $this->assertSame('CONFIRMED', $income['status']);
+        $this->assertStringContainsString('DATA APLIKASI', $income['rule']['rule']);
+        $this->assertStringContainsString(
+            'Sisa Penghasilan = total penghasilan − total pengeluaran',
+            $income['rule']['rule'],
+        );
+        $this->assertStringContainsString(
+            'TIDAK menerapkan ambang minimum penghasilan, DSCR',
+            $income['rule']['rule'],
+        );
+        $this->assertSame('CONFIRMED', $income['no_minimum_income_threshold']['status']);
+        $this->assertTrue($income['no_minimum_income_threshold']['cannot_guess']);
+        $this->assertSame('CONFIRMED', $income['no_dscr']['status']);
+        $this->assertTrue($income['no_dscr']['cannot_guess']);
+    }
+
     public function test_t78_shm_customer_separation_is_confirmed(): void
     {
         $separation = Config::get('shm-business-rule-contract.decision_domains.shm_customer_separaton');

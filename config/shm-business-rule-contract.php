@@ -851,6 +851,33 @@ return [
 
         /*
         |-------------------------------------------------------------------
+        | 22B. APPLICATION INCOME & EXPENSE (T100 — current behavior)
+        |-------------------------------------------------------------------
+        */
+        'application_income_expense' => [
+            'status' => 'CONFIRMED',
+
+            'rule' => [
+                'status' => 'CONFIRMED',
+                'rule' => 'Total penghasilan & total pengeluaran adalah DATA APLIKASI manual (bilangan bulat rupiah, derived dari komponen isian — bukan kolom total ganda); Sisa Penghasilan = total penghasilan − total pengeluaran (murni selisih angka). Saat ini sistem TIDAK menerapkan ambang minimum penghasilan, DSCR, maupun perhitungan eligibility tambahan lain terhadap angka cashflow ini — sisa penghasilan negatif tetap diterima sebagai data, bukan alasan penolakan.',
+                'source' => 'app/Models/ShmLoanApplication.php (totalIncome/totalExpense/remainingIncome); app/Http/Requests/Shm/StoreShmLoanApplicationRequest.php (income.* & expense.* nullable numeric min:0 — tanpa threshold); resources/js/Pages/Shm/Loans/Pengajuan.jsx (integer arithmetic); T100',
+            ],
+
+            'no_minimum_income_threshold' => [
+                'status' => 'CONFIRMED',
+                'rule' => 'Tidak ada ambang minimum penghasilan yang menolak/memblokir pengajuan. Angka baru (threshold/DSCR/skoring cashflow) hanya boleh ditambahkan lewat keputusan bisnis eksplisit — tidak boleh dikarang.',
+                'cannot_guess' => true,
+            ],
+
+            'no_dscr' => [
+                'status' => 'CONFIRMED',
+                'rule' => 'Tidak ada perhitungan DSCR (Debt Service Coverage Ratio) — angka cashflow tidak pernah dikonversi menjadi skor kelayakan maupun syarat kelulusan.',
+                'cannot_guess' => true,
+            ],
+        ],
+
+        /*
+        |-------------------------------------------------------------------
         | 23. SHM CUSTOMER vs MEMBER
         |-------------------------------------------------------------------
         */
