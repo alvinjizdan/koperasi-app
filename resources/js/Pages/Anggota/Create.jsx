@@ -3,9 +3,8 @@ import { useForm, Link } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import { UserPlus, ArrowLeft, Save, ShieldAlert } from 'lucide-react';
 
-export default function Create({ suggested_member_number, today_date }) {
+export default function Create({ today_date }) {
     const { data, setData, post, processing, errors } = useForm({
-        member_number: suggested_member_number || '',
         full_name: '',
         identity_number: '',
         phone: '',
@@ -56,39 +55,15 @@ export default function Create({ suggested_member_number, today_date }) {
                         </h3>
 
                         <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2">
-                            {/* Nomor Anggota */}
+                            {/* Kode Anggota (dibuat server) */}
                             <div>
-                                <label
-                                    htmlFor="member_number"
-                                    className="block text-xs sm:text-sm font-semibold text-slate-900"
-                                >
-                                    Nomor Anggota{' '}
-                                    <span className="text-rose-500">*</span>
+                                <label className="block text-xs sm:text-sm font-semibold text-slate-900">
+                                    Kode Anggota
                                 </label>
-                                <input
-                                    type="text"
-                                    id="member_number"
-                                    value={data.member_number}
-                                    onChange={(e) =>
-                                        setData('member_number', e.target.value)
-                                    }
-                                    placeholder="Contoh: ANG-0001"
-                                    className={`mt-1.5 w-full rounded-lg border px-3.5 py-2 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-1 ${
-                                        errors.member_number
-                                            ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600 focus:ring-rose-600'
-                                            : 'border-slate-300 bg-white focus:border-slate-900 focus:ring-slate-900'
-                                    }`}
-                                />
-                                {errors.member_number ? (
-                                    <p className="mt-1 text-xs text-rose-600 font-medium">
-                                        {errors.member_number}
-                                    </p>
-                                ) : (
-                                    <p className="mt-1 text-[11px] text-slate-400">
-                                        Nomor anggota harus unik dan tidak boleh
-                                        duplikat.
-                                    </p>
-                                )}
+                                <p className="mt-1.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3.5 py-2 text-xs sm:text-sm text-slate-500">
+                                    Dibuat otomatis oleh sistem (format
+                                    00001-ANG, urut sendiri).
+                                </p>
                             </div>
 
                             {/* Nama Lengkap */}

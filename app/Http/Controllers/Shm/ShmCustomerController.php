@@ -13,6 +13,7 @@ use App\Services\ShmCustomerService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -20,14 +21,19 @@ use Inertia\Response;
  * Master data Nasabah SHM.
  *
  * Nasabah SHM adalah business domain tersendiri, TERPISAH dari anggota
- * koperasi. Halaman ini tidak pernah membaca maupun mengubah tabel members,
- * dan tidak mengonversi anggota koperasi menjadi nasabah SHM.
+ * koperasi: halaman ini TIDAK PERNAH MENULIS tabel members dan tidak
+ * mengonversi anggota koperasi menjadi nasabah SHM. Sejak T89C halaman ini
+ * MEMBACA members hanya untuk selector anggota sumber (status aktif) —
+ * pembuatan nasabah selalu merujuk anggota yang sudah ada, tanpa auto-create.
  *
  * Kepemilikan nasabah: master nasabah bersifat BERSAMA karena Marketing harus
  * dapat memilih nasabah yang sudah ada saat membuat pengajuan. Karena itu
  * daftar nasabah tidak dibatasi per Marketing. Yang tetap dibatasi kepemilikan
  * adalah DATA PENGAJUAN: pada halaman detail nasabah, Marketing tanpa
  * shm.view_all hanya melihat pengajuan miliknya sendiri.
+ *
+ * Penghapusan permanen (T102) hanya untuk nasabah tanpa dependensi rekaman
+ * SHM; nasabah terpakai dinonaktifkan, bukan dihapus (lihat ShmCustomerService).
  */
 class ShmCustomerController extends Controller
 {
@@ -48,6 +54,7 @@ class ShmCustomerController extends Controller
         ];
 
         $query = ShmCustomer::query()
+            ->with('member:id,member_number,full_name')
             ->search($filters['search'])
             ->status($filters['status']);
 
@@ -73,6 +80,13 @@ class ShmCustomerController extends Controller
                 'phone' => $customer->phone,
                 'address' => $customer->address,
                 'is_active' => $customer->is_active,
+                // Kode anggota sumber ditampilkan TERPISAH dari kode nasabah
+                // (domain berbeda, sequence berbeda — T102).
+                'member' => $customer->member ? [
+                    'id' => $customer->member->id,
+                    'member_number' => $customer->member->member_number,
+                    'full_name' => $customer->member->full_name,
+                ] : null,
                 'applications_count' => $customer->applications_count,
                 'created_at' => $customer->created_at,
             ]);
@@ -87,6 +101,7 @@ class ShmCustomerController extends Controller
             'permissions' => [
                 'can_create' => $request->user()->can('shm.customer.create'),
                 'can_update' => $request->user()->can('shm.customer.update'),
+                'can_delete' => $request->user()->can('shm.customer.delete'),
             ],
             'flash' => [
                 'success' => session('success'),
@@ -192,6 +207,7 @@ class ShmCustomerController extends Controller
             'applications' => $applications,
             'permissions' => [
                 'can_update' => $request->user()->can('shm.customer.update'),
+                'can_delete' => $request->user()->can('shm.customer.delete'),
             ],
             'flash' => [
                 'success' => session('success'),
@@ -205,6 +221,8 @@ class ShmCustomerController extends Controller
      */
     public function edit(ShmCustomer $customer): Response
     {
+        $customer->load('member:id,member_number,full_name');
+
         return Inertia::render('Shm/Customers/Edit', [
             'customer' => [
                 'id' => $customer->id,
@@ -217,6 +235,13 @@ class ShmCustomerController extends Controller
                 'latitude' => $customer->latitude,
                 'longitude' => $customer->longitude,
                 'is_active' => $customer->is_active,
+                // Relasi anggota sumber hanya ditampilkan (read-only):
+                // asosiasi member TIDAK dapat diubah dari form (T102).
+                'member' => $customer->member ? [
+                    'id' => $customer->member->id,
+                    'member_number' => $customer->member->member_number,
+                    'full_name' => $customer->member->full_name,
+                ] : null,
             ],
             'flash' => [
                 'success' => session('success'),
@@ -254,6 +279,31 @@ class ShmCustomerController extends Controller
                 ? 'Nasabah SHM berhasil diaktifkan.'
                 : 'Nasabah SHM berhasil dinonaktifkan.',
         );
+    }
+
+    /**
+     * Hapus permanen nasabah SHM (T102).
+     *
+     * Diproteksi dua lapis: route middleware `permission:shm.customer.delete`
+     * (otorisasi teknis via Role & Permission) dan guard dependency di
+     * service (nasabah yang masih dipakai rekaman SHM ditolak dengan pesan
+     * jelas — tanpa cascade, tanpa menghapus anggota sumber).
+     */
+    public function destroy(ShmCustomer $customer): RedirectResponse
+    {
+        try {
+            $this->customers->delete($customer);
+        } catch (ValidationException $exception) {
+            // Alasan penolakan (dependensi masih ada) ditampilkan sebagai
+            // flash error pada halaman sebelumnya; tidak ada baris terhapus.
+            return redirect()
+                ->back()
+                ->withErrors($exception->errors())
+                ->with('error', (string) $exception->getMessage());
+        }
+
+        return to_route('shm.customers.index')
+            ->with('success', 'Nasabah SHM berhasil dihapus.');
     }
 
     /**

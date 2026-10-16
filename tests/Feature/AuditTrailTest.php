@@ -66,7 +66,6 @@ class AuditTrailTest extends TestCase
 
         // Pembuatan anggota via controller agar AuditLogger mencatat aktor session.
         $this->post(route('anggota.store'), [
-            'member_number' => 'ANG-8888',
             'full_name' => 'Anggota Kedua',
             'identity_number' => '3501234567890123',
             'phone' => '081234567890',

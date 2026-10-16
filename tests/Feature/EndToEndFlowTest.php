@@ -92,7 +92,6 @@ class EndToEndFlowTest extends TestCase
     {
         // 1. Buat anggota.
         $this->actingAs($this->superadmin)->post(route('anggota.store'), [
-            'member_number' => 'ANG-E2E-001',
             'full_name' => 'Anggota Alur Satu',
             'identity_number' => '3501234567890001',
             'phone' => '081234567890',
@@ -101,7 +100,9 @@ class EndToEndFlowTest extends TestCase
             'status' => 'active',
         ])->assertRedirect();
 
-        $member = Member::query()->where('member_number', 'ANG-E2E-001')->firstOrFail();
+        // T102-FIX: kode anggota dibuat server (NNNNN-ANG) — cari by nama.
+        $member = Member::query()->where('full_name', 'Anggota Alur Satu')->firstOrFail();
+        $this->assertMatchesRegularExpression('/^\d{5}-ANG$/', $member->member_number);
         $this->assertSame('active', $member->status);
 
         // 2. Buka rekening simpanan.

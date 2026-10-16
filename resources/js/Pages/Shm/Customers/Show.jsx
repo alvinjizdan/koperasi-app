@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
 import ShmLayout from '@/Layouts/ShmLayout';
 import ReportTable from '@/Components/Admin/ReportTable';
+import ConfirmModal from '@/Components/Admin/ConfirmModal';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import DangerButton from '@/Components/DangerButton';
@@ -13,14 +14,32 @@ import { MapPin, UserRound } from 'lucide-react';
  *
  * Riwayat pengajuan sudah dibatasi kepemilikannya di server: Marketing tanpa
  * shm.view_all hanya melihat pengajuan miliknya sendiri.
+ *
+ * Kode Nasabah SHM dan Anggota Sumber (Member) ditampilkan sebagai DUA
+ * identifier terpisah — sequence domain berbeda (T102).
  */
 export default function Show({ customer, applications, permissions, flash }) {
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+
     const toggleActive = () =>
         router.patch(
             route('shm.customers.toggle-active', customer.id),
             { is_active: !customer.is_active },
             { preserveScroll: true },
         );
+
+    const confirmDelete = () => {
+        setIsDeleting(true);
+        router.delete(route('shm.customers.destroy', customer.id), {
+            onSuccess: () => {
+                setShowDeleteConfirm(false);
+                setIsDeleting(false);
+            },
+            onError: () => setIsDeleting(false),
+            onFinish: () => setIsDeleting(false),
+        });
+    };
 
     const columns = [
         {
@@ -84,12 +103,22 @@ export default function Show({ customer, applications, permissions, flash }) {
                                 {customer.is_active ? 'Nonaktifkan' : 'Aktifkan'}
                             </DangerButton>
                         )}
+                        {permissions?.can_delete && (
+                            <DangerButton onClick={() => setShowDeleteConfirm(true)}>
+                                Hapus
+                            </DangerButton>
+                        )}
                     </div>
                 </div>
 
                 {flash?.success && (
                     <div className="rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">
                         {flash.success}
+                    </div>
+                )}
+                {flash?.error && (
+                    <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+                        {flash.error}
                     </div>
                 )}
 
@@ -100,8 +129,22 @@ export default function Show({ customer, applications, permissions, flash }) {
                         </h2>
                         <dl className="space-y-3 text-sm">
                             <div>
-                                <dt className="text-xs text-gray-500">Nomor Nasabah</dt>
+                                <dt className="text-xs text-gray-500">Kode Nasabah SHM</dt>
                                 <dd className="font-medium">{customer.customer_number}</dd>
+                            </div>
+                            <div>
+                                <dt className="text-xs text-gray-500">Anggota Sumber (Member)</dt>
+                                <dd className="font-medium">
+                                    {customer.member ? (
+                                        <>
+                                            Member: {customer.member.member_number} - {customer.member.full_name}
+                                        </>
+                                    ) : (
+                                        <span className="text-xs font-normal text-gray-400">
+                                            Tidak tercatat (data legacy T89C).
+                                        </span>
+                                    )}
+                                </dd>
                             </div>
                             <div>
                                 <dt className="text-xs text-gray-500">Nama</dt>
@@ -164,6 +207,16 @@ export default function Show({ customer, applications, permissions, flash }) {
                         />
                     </section>
                 </div>
+
+                <ConfirmModal
+                    isOpen={showDeleteConfirm}
+                    onClose={() => setShowDeleteConfirm(false)}
+                    onConfirm={confirmDelete}
+                    title="Hapus Nasabah SHM"
+                    message={`Kode ${customer.customer_number} - ${customer.name} akan dihapus permanen. Penghapusan hanya dilakukan bila nasabah belum memiliki pengajuan, pinjaman, atau riwayat aktivitas. Lanjutkan?`}
+                    confirmText="Ya, Hapus"
+                    isProcessing={isDeleting}
+                />
             </div>
         </ShmLayout>
     );

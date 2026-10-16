@@ -12,6 +12,7 @@
 use App\Models\CashierSession;
 use App\Models\InstallmentSchedule;
 use App\Models\Loan;
+use App\Models\Member;
 use App\Models\SavingsAccount;
 use App\Models\SavingsTransaction;
 use App\Services\CashierService;
@@ -19,6 +20,7 @@ use App\Services\InstallmentPaymentService;
 use App\Services\LoanService;
 use App\Services\Penalty\PenaltyCalculator;
 use App\Services\SavingsTransactionService;
+use App\Services\ShmCustomerService;
 use App\Support\DbTransaction;
 use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
 use Illuminate\Database\QueryException;
@@ -179,6 +181,38 @@ try {
             );
 
             return ['difference' => (float) $closed->difference, 'session_id' => $closed->id];
+        })(),
+
+        'shm_customer_create' => (function () use ($params) {
+            // T102: pembuatan nasabah dari dua proses PARALEL — sequence
+            // domain Nasabah SHM harus menghasilkan kode unik tanpa
+            // duplikat (nextval + unique constraint, bukan MAX+1 telanjang).
+            $customer = app(ShmCustomerService::class)->create([
+                'member_id' => (int) $params['member_id'],
+                'name' => $params['name'] ?? 'Nasabah Paralel',
+            ]);
+
+            return [
+                'customer_id' => $customer->id,
+                'customer_number' => $customer->customer_number,
+            ];
+        })(),
+
+        'member_create' => (function () use ($params) {
+            // T102-FIX: pembuatan anggota dari dua proses PARALEL — sequence
+            // domain anggota (members_code_seq) harus menghasilkan kode
+            // NNNNN-ANG unik tanpa duplikat, lewat jalur produksi yang sama
+            // (Member::createWithGeneratedNumber).
+            $member = Member::createWithGeneratedNumber([
+                'full_name' => $params['full_name'] ?? 'Anggota Paralel',
+                'joined_at' => now()->toDateString(),
+                'status' => 'active',
+            ]);
+
+            return [
+                'member_id' => $member->id,
+                'member_number' => $member->member_number,
+            ];
         })(),
 
         default => throw new InvalidArgumentException("Tugas worker tidak dikenal: {$task}"),

@@ -148,6 +148,17 @@ return [
                 'customer.view' => 'Melihat daftar & detail nasabah SHM',
                 'customer.create' => 'Menambah nasabah SHM',
                 'customer.update' => 'Mengubah data & status nasabah SHM',
+                // Ticket 102: hapus permanen nasabah yang BELUM memiliki
+                // dependensi rekaman SHM (guard dependency ada di service —
+                // nasabah yang sudah dipakai pengajuan/pinjaman/aktivitas
+                // ditolak dan tetap dinonaktifkan lewat customer.update).
+                // Penghapusan adalah kapasitas destruktif: SENGAJA tidak
+                // ditambahkan ke daftar role marketing; role admin memperolehnya
+                // lewat all_permissions dan superadmin lewat bypass. Authority
+                // bisnis (SIAPA yang berwenang menghapus nasabah) belum
+                // diputuskan KSP — PENDING BUSINESS CONFIRMATION, teknikal
+                // permission ini tetap configurable via UI Role & Permission.
+                'customer.delete' => 'Menghapus nasabah SHM',
                 // Ticket 98-FIX: master produk pinjaman SHM (CRUD kategori,
                 // deskripsi, syarat, status aktif). Baca tetap shm.view;
                 // tulis memakai permission terpisah (pola BUG-01) supaya

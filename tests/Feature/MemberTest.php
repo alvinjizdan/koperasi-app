@@ -75,7 +75,6 @@ class MemberTest extends TestCase
         $user = User::factory()->superadmin()->create();
 
         $payload = [
-            'member_number' => 'ANG-0099',
             'full_name' => 'Ahmad Dahlan',
             'identity_number' => '3501234567890001',
             'phone' => '08123456789',
@@ -86,24 +85,26 @@ class MemberTest extends TestCase
 
         $response = $this->actingAs($user)->post('/anggota', $payload);
 
+        // T102-FIX: kode anggota dibuat server `NNNNN-ANG` (sequence).
+        $newMember = Member::query()->latest('id')->firstOrFail();
+        $this->assertMatchesRegularExpression('/^\d{5}-ANG$/', $newMember->member_number);
+
         $this->assertDatabaseHas('members', [
-            'member_number' => 'ANG-0099',
+            'id' => $newMember->id,
+            'member_number' => $newMember->member_number,
             'full_name' => 'Ahmad Dahlan',
             'status' => 'active',
         ]);
 
-        $newMember = Member::where('member_number', 'ANG-0099')->first();
         $response->assertRedirect(route('anggota.show', $newMember->id));
     }
 
-    public function test_duplicate_member_number_is_rejected(): void
+    public function test_client_sent_member_number_is_rejected_on_create(): void
     {
         $user = User::factory()->superadmin()->create();
 
-        Member::factory()->create([
-            'member_number' => 'ANG-0001',
-        ]);
-
+        // T102-FIX: klien tidak lagi boleh mengirim kode anggota — kode
+        // dibuat server dari sequence (uniqueness dijaga database).
         $payload = [
             'member_number' => 'ANG-0001',
             'full_name' => 'Anggota Duplikat',
@@ -142,7 +143,6 @@ class MemberTest extends TestCase
         ]);
 
         $payload = [
-            'member_number' => 'ANG-0005',
             'full_name' => 'Nama Baru Diperbarui',
             'identity_number' => '3501234567890002',
             'phone' => '08987654321',
@@ -159,6 +159,32 @@ class MemberTest extends TestCase
             'full_name' => 'Nama Baru Diperbarui',
             'phone' => '08987654321',
         ]);
+
+        // T102-FIX: kode anggota immutable — update tidak menyentuhnya.
+        $this->assertSame('ANG-0005', $member->fresh()->member_number);
+    }
+
+    public function test_member_number_cannot_be_changed_on_update(): void
+    {
+        $user = User::factory()->superadmin()->create();
+        $member = Member::factory()->create([
+            'member_number' => 'ANG-0005',
+            'full_name' => 'Nama Lama',
+        ]);
+
+        $payload = [
+            'member_number' => '99999-ANG',
+            'full_name' => 'Nama Baru',
+            'joined_at' => '2026-09-25',
+            'status' => 'active',
+        ];
+
+        $response = $this->actingAs($user)->put(route('anggota.update', $member->id), $payload);
+
+        // T102-FIX: kode anggota immutable — klien tidak dapat mengubah kode.
+        $response->assertSessionHasErrors(['member_number']);
+        $this->assertSame('ANG-0005', $member->fresh()->member_number);
+        $this->assertSame('Nama Lama', $member->fresh()->full_name);
     }
 
     public function test_authenticated_users_can_deactivate_member(): void

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\CashierSession;
 use App\Models\CashTransaction;
 use App\Models\Loan;
+use App\Models\Member;
 use App\Models\SavingsAccount;
 use App\Models\User;
 use App\Services\LoanService;
@@ -580,6 +581,55 @@ class ConcurrencyAndFailureTest extends TestCase
         $session->refresh();
         $posted = (float) $session->transactions()->where('status', CashTransaction::STATUS_POSTED)->sum('amount');
         $this->assertSame(100_000.0, $posted);
+    }
+
+    /**
+     * T102 — Dua pembuatan Nasabah SHM PARALEL untuk dua anggota berbeda:
+     * sequence domain Nasabah SHM menghasilkan kode UNIK berurutan
+     * (`00001-ANG` dan `00002-ANG`) tanpa duplikat — tanpa membaca MAX+1
+     * telanjang dan tanpa memakai kode anggota.
+     */
+    public function test_parallel_customer_creations_get_unique_sequential_codes(): void
+    {
+        $members = Member::factory()->count(2)->create(['status' => 'active']);
+
+        $results = $this->harness->runParallel([
+            ['task' => 'shm_customer_create', 'params' => ['member_id' => $members[0]->id, 'name' => 'Nasabah Paralel A']],
+            ['task' => 'shm_customer_create', 'params' => ['member_id' => $members[1]->id, 'name' => 'Nasabah Paralel B']],
+        ]);
+
+        $results->assertAllOk();
+
+        $codes = DB::table('shm_customers')->pluck('customer_number')->all();
+
+        $this->assertCount(2, $codes, 'Kedua pembuatan paralel harus berhasil.');
+        $this->assertCount(2, array_unique($codes), 'Pembuatan paralel tidak boleh menghasilkan kode duplikat.');
+
+        sort($codes);
+        $this->assertSame(['00001-ANG', '00002-ANG'], $codes);
+    }
+
+    /**
+     * T102-FIX — Dua pembuatan anggota PARALEL: sequence domain anggota
+     * (`members_code_seq`) menghasilkan kode `NNNNN-ANG` UNIK berurutan
+     * (`00001-ANG` dan `00002-ANG`) tanpa duplikat — tanpa MAX+1 telanjang.
+     */
+    public function test_parallel_member_creations_get_unique_sequential_codes(): void
+    {
+        $results = $this->harness->runParallel([
+            ['task' => 'member_create', 'params' => ['full_name' => 'Anggota Paralel A']],
+            ['task' => 'member_create', 'params' => ['full_name' => 'Anggota Paralel B']],
+        ]);
+
+        $results->assertAllOk();
+
+        $codes = DB::table('members')->pluck('member_number')->all();
+
+        $this->assertCount(2, $codes, 'Kedua pembuatan anggota paralel harus berhasil.');
+        $this->assertCount(2, array_unique($codes), 'Pembuatan anggota paralel tidak boleh menghasilkan kode duplikat.');
+
+        sort($codes);
+        $this->assertSame(['00001-ANG', '00002-ANG'], $codes);
     }
 
     private function postgresAvailable(): bool

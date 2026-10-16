@@ -419,8 +419,9 @@ Route::prefix('shm')->name('shm.')->group(function () {
 
         // Nasabah SHM (Ticket 46).
         //
-        // Master data nasabah TERPISAH dari anggota koperasi: halaman ini
-        // tidak pernah membaca maupun mengubah tabel members.
+        // Master data nasabah TERPISAH dari anggota koperasi: route-routenya
+        // TIDAK PERNAH MENULIS tabel members. Sejak T89C route create membaca
+        // members hanya untuk memilih anggota sumber aktif (tanpa auto-create).
         //
         // Route literal (/nasabah/create) didaftarkan sebelum route parameter
         // ({customer}) agar tidak tertelan wildcard.
@@ -441,6 +442,12 @@ Route::prefix('shm')->name('shm.')->group(function () {
         Route::put('/nasabah/{customer}', [ShmCustomerController::class, 'update'])
             ->middleware('permission:shm.customer.update')
             ->name('customers.update');
+
+        // Hapus permanen (T102): permission khusus — berbeda dari update —
+        // dan guard dependency tetap di service (nasabah terpakai ditolak).
+        Route::delete('/nasabah/{customer}', [ShmCustomerController::class, 'destroy'])
+            ->middleware('permission:shm.customer.delete')
+            ->name('customers.destroy');
 
         Route::patch('/nasabah/{customer}/status', [ShmCustomerController::class, 'toggleActive'])
             ->middleware('permission:shm.customer.update')

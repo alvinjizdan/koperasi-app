@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import ShmLayout from '@/Layouts/ShmLayout';
 import ReportTable from '@/Components/Admin/ReportTable';
+import ConfirmModal from '@/Components/Admin/ConfirmModal';
 import PrimaryButton from '@/Components/PrimaryButton';
 import useTableSort from '@/hooks/useTableSort';
 import { formatDateTime } from '@/utils/format';
-import { Filter, Plus, Search } from 'lucide-react';
+import { Filter, Pencil, Plus, Search, Trash2, Eye } from 'lucide-react';
 
 /**
  * Daftar Nasabah SHM.
@@ -14,12 +15,31 @@ import { Filter, Plus, Search } from 'lucide-react';
  * Master nasabah bersifat bersama karena Marketing perlu memilih nasabah yang
  * sudah ada saat membuat pengajuan; yang tetap dibatasi kepemilikan adalah
  * data pengajuan, bukan data nasabah.
+ *
+ * Kolom "Anggota Sumber" menampilkan kode ANGGOTA (domain koperasi) TERPISAH
+ * dari Kode Nasabah SHM (domain SHM) — keduanya sequence berbeda dan tidak
+ * boleh dianggap identifier yang sama (T102).
  */
 export default function Index({ customers, sort, filters, permissions, flash }) {
     const handleSort = useTableSort('shm.customers.index');
 
     const [search, setSearch] = useState(filters.search || '');
     const [status, setStatus] = useState(filters.status || 'all');
+    const [deleteTarget, setDeleteTarget] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const confirmDelete = () => {
+        if (!deleteTarget) return;
+        setIsDeleting(true);
+        router.delete(route('shm.customers.destroy', deleteTarget.id), {
+            onSuccess: () => {
+                setDeleteTarget(null);
+                setIsDeleting(false);
+            },
+            onError: () => setIsDeleting(false),
+            onFinish: () => setIsDeleting(false),
+        });
+    };
 
     const applyFilters = (event) => {
         event.preventDefault();
@@ -48,6 +68,20 @@ export default function Index({ customers, sort, filters, permissions, flash }) 
             ),
         },
         { key: 'name', label: 'Nama', sortable: true },
+        {
+            key: 'member',
+            label: 'Anggota Sumber',
+            render: (row) =>
+                row.member ? (
+                    <span className="text-xs text-slate-600">
+                        <span className="font-medium text-slate-700">{row.member.member_number}</span>
+                        {' - '}
+                        {row.member.full_name}
+                    </span>
+                ) : (
+                    <span className="text-xs text-slate-400">-</span>
+                ),
+        },
         {
             key: 'nik',
             label: 'NIK',
@@ -94,6 +128,40 @@ export default function Index({ customers, sort, filters, permissions, flash }) 
             sortable: true,
             render: (row) => formatDateTime(row.created_at),
         },
+        {
+            key: 'actions',
+            label: 'Aksi',
+            render: (row) => (
+                <div className="flex items-center gap-1">
+                    <Link
+                        href={route('shm.customers.show', row.id)}
+                        title="Detail"
+                        className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-indigo-600"
+                    >
+                        <Eye className="h-4 w-4" />
+                    </Link>
+                    {permissions?.can_update && (
+                        <Link
+                            href={route('shm.customers.edit', row.id)}
+                            title="Edit"
+                            className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-indigo-600"
+                        >
+                            <Pencil className="h-4 w-4" />
+                        </Link>
+                    )}
+                    {permissions?.can_delete && (
+                        <button
+                            type="button"
+                            title="Hapus"
+                            onClick={() => setDeleteTarget(row)}
+                            className="rounded-md p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </button>
+                    )}
+                </div>
+            ),
+        },
     ];
 
     return (
@@ -119,6 +187,11 @@ export default function Index({ customers, sort, filters, permissions, flash }) 
                 {flash?.success && (
                     <div className="rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">
                         {flash.success}
+                    </div>
+                )}
+                {flash?.error && (
+                    <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+                        {flash.error}
                     </div>
                 )}
 
@@ -160,6 +233,20 @@ export default function Index({ customers, sort, filters, permissions, flash }) 
                     routeName="shm.customers.index"
                     emptyTitle="Belum ada nasabah SHM"
                     emptyDescription="Nasabah SHM yang ditambahkan akan tampil di sini."
+                />
+
+                <ConfirmModal
+                    isOpen={!!deleteTarget}
+                    onClose={() => setDeleteTarget(null)}
+                    onConfirm={confirmDelete}
+                    title="Hapus Nasabah SHM"
+                    message={
+                        deleteTarget
+                            ? `Nasabah ${deleteTarget.customer_number} - ${deleteTarget.name} akan dihapus permanen. Penghapusan hanya dilakukan bila nasabah belum memiliki pengajuan, pinjaman, atau riwayat aktivitas. Lanjutkan?`
+                            : ''
+                    }
+                    confirmText="Ya, Hapus"
+                    isProcessing={isDeleting}
                 />
             </div>
         </ShmLayout>

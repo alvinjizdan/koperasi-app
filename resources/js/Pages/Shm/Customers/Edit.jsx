@@ -39,8 +39,28 @@ export default function Edit({ customer, flash }) {
                         Edit Nasabah {customer.customer_number}
                     </h1>
                     <p className="text-sm text-gray-500">
-                        Nomor nasabah dibuat server dan tidak dapat diubah.
+                        Kode Nasabah SHM dibuat server dan tidak dapat diubah.
                     </p>
+                </div>
+
+                {/* Identitas referensi — READ-ONLY: kode nasabah dan asosiasi
+                    anggota sumber tidak dapat diubah dari form ini (T102). */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-slate-500">Kode Nasabah SHM:</span>
+                        <span className="font-semibold text-slate-800">{customer.customer_number}</span>
+                        <span className="text-xs text-slate-400">(otomatis, tidak berubah)</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-slate-500">Anggota Sumber:</span>
+                        {customer.member ? (
+                            <span className="font-semibold text-slate-800">
+                                Member: {customer.member.member_number} - {customer.member.full_name}
+                            </span>
+                        ) : (
+                            <span className="text-xs text-slate-400">Tidak tercatat (data legacy T89C).</span>
+                        )}
+                    </div>
                 </div>
 
                 {flash?.success && (

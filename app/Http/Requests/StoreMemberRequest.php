@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class StoreMemberRequest extends FormRequest
 {
@@ -18,18 +19,36 @@ class StoreMemberRequest extends FormRequest
     /**
      * Aturan validasi yang berlaku untuk permintaan.
      *
+     * `member_number` tidak lagi diterima dari klien: kode anggota dibuat
+     * server-side dengan format `NNNNN-ANG` (T102-FIX).
+     *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
         return [
-            'member_number' => ['required', 'string', 'max:50', 'unique:members,member_number'],
             'full_name' => ['required', 'string', 'max:255'],
             'identity_number' => ['nullable', 'string', 'max:50'],
             'phone' => ['nullable', 'string', 'max:30'],
             'address' => ['nullable', 'string', 'max:1000'],
             'joined_at' => ['required', 'date'],
             'status' => ['required', 'in:active,inactive'],
+        ];
+    }
+
+    /**
+     * Tolak `member_number` yang dikirim klien — kode dibuat oleh sistem.
+     *
+     * @return array<int, callable>
+     */
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                if ($this->filled('member_number')) {
+                    $validator->errors()->add('member_number', 'Kode anggota dibuat otomatis oleh sistem dan tidak dapat dikirim dari klien.');
+                }
+            },
         ];
     }
 
@@ -41,9 +60,6 @@ class StoreMemberRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'member_number.required' => 'Nomor anggota wajib diisi.',
-            'member_number.unique' => 'Nomor anggota ini sudah terdaftar dalam sistem.',
-            'member_number.max' => 'Nomor anggota tidak boleh melebihi 50 karakter.',
             'full_name.required' => 'Nama lengkap wajib diisi.',
             'full_name.max' => 'Nama lengkap tidak boleh melebihi 255 karakter.',
             'joined_at.required' => 'Tanggal bergabung wajib dipilih.',

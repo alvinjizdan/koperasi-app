@@ -4,7 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class UpdateMemberRequest extends FormRequest
 {
@@ -19,25 +19,36 @@ class UpdateMemberRequest extends FormRequest
     /**
      * Aturan validasi yang berlaku untuk permintaan update.
      *
+     * `member_number` immutable (T102-FIX): kode anggota dibuat server saat
+     * pendaftaran dan tidak dapat diubah lewat update.
+     *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
-        $memberId = $this->route('member')?->id ?? $this->route('member');
-
         return [
-            'member_number' => [
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('members', 'member_number')->ignore($memberId),
-            ],
             'full_name' => ['required', 'string', 'max:255'],
             'identity_number' => ['nullable', 'string', 'max:50'],
             'phone' => ['nullable', 'string', 'max:30'],
             'address' => ['nullable', 'string', 'max:1000'],
             'joined_at' => ['required', 'date'],
             'status' => ['required', 'in:active,inactive'],
+        ];
+    }
+
+    /**
+     * Tolak `member_number` yang dikirim klien — kode anggota immutable.
+     *
+     * @return array<int, callable>
+     */
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                if ($this->filled('member_number')) {
+                    $validator->errors()->add('member_number', 'Kode anggota dibuat oleh sistem dan tidak dapat diubah.');
+                }
+            },
         ];
     }
 
@@ -49,9 +60,6 @@ class UpdateMemberRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'member_number.required' => 'Nomor anggota wajib diisi.',
-            'member_number.unique' => 'Nomor anggota ini sudah terdaftar untuk anggota lain.',
-            'member_number.max' => 'Nomor anggota tidak boleh melebihi 50 karakter.',
             'full_name.required' => 'Nama lengkap wajib diisi.',
             'full_name.max' => 'Nama lengkap tidak boleh melebihi 255 karakter.',
             'joined_at.required' => 'Tanggal bergabung wajib dipilih.',

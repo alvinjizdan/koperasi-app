@@ -59,23 +59,22 @@ class MemberController extends Controller
      */
     public function create(): Response
     {
-        // Generasi nomor anggota usulan berdasarkan sequence ID terakhir untuk membantu pengguna
-        $lastId = Member::max('id') ?? 0;
-        $nextId = $lastId + 1;
-        $suggestedNumber = 'ANG-'.str_pad((string) $nextId, 4, '0', STR_PAD_LEFT);
-
+        // T102-FIX: kode anggota (NNNNN-ANG) dibuat server saat penyimpanan —
+        // saran manual berbasis MAX(id) tidak lagi dipakai.
         return Inertia::render('Anggota/Create', [
-            'suggested_member_number' => $suggestedNumber,
             'today_date' => now()->format('Y-m-d'),
         ]);
     }
 
     /**
      * Simpan data anggota baru ke dalam database.
+     *
+     * Kode anggota dihasilkan server (`Member::createWithGeneratedNumber`)
+     * dengan format `NNNNN-ANG` dari sequence `members_code_seq`.
      */
     public function store(StoreMemberRequest $request): RedirectResponse
     {
-        $member = Member::create($request->validated());
+        $member = Member::createWithGeneratedNumber($request->validated());
 
         AuditLogger::log(
             'member.created',

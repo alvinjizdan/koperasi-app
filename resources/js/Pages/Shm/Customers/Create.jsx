@@ -191,8 +191,14 @@ export default function Create({ members = [], filters = {}, flash }) {
                                 </h2>
                             </div>
                             <span className="text-xs text-slate-500">
-                                No. Anggota: {selectedMember.member_number}
+                                Member: {selectedMember.member_number} - {selectedMember.full_name}
                             </span>
+                        </div>
+
+                        <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                            Kode Nasabah SHM dibuat otomatis oleh sistem dengan sequence sendiri
+                            (format NNNNN-ANG, mis. 00001-ANG) — TERPISAH dari nomor anggota di atas.
+                            Kode tidak diketik manual.
                         </div>
 
                         <div>

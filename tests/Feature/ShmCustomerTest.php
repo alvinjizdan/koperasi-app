@@ -4,10 +4,12 @@ namespace Tests\Feature;
 
 use App\Models\AuditLog;
 use App\Models\Member;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\ShmApplication;
 use App\Models\ShmCustomer;
 use App\Models\User;
+use App\Services\PermissionRegistry;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -51,6 +53,29 @@ class ShmCustomerTest extends TestCase
     {
         $user = User::factory()->create(['email_verified_at' => now()]);
         $user->roles()->attach(Role::query()->where('name', $roleName)->value('id'));
+
+        return $user;
+    }
+
+    /**
+     * Pengguna dengan role khusus yang hanya memegang permission tertentu.
+     *
+     * @param  array<int, string>  $permissionNames
+     */
+    private function userWithPermissions(array $permissionNames): User
+    {
+        $user = User::factory()->create(['email_verified_at' => now()]);
+
+        $role = Role::query()->create([
+            'name' => 't102-'.uniqid(),
+            'display_name' => 'T102 Permission Tester',
+            'is_system' => false,
+        ]);
+
+        $role->permissions()->attach(
+            Permission::query()->whereIn('name', $permissionNames)->pluck('id'),
+        );
+        $user->roles()->attach($role->id);
 
         return $user;
     }
@@ -113,7 +138,9 @@ class ShmCustomerTest extends TestCase
         $number = ShmCustomer::query()->value('customer_number');
 
         $this->assertNotNull($number);
-        $this->assertMatchesRegularExpression('/^NSB-\d{8}-[0-9A-F]{8}$/', $number);
+        // Format resmi T102: `NNNNN-ANG` — sequence domain Nasabah SHM,
+        // independen dari sequence anggota koperasi.
+        $this->assertMatchesRegularExpression('/^\d{5}-ANG$/', $number);
     }
 
     public function test_customer_number_is_unique_across_many_rows(): void
@@ -207,8 +234,8 @@ class ShmCustomerTest extends TestCase
 
         $this->assertSame('Nasabah Diubah', $customer->name);
         $this->assertSame('089999999999', $customer->phone);
-        // Nomor nasabah tidak ikut berubah karena dibuat server.
-        $this->assertMatchesRegularExpression('/^NSB-\d{8}-[0-9A-F]{8}$/', $customer->customer_number);
+        // Nomor nasabah tidak ikut berubah karena dibuat server (T102: NNNNN-ANG).
+        $this->assertMatchesRegularExpression('/^\d{5}-ANG$/', $customer->customer_number);
     }
 
     public function test_customer_status_can_be_toggled(): void
@@ -317,9 +344,81 @@ class ShmCustomerTest extends TestCase
         $this->assertTrue($this->marketing->hasPermission('shm.customer.create'));
         $this->assertTrue($this->marketing->hasPermission('shm.customer.update'));
 
+        // Penghapusan permanen (T102) SENGAJA tidak masuk role marketing:
+        // authority penghapusan master nasabah belum diputuskan KSP.
+        $this->assertFalse($this->marketing->hasPermission('shm.customer.delete'));
+
         // Batas kewenangan lain tidak ikut terbuka.
         $this->assertFalse($this->marketing->hasPermission('shm.view_all'));
         $this->assertFalse($this->marketing->hasPermission('shm.approval.decide'));
+    }
+
+    // -----------------------------------------------------------------
+    // B2. Permission per-aksi (T102): create/update tanpa permission = 403
+    // -----------------------------------------------------------------
+
+    public function test_customer_create_without_specific_permission_is_forbidden(): void
+    {
+        $member = Member::factory()->create(['status' => 'active']);
+        $user = $this->userWithPermissions(['shm.customer.view']);
+
+        $this->actingAs($user)
+            ->post(route('shm.customers.store'), $this->payload(['member_id' => $member->id]))
+            ->assertForbidden();
+
+        $this->assertSame(0, ShmCustomer::query()->count());
+    }
+
+    public function test_customer_update_without_specific_permission_is_forbidden(): void
+    {
+        $customer = $this->createCustomerFor($this->marketing);
+        $user = $this->userWithPermissions(['shm.customer.view']);
+
+        $this->actingAs($user)
+            ->put(route('shm.customers.update', $customer->id), $this->payload([
+                'name' => 'Tidak Boleh',
+            ]))
+            ->assertForbidden();
+
+        $this->assertSame('Nasabah Uji', $customer->refresh()->name);
+    }
+
+    public function test_customer_delete_permission_is_registered_and_configurable_via_role_ui(): void
+    {
+        // Terdaftar di registry config dan tersinkron di tabel permissions.
+        $this->assertTrue(app(PermissionRegistry::class)->isValid('shm.customer.delete'));
+        $this->assertDatabaseHas('permissions', ['name' => 'shm.customer.delete']);
+
+        // Tampil di payload UI Role & Permission.
+        $this->actingAs($this->admin)
+            ->get(route('pengaturan.roles.permissions'))
+            ->assertOk()
+            ->assertSee('shm.customer.delete');
+
+        // Grant lewat endpoint UI yang sama → efektif.
+        $tester = $this->userWithPermissions([]);
+        $role = $tester->roles()->firstOrFail();
+
+        $this->actingAs($this->admin)
+            ->put(route('pengaturan.roles.update', $role->id), [
+                'display_name' => $role->display_name,
+                'description' => $role->description,
+                'permissions' => ['shm.customer.delete'],
+            ])
+            ->assertSessionHas('success');
+
+        $this->assertTrue($tester->fresh()->hasPermission('shm.customer.delete'));
+
+        // Revoke lewat endpoint yang sama → hilang.
+        $this->actingAs($this->admin)
+            ->put(route('pengaturan.roles.update', $role->id), [
+                'display_name' => $role->display_name,
+                'description' => $role->description,
+                'permissions' => [],
+            ])
+            ->assertSessionHas('success');
+
+        $this->assertFalse($tester->fresh()->hasPermission('shm.customer.delete'));
     }
 
     // -----------------------------------------------------------------

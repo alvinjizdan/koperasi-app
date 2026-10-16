@@ -13,14 +13,18 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * Master data Nasabah SHM.
  *
  * Nasabah SHM adalah business domain tersendiri dan BERBEDA dari anggota
- * koperasi (`App\Models\Member`). Model ini sengaja tidak memiliki relasi ke
- * `Member`: keputusan KSP adalah nasabah SHM tidak dianggap anggota koperasi,
- * sehingga nasabah SHM boleh belum/tidak menjadi anggota.
+ * koperasi (`App\Models\Member`): record Customer dibuat TERPISAH dan hanya
+ * MENYIMPAN rujukan `member_id` ke anggota sumber yang sudah ada (T89C) —
+ * membuat nasabah tidak pernah membuat/mengubah anggota, dan asosiasi ini
+ * tidak dapat diubah lewat form edit (T102).
  *
- * `customer_number` SELALU dibuat server-side (lihat ShmCustomerService).
- * Model ini tidak pernah menerima nomor tersebut dari payload klien.
+ * `customer_number` SELALU dibuat server-side (lihat ShmCustomerService)
+ * dengan format resmi `NNNNN-ANG` dari sequence domain Nasabah SHM yang
+ * INDEPENDEN dari nomor anggota. Model ini tidak pernah menerima nomor
+ * tersebut dari payload klien.
  *
  * @property int $id
+ * @property int|null $member_id
  * @property string $customer_number
  * @property string $name
  * @property string|null $nik
