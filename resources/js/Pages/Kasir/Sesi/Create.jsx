@@ -107,6 +107,7 @@ export default function Create({ today_date, previous_session }) {
                                 <input
                                     id="operational_date"
                                     type="date"
+                                    max={today_date}
                                     value={data.operational_date}
                                     onChange={(e) => setData('operational_date', e.target.value)}
                                     className={`mt-1.5 block w-full rounded-lg border px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-1 ${

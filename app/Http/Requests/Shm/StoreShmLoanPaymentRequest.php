@@ -11,9 +11,11 @@ use Illuminate\Validation\Rule;
  * Yang dijaga:
  * - `loan_id` WAJIB merujuk baris `shm_loans` yang ada (pembayaran tidak
  *   pernah dibuat terhadap ShmLoanApplication maupun pinjaman koperasi);
- * - `payment_date` wajib tanggal valid — TIDAK diganti paksa dengan tanggal
- *   server (backdate/backdate-limit masih PENDING BUSINESS CONFIRMATION,
- *   sehingga batas waktu tidak dikarang di sini);
+ * - `payment_date` wajib tanggal valid dan tidak boleh melewati tanggal hari
+ *   ini (T106: future transaction date ditolak oleh backend, referensi
+ *   tanggal = tanggal aplikasi/server sesuai timezone proyek). Backdate
+ *   tetap diizinkan; batas backdate maksimum masih PENDING BUSINESS
+ *   CONFIRMATION, sehingga tidak dikarang di sini;
  * - `amount` wajib numerik dan lebih besar dari 0. TIDAK divalidasi terhadap
  *   angsuran/sisa pokok: overpayment disimpan apa adanya (kontrak T87);
  * - `payment_channel` hanya string pendek tanpa enum: daftar kanal resmi
@@ -47,7 +49,7 @@ class StoreShmLoanPaymentRequest extends FormRequest
 
         return [
             'loan_id' => ['required', 'integer', Rule::exists('shm_loans', 'id')],
-            'payment_date' => ['required', 'date'],
+            'payment_date' => ['required', 'date', 'before_or_equal:today'],
             'amount' => ['required', 'numeric', 'min:0.01', 'max:'.$maxAmount],
             'payment_channel' => ['nullable', 'string', 'max:50'],
             'notes' => ['nullable', 'string', 'max:500'],
@@ -65,6 +67,7 @@ class StoreShmLoanPaymentRequest extends FormRequest
             'loan_id.exists' => 'Pinjaman SHM tidak ditemukan.',
             'payment_date.required' => 'Tanggal pembayaran wajib diisi.',
             'payment_date.date' => 'Tanggal pembayaran tidak valid.',
+            'payment_date.before_or_equal' => 'Tanggal pembayaran tidak boleh melebihi tanggal hari ini.',
             'amount.required' => 'Nominal pembayaran wajib diisi.',
             'amount.numeric' => 'Nominal pembayaran harus berupa angka.',
             'amount.min' => 'Nominal pembayaran harus lebih besar dari 0.',

@@ -138,6 +138,7 @@ export default function Income({ today_date, categories, active_session }) {
                                 <input
                                     id="transaction_date"
                                     type="date"
+                                    max={today_date}
                                     value={data.transaction_date}
                                     onChange={(e) => setData('transaction_date', e.target.value)}
                                     className={`mt-1.5 block w-full rounded-lg border px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-1 ${

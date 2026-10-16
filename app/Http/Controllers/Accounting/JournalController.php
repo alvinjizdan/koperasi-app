@@ -145,13 +145,15 @@ class JournalController extends Controller
     private function validatedPayload(): array
     {
         $validated = request()->validate([
-            'transaction_date' => ['required', 'date'],
+            'transaction_date' => ['required', 'date', 'before_or_equal:today'],
             'description' => ['nullable', 'string', 'max:255'],
             'lines' => ['required', 'array', 'min:2'],
             'lines.*.account_id' => ['required', 'integer', 'exists:chart_of_accounts,id'],
             'lines.*.description' => ['nullable', 'string', 'max:255'],
             'lines.*.debit' => ['required', 'numeric', 'min:0'],
             'lines.*.credit' => ['required', 'numeric', 'min:0'],
+        ], [
+            'transaction_date.before_or_equal' => 'Tanggal transaksi tidak boleh melebihi tanggal hari ini.',
         ]);
 
         $lines = array_map(fn (array $line) => [

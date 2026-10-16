@@ -365,6 +365,7 @@ export default function Payments({ payments, loans, sort, filters, today, flash 
                             <TextInput
                                 id="payment_date"
                                 type="date"
+                                max={today}
                                 value={form.data.payment_date}
                                 onChange={(e) =>
                                     form.setData('payment_date', e.target.value)

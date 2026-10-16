@@ -18,6 +18,7 @@ export default function Show({ entry }) {
     const [showReverseModal, setShowReverseModal] = useState(false);
     const [reason, setReason] = useState('');
     const [processing, setProcessing] = useState(false);
+    const [errors, setErrors] = useState({});
 
     const canPost = permissions.includes('accounting.journals.post');
     const canReverse = permissions.includes('accounting.journals.reverse');
@@ -29,12 +30,14 @@ export default function Show({ entry }) {
 
     const doReverse = () => {
         setProcessing(true);
+        setErrors({});
         router.post(route('akuntansi.jurnal.reverse', entry.id), { reason }, {
-            onFinish: () => {
-                setProcessing(false);
+            onError: (responseErrors) => setErrors(responseErrors),
+            onSuccess: () => {
                 setShowReverseModal(false);
                 setReason('');
             },
+            onFinish: () => setProcessing(false),
         });
     };
 
@@ -73,7 +76,7 @@ export default function Show({ entry }) {
                         {entry.status === 'POSTED' && canReverse && !entry.reversed_by_entry_id && (
                             <button
                                 type="button"
-                                onClick={() => setShowReverseModal(true)}
+                                onClick={() => { setErrors({}); setShowReverseModal(true); }}
                                 className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50 px-3.5 py-2 text-xs sm:text-sm font-semibold text-rose-700 hover:bg-rose-100"
                             >
                                 <Undo2 className="h-4 w-4" /> Reversal
@@ -152,6 +155,9 @@ export default function Show({ entry }) {
                             placeholder="Minimal 5 karakter"
                             required
                         />
+                        {(errors.reason || errors.status) && (
+                            <p className="mt-1 text-xs text-rose-600">{errors.reason || errors.status}</p>
+                        )}
                         <div className="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
                             <button type="button" onClick={() => setShowReverseModal(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50">
                                 Batal

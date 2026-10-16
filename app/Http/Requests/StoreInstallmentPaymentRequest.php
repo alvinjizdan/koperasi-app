@@ -15,7 +15,7 @@ class StoreInstallmentPaymentRequest extends FormRequest
     {
         return [
             'amount' => ['required', 'numeric', 'min:0.01'],
-            'payment_date' => ['required', 'date'],
+            'payment_date' => ['required', 'date', 'before_or_equal:today'],
             'notes' => ['nullable', 'string', 'max:500'],
             'idempotency_key' => ['nullable', 'string', 'max:100'],
         ];
@@ -25,6 +25,7 @@ class StoreInstallmentPaymentRequest extends FormRequest
     {
         return [
             'amount.min' => 'Nominal pembayaran harus lebih besar dari 0.',
+            'payment_date.before_or_equal' => 'Tanggal pembayaran tidak boleh melebihi tanggal hari ini.',
         ];
     }
 }

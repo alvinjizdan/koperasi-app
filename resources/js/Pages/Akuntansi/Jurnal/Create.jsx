@@ -75,9 +75,13 @@ export default function Create({ accounts }) {
                             type="date"
                             value={values.transaction_date}
                             onChange={(event) => setValues({ ...values, transaction_date: event.target.value })}
+                            max={new Date().toISOString().slice(0, 10)}
                             className={inputClass}
                             required
                         />
+                        {typeof errors.transaction_date === 'string' && (
+                            <p className="mt-1 text-xs text-rose-600">{errors.transaction_date}</p>
+                        )}
                     </div>
                     <div>
                         <label className="text-xs font-semibold text-slate-600" htmlFor="description">Deskripsi</label>

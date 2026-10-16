@@ -24,7 +24,7 @@ class StoreCashDepositRequest extends FormRequest
     {
         return [
             'amount' => ['required', 'numeric', 'min:0.01', 'max:9999999999999.99'],
-            'transaction_date' => ['required', 'date'],
+            'transaction_date' => ['required', 'date', 'before_or_equal:today'],
             'description' => ['required', 'string', 'max:500'],
             'idempotency_key' => ['nullable', 'string', 'max:100'],
         ];
@@ -38,6 +38,7 @@ class StoreCashDepositRequest extends FormRequest
         return [
             'amount.min' => 'Nominal setoran harus lebih besar dari 0.',
             'description.required' => 'Keterangan tujuan setoran wajib diisi.',
+            'transaction_date.before_or_equal' => 'Tanggal transaksi tidak boleh melebihi tanggal hari ini.',
         ];
     }
 }

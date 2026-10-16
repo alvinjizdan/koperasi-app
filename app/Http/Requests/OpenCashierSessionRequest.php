@@ -23,7 +23,7 @@ class OpenCashierSessionRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'operational_date' => ['required', 'date'],
+            'operational_date' => ['required', 'date', 'before_or_equal:today'],
             'opening_balance' => ['required', 'numeric', 'min:0', 'max:9999999999999.99'],
             'opening_notes' => ['nullable', 'string', 'max:500'],
         ];
@@ -35,6 +35,7 @@ class OpenCashierSessionRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'operational_date.before_or_equal' => 'Tanggal operasional tidak boleh melebihi tanggal hari ini.',
             'opening_balance.min' => 'Saldo awal kas tidak boleh negatif.',
             'opening_balance.required' => 'Saldo awal kas wajib diisi.',
         ];

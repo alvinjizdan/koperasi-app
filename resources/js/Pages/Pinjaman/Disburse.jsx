@@ -99,6 +99,7 @@ export default function Disburse({ loan, today_date, default_first_due_date }) {
                                 <input
                                     id="disbursement_date"
                                     type="date"
+                                    max={today_date}
                                     value={data.disbursement_date}
                                     onChange={(e) => setData('disbursement_date', e.target.value)}
                                     className={`mt-1.5 block w-full rounded-lg border px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-1 ${
