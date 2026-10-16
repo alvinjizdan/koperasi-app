@@ -54,6 +54,13 @@ class InstallmentController extends Controller
             $this->paymentService->updateScheduleStatuses($loanItem);
         }
 
+        // `remaining_balance` adalah accessor (tanpa $appends) sehingga tidak
+        // ikut ter-serialize oleh paginator model mentah; dikirim eksplisit
+        // agar kolom "Sisa Kewajiban" menampilkan nilai backend (T104).
+        $loans->getCollection()->transform(fn (Loan $loan) => array_merge($loan->toArray(), [
+            'remaining_balance' => $loan->remaining_balance,
+        ]));
+
         return Inertia::render('Angsuran/Index', [
             'loans' => $loans,
             'sort' => $sortStatus,
@@ -118,8 +125,15 @@ class InstallmentController extends Controller
 
         $suggestedAmount = $nextSchedule ? (float) $nextSchedule->remaining_amount : (float) $loan->remaining_balance;
 
+        // `remaining_balance` dan `total_owed` adalah accessor (tanpa $appends),
+        // sehingga tidak ikut ter-serialize oleh model mentah; dikirim eksplisit
+        // agar UI membandingkan nominal terhadap kewajiban hasil hitung backend
+        // (`total_owed` = batas yang divalidasi InstallmentPaymentService).
         return Inertia::render('Angsuran/Pay', [
-            'loan' => $loan,
+            'loan' => array_merge($loan->toArray(), [
+                'remaining_balance' => $loan->remaining_balance,
+                'total_owed' => $loan->total_owed,
+            ]),
             'next_schedule' => $nextSchedule,
             'suggested_amount' => $suggestedAmount,
             'today_date' => now()->format('Y-m-d'),

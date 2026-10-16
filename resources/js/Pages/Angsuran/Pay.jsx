@@ -28,8 +28,10 @@ export default function Pay({ loan, next_schedule, suggested_amount, today_date 
     };
 
     const parsedAmount = parseFloat(data.amount) || 0;
-    const remainingLoanBalance = parseFloat(loan.remaining_balance) || 0;
-    const isOverpayment = parsedAmount > 0 && parsedAmount > remainingLoanBalance;
+    // Batas overpayment memakai `total_owed` dari server — nilai yang sama yang
+    // divalidasi backend saat POST pembayaran (InstallmentPaymentService).
+    const remainingObligation = parseFloat(loan.total_owed) || 0;
+    const isOverpayment = parsedAmount > 0 && parsedAmount > remainingObligation;
 
     return (
         <AdminLayout title="Bayar Angsuran" pageTitle="Bayar Angsuran">
@@ -114,7 +116,7 @@ export default function Pay({ loan, next_schedule, suggested_amount, today_date 
                                 {isOverpayment && (
                                     <p className="mt-1 flex items-center gap-1 text-xs text-rose-600">
                                         <AlertCircle className="h-3 w-3" />
-                                        Nominal melebihi sisa kewajiban pinjaman ({formatRupiah(remainingLoanBalance)}).
+                                        Nominal melebihi sisa kewajiban pinjaman ({formatRupiah(remainingObligation)}).
                                     </p>
                                 )}
                                 {errors.amount && !isOverpayment && (

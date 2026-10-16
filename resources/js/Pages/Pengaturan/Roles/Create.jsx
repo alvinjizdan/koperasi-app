@@ -1,9 +1,15 @@
 import React from 'react';
-import { Link, useForm } from '@inertiajs/react';
+import { Link, useForm, usePage } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import { Plus, ArrowLeft, Save, ShieldCheck } from 'lucide-react';
 
 export default function Create({ modules }) {
+    const { auth } = usePage().props;
+
+    // T105 (UX saja): hanya permission yang dipegang actor yang dapat dicentang;
+    // backend menolak permintaan di luar kewenangan pada request POST.
+    const canGrant = (name) => auth?.is_superadmin || (auth?.permissions ?? []).includes(name);
+
     const { data, setData, post, processing, errors } = useForm({
         name: '',
         display_name: '',
@@ -12,6 +18,7 @@ export default function Create({ modules }) {
     });
 
     const togglePermission = (name) => {
+        if (!canGrant(name)) return;
         const next = data.permissions.includes(name)
             ? data.permissions.filter((p) => p !== name)
             : [...data.permissions, name];
@@ -19,7 +26,8 @@ export default function Create({ modules }) {
     };
 
     const toggleModule = (module) => {
-        const names = module.actions.map((a) => a.name);
+        const names = module.actions.map((a) => a.name).filter(canGrant);
+        if (names.length === 0) return;
         const allSelected = names.every((n) => data.permissions.includes(n));
         const next = allSelected
             ? data.permissions.filter((p) => !names.includes(p))
@@ -120,16 +128,17 @@ export default function Create({ modules }) {
                     </h3>
                     <div className="mt-4 space-y-5">
                         {modules.map((module) => {
-                            const names = module.actions.map((a) => a.name);
-                            const allSelected = names.every((n) => data.permissions.includes(n));
+                            const names = module.actions.map((a) => a.name).filter(canGrant);
+                            const allSelected = names.length > 0 && names.every((n) => data.permissions.includes(n));
 
                             return (
                                 <div key={module.module}>
-                                    <label className="flex cursor-pointer items-center gap-2">
+                                    <label className={`flex items-center gap-2 ${names.length > 0 ? 'cursor-pointer' : 'opacity-50'}`}>
                                         <input
                                             type="checkbox"
                                             checked={allSelected}
                                             onChange={() => toggleModule(module)}
+                                            disabled={names.length === 0}
                                             className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
                                         />
                                         <span className="text-xs font-bold uppercase tracking-wider text-slate-700 sm:text-sm">
@@ -140,16 +149,19 @@ export default function Create({ modules }) {
                                         {module.actions.map((action) => (
                                             <label
                                                 key={action.name}
-                                                className={`flex cursor-pointer items-start gap-2.5 rounded-lg border p-2.5 transition-colors ${
-                                                    data.permissions.includes(action.name)
-                                                        ? 'border-emerald-400 bg-emerald-50/60'
-                                                        : 'border-slate-200 bg-white hover:bg-slate-50'
+                                                className={`flex items-start gap-2.5 rounded-lg border p-2.5 transition-colors ${
+                                                    !canGrant(action.name)
+                                                        ? 'cursor-not-allowed border-slate-100 bg-slate-50 opacity-60'
+                                                        : data.permissions.includes(action.name)
+                                                          ? 'cursor-pointer border-emerald-400 bg-emerald-50/60'
+                                                          : 'cursor-pointer border-slate-200 bg-white hover:bg-slate-50'
                                                 }`}
                                             >
                                                 <input
                                                     type="checkbox"
                                                     checked={data.permissions.includes(action.name)}
                                                     onChange={() => togglePermission(action.name)}
+                                                    disabled={!canGrant(action.name)}
                                                     className="mt-0.5 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
                                                 />
                                                 <div className="min-w-0">

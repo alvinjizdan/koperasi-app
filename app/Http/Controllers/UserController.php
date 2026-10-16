@@ -8,6 +8,7 @@ use App\Http\Requests\UpdateUserRequest;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\AuditLogger;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -82,16 +83,29 @@ class UserController extends Controller
         ]);
     }
 
-    public function create(): Response
+    public function create(Request $request): Response
     {
         return Inertia::render('Pengaturan/Users/Create', [
-            'roles' => Role::query()->active()->orderBy('name')->get(['id', 'name', 'display_name', 'description']),
+            // T105: role Superadmin tidak ditawarkan kepada actor non-superadmin
+            // (UX saja — backend tetap menolak penugasan tersebut).
+            'roles' => $this->assignableRoles($request->user())->get(['id', 'name', 'display_name', 'description']),
         ]);
     }
 
     public function store(StoreUserRequest $request): RedirectResponse
     {
         $validated = $request->validated();
+
+        // T105: non-superadmin tidak boleh membuat akun dengan role superadmin
+        // maupun role yang memuat permission di luar kewenangan actor.
+        $assignmentError = $this->roleAssignmentError(
+            $request->user(),
+            array_map('intval', $validated['roles'] ?? [])
+        );
+
+        if ($assignmentError !== null) {
+            return redirect()->back()->withErrors(['roles' => $assignmentError]);
+        }
 
         $user = DB::transaction(function () use ($validated) {
             $user = User::query()->create([
@@ -121,7 +135,7 @@ class UserController extends Controller
             ->with('success', 'Akun pengguna '.$user->name.' berhasil dibuat.');
     }
 
-    public function show(User $user): Response
+    public function show(Request $request, User $user): Response
     {
         return Inertia::render('Pengaturan/Users/Show', [
             'user' => [
@@ -144,7 +158,7 @@ class UserController extends Controller
                 'is_superadmin' => $user->isSuperadmin(),
                 'is_last_active_superadmin' => $user->isLastActiveSuperadmin(),
             ],
-            'allRoles' => Role::query()->active()->orderBy('name')->get(['id', 'name', 'display_name', 'description']),
+            'allRoles' => $this->assignableRoles($request->user())->get(['id', 'name', 'display_name', 'description']),
             'flash' => [
                 'success' => session('success'),
                 'error' => session('error'),
@@ -191,6 +205,13 @@ class UserController extends Controller
                 ->with('error', 'Anda tidak dapat menonaktifkan akun Anda sendiri.');
         }
 
+        // T105: status akun Superadmin hanya dikelola oleh Superadmin.
+        if ($user->isSuperadmin() && ! $actor->isSuperadmin()) {
+            return redirect()
+                ->back()
+                ->with('error', 'Akun Superadmin hanya dapat dikelola oleh Superadmin.');
+        }
+
         $newStatus = ! $user->is_active;
 
         // Jaga agar selalu tersedia minimal satu Superadmin aktif.
@@ -222,6 +243,14 @@ class UserController extends Controller
      */
     public function resetPassword(Request $request, User $user): RedirectResponse
     {
+        // T105: reset password akun Superadmin hanya oleh Superadmin — mencegah
+        // pengambilalihan akun superadmin lewat endpoint user management.
+        if ($user->isSuperadmin() && ! $request->user()->isSuperadmin()) {
+            return redirect()
+                ->back()
+                ->with('error', 'Akun Superadmin hanya dapat dikelola oleh Superadmin.');
+        }
+
         $validated = $request->validate([
             // Administrator menetapkan password sementara; wajib diganti pengguna.
             'password' => ['required', 'string', Password::defaults(), 'confirmed'],
@@ -257,6 +286,13 @@ class UserController extends Controller
                 ->with('error', 'Anda tidak dapat mengubah role akun Anda sendiri.');
         }
 
+        // T105: akun Superadmin hanya dikelola oleh Superadmin.
+        if ($user->isSuperadmin() && ! $actor->isSuperadmin()) {
+            return redirect()
+                ->back()
+                ->with('error', 'Akun Superadmin hanya dapat dikelola oleh Superadmin.');
+        }
+
         $validated = $request->validate([
             'roles' => ['nullable', 'array'],
             // Role nonaktif (mis. role lama yang sudah tidak dipakai) tidak
@@ -266,6 +302,16 @@ class UserController extends Controller
 
         $oldRoleIds = $user->roles()->pluck('roles.id')->all();
         $newRoleIds = array_values(array_unique(array_map('intval', $validated['roles'] ?? [])));
+
+        // T105: non-superadmin hanya boleh menugaskan role yang privilege-nya
+        // tidak melebihi authority actor; role superadmin tidak pernah boleh.
+        $assignmentError = $this->roleAssignmentError($actor, $newRoleIds);
+
+        if ($assignmentError !== null) {
+            return redirect()
+                ->back()
+                ->with('error', $assignmentError);
+        }
 
         // Akun yang sedang menjadi Superadmin aktif terakhir tidak boleh
         // kehilangan role Superadmin.
@@ -305,5 +351,51 @@ class UserController extends Controller
     private function superadminRoleId(): ?int
     {
         return Role::query()->where('name', Role::SYSTEM_SUPERADMIN)->value('id');
+    }
+
+    /**
+     * Role yang layak ditawarkan pada pemilih role halaman pengguna.
+     * Actor non-superadmin tidak melihat role Superadmin (penugasan selalu
+     * ditolak backend); selain itu daftarnya sama dengan role aktif.
+     */
+    private function assignableRoles(User $actor): Builder
+    {
+        return Role::query()
+            ->active()
+            ->when(! $actor->isSuperadmin(), fn ($q) => $q->where('name', '!=', Role::SYSTEM_SUPERADMIN))
+            ->orderBy('name');
+    }
+
+    /**
+     * T105: guard penugasan role untuk actor non-superadmin. Dua larangan:
+     * role Superadmin tidak pernah boleh ditugaskan, dan privilege role yang
+     * ditugaskan tidak boleh melebihi authority (permission efektif) actor.
+     * Superadmin lolos melalui Gate::before — dipanggil tanpa guard di sini.
+     *
+     * @param  array<int, int>  $roleIds
+     */
+    private function roleAssignmentError(User $actor, array $roleIds): ?string
+    {
+        if ($actor->isSuperadmin() || $roleIds === []) {
+            return null;
+        }
+
+        $roles = Role::query()->with('permissions:id,name')->whereIn('id', $roleIds)->get();
+
+        if ($roles->contains(fn (Role $role) => $role->isSuperadmin())) {
+            return 'Role Superadmin hanya dapat ditetapkan oleh Superadmin.';
+        }
+
+        $held = $actor->effectivePermissions()->pluck('name')->all();
+
+        foreach ($roles as $role) {
+            foreach ($role->permissions as $permission) {
+                if (! in_array($permission->name, $held, true)) {
+                    return 'Role yang ditugaskan memiliki permission di luar kewenangan Anda.';
+                }
+            }
+        }
+
+        return null;
     }
 }

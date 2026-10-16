@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, router } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
 import {
@@ -17,6 +17,11 @@ import {
 export default function Index({ roles, flash }) {
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const { auth } = usePage().props;
+
+    // T105 (UX saja): role sistem hanya dapat diedit Superadmin; backend tetap
+    // menolak PUT pada role sistem oleh actor non-superadmin.
+    const canEditRole = (role) => auth?.is_superadmin || !role.is_system;
 
     const confirmDelete = () => {
         if (!deleteTarget) return;
@@ -125,13 +130,15 @@ export default function Index({ roles, flash }) {
                                 <Users className="h-3.5 w-3.5" />
                                 Pengguna
                             </Link>
-                            <Link
-                                href={route('pengaturan.roles.edit', role.id)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-                            >
-                                <Edit3 className="h-3.5 w-3.5" />
-                                Edit
-                            </Link>
+                            {canEditRole(role) && (
+                                <Link
+                                    href={route('pengaturan.roles.edit', role.id)}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                                >
+                                    <Edit3 className="h-3.5 w-3.5" />
+                                    Edit
+                                </Link>
+                            )}
                             {!role.is_system && (
                                 <button
                                     type="button"

@@ -6,6 +6,7 @@ use App\Http\Requests\StoreRoleRequest;
 use App\Http\Requests\UpdateRoleRequest;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\PermissionRegistry;
 use App\Support\PerPage;
@@ -55,6 +56,15 @@ class RoleController extends Controller
     {
         $validated = $request->validated();
 
+        // T105: role baru hanya boleh memuat permission yang dipegang actor
+        // sendiri; superadmin lolos melalui Gate::before.
+        if (! $request->user()->isSuperadmin()
+            && ! $this->grantedPermissionsWithin($request->user(), $validated['permissions'] ?? [])) {
+            return redirect()->back()->withErrors([
+                'permissions' => 'Terdapat permission di luar kewenangan Anda yang tidak dapat diberikan.',
+            ]);
+        }
+
         $role = DB::transaction(function () use ($validated) {
             $role = Role::query()->create([
                 'name' => $validated['name'],
@@ -103,6 +113,41 @@ class RoleController extends Controller
     public function update(UpdateRoleRequest $request, Role $role): RedirectResponse
     {
         $validated = $request->validated();
+        $actor = $request->user();
+
+        // T105: guard eskalasi privilege untuk actor non-superadmin.
+        if (! $actor->isSuperadmin()) {
+            if ($role->isSuperadmin()) {
+                return redirect()
+                    ->route('pengaturan.roles.index')
+                    ->with('error', 'Role Superadmin hanya dapat dikelola oleh Superadmin.');
+            }
+
+            // Role sistem dikonfigurasi lewat config/permissions.php + seeder;
+            // bukan lewat UI.
+            if ($role->is_system) {
+                return redirect()
+                    ->route('pengaturan.roles.index')
+                    ->with('error', 'Role sistem hanya dapat diubah oleh Superadmin.');
+            }
+
+            // Self-lock/escalation: actor tidak boleh mengubah role yang
+            // sedang ia gunakan sendiri.
+            if ($actor->roles()->where('roles.id', $role->id)->exists()) {
+                return redirect()
+                    ->route('pengaturan.roles.index')
+                    ->with('error', 'Anda tidak dapat mengubah role yang sedang Anda gunakan sendiri.');
+            }
+
+            // Delegation ceiling: hanya permission yang dimiliki actor yang
+            // boleh diberikan ke role lain.
+            if (array_key_exists('permissions', $validated)
+                && ! $this->grantedPermissionsWithin($actor, $validated['permissions'] ?? [])) {
+                return redirect()
+                    ->route('pengaturan.roles.index')
+                    ->with('error', 'Terdapat permission di luar kewenangan Anda yang tidak dapat diberikan.');
+            }
+        }
 
         $oldPermissions = $role->permissions()->pluck('permissions.name')->all();
 
@@ -257,6 +302,25 @@ class RoleController extends Controller
         }
 
         return $modules;
+    }
+
+    /**
+     * Apakah seluruh permission yang diminta berada dalam authority actor?
+     * Dipanggil hanya untuk actor non-superadmin (superadmin lolos Gate::before).
+     *
+     * @param  array<int, string>  $permissionNames
+     */
+    private function grantedPermissionsWithin(User $actor, array $permissionNames): bool
+    {
+        $held = $actor->effectivePermissions()->pluck('name')->all();
+
+        foreach ($permissionNames as $name) {
+            if (! in_array($name, $held, true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

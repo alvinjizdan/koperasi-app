@@ -42,6 +42,10 @@ class HandleInertiaRequests extends Middleware
                 'permissions' => $user !== null
                     ? $user->effectivePermissions()->pluck('name')->all()
                     : [],
+                // T105: penanda khusus tampilan agar kontrol yang pasti ditolak
+                // backend (edit role sistem, dsb.) dapat disembunyikan. Bukan
+                // security boundary — backend tetap melakukan enforcement.
+                'is_superadmin' => $user !== null && $user->isSuperadmin(),
             ],
             // Ticket 57: jumlah approval pending untuk badge sidebar, dihitung
             // scope-safe HANYA untuk pengguna yang memegang permission approval
