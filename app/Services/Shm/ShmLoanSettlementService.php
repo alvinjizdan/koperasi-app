@@ -35,6 +35,16 @@ use RuntimeException;
  * tetap `shm_loan_payments` (T86–T88) dan TIDAK pernah dialokasikan ulang
  * oleh ticket ini (formula alokasi T87 tidak mengenal discount).
  *
+ * BATAS TRANSAKSI (T108 — P1-08): satu pembayaran hanya melayani SATU
+ * domain. `recordPayment()` MENOLAK pembayaran yang sudah teralokasi ke
+ * angsuran (uang sudah mengurangi kewajiban angsuran — double count bila
+ * dipakai sebagai pelunasan); sebaliknya `allocate()` (T87) menolak
+ * pembayaran yang sudah ditautkan ke settlement. Discriminator = tautan
+ * `shm_loan_payment_id` + baris alokasi (mekanisme existing, tanpa kolom
+ * baru). Urutan konseptual TIDAK berubah: pembayaran dicatat → diverifikasi
+ * eksplisit → settlement completed → pinjaman ditutup — rekaman pembayaran
+ * tidak pernah menutup pinjaman.
+ *
  * DISCOUNT (AC1–AC7): data-driven melalui ShmSettlementDiscountPolicy.
  * - Hanya pinjaman dengan plafon awal > Rp50.000.000 (AC3/AC4).
  * - Sisa bulan = jumlah angsuran dengan due_date > settlement date dan
@@ -306,6 +316,18 @@ class ShmLoanSettlementService
             if ($payment->status !== ShmLoanPayment::STATUS_POSTED) {
                 throw ValidationException::withMessages([
                     'payment' => 'Hanya pembayaran berstatus tercatat (posted) yang dapat ditautkan.',
+                ]);
+            }
+
+            // T108 — BATAS TRANSAKSI settlement vs angsuran: pembayaran yang
+            // SUDAH teralokasi ke angsuran adalah pembayaran REGULER —
+            // uangnya sudah mengurangi kewajiban angsuran. Menautkannya
+            // sebagai pembayaran pelunasan berarti uang yang sama terhitung
+            // dua kali (alokasi angsuran + pemenuhan settlement). Ditolak
+            // eksplisit; petugas harus memakai pembayaran baru.
+            if ($payment->allocations()->exists()) {
+                throw ValidationException::withMessages([
+                    'payment' => 'Pembayaran tersebut sudah teralokasi ke angsuran dan tidak dapat ditautkan sebagai pembayaran pelunasan. Catat pembayaran baru untuk pelunasan.',
                 ]);
             }
 

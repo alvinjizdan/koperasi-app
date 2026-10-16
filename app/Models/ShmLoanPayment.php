@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
@@ -96,6 +97,18 @@ class ShmLoanPayment extends Model
     public function allocations(): HasMany
     {
         return $this->hasMany(ShmLoanPaymentAllocation::class, 'shm_loan_payment_id');
+    }
+
+    /**
+     * Settlement pelunasan yang menautkan pembayaran ini (T89B), bila ada.
+     *
+     * T108 — discriminator batas transaksi: pembayaran dengan tautan
+     * settlement adalah pembayaran PELUNASAN dan DILARANG dialokasikan ke
+     * angsuran; pembayaran tanpa tautan adalah pembayaran reguler.
+     */
+    public function settlement(): HasOne
+    {
+        return $this->hasOne(ShmLoanSettlement::class, 'shm_loan_payment_id');
     }
 
     /**

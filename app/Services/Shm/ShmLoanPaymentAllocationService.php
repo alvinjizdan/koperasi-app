@@ -6,6 +6,7 @@ use App\Models\ShmLoan;
 use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanPayment;
 use App\Models\ShmLoanPaymentAllocation;
+use App\Models\ShmLoanSettlement;
 use App\Services\AuditLogger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -41,6 +42,14 @@ use Illuminate\Validation\ValidationException;
  * tidak menggandakan alokasi. Dilindungi berlapis: (1) cek sisa
  * teralokasi di dalam transaksi, (2) unique constraint (payment,
  * installment) di database untuk request paralel.
+ *
+ * BATAS TRANSAKSI (T108 — P1-08): alokasi HANYA menerima pembayaran
+ * reguler. Pembayaran yang sudah ditautkan ke ShmLoanSettlement (T89B)
+ * adalah uang pelunasan dan DITOLAK eksplisit — settlement dan angsuran
+ * tidak pernah berbagi alokasi, sehingga satu rupiah tidak terhitung
+ * dua kali. Discriminator = tautan `shm_loan_settlements.shm_loan_payment_id`
+ * (tidak ada kolom baru; guard berjalan di dalam transaksi yang sama
+ * dengan lock baris pembayaran sehingga aman terhadap request paralel).
  *
  * YANG TIDAK DILAKUKAN ticket ini (sengaja):
  * - menghitung penalty (formula belum dikonfirmasi);
@@ -80,6 +89,26 @@ class ShmLoanPaymentAllocationService
                         'Pembayaran %s berstatus "%s" dan tidak dapat dialokasikan.',
                         $locked->payment_reference,
                         $locked->status,
+                    ),
+                ]);
+            }
+
+            // 2b. T108 — BATAS TRANSAKSI settlement vs angsuran: pembayaran
+            //     yang sudah ditautkan ke settlement pelunasan adalah uang
+            //     pelunasan, BUKAN pembayaran angsuran. Dialokasikan ke
+            //     angsuran berarti uang yang sama terhitung dua kali
+            //     (alokasi angsuran + pemenuhan kewajiban settlement).
+            //     Ditolak eksplisit; jangan dialokasikan diam-diam.
+            $settlementLink = ShmLoanSettlement::query()
+                ->where('shm_loan_payment_id', $locked->id)
+                ->first();
+
+            if ($settlementLink !== null) {
+                throw ValidationException::withMessages([
+                    'payment' => sprintf(
+                        'Pembayaran %s adalah pembayaran pelunasan (settlement %s) dan tidak dapat dialokasikan ke angsuran.',
+                        $locked->payment_reference,
+                        $settlementLink->settlement_reference,
                     ),
                 ]);
             }
