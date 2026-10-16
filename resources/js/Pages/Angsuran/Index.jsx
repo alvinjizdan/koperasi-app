@@ -117,8 +117,8 @@ export default function Index({ loans, sort, filters, flash }) {
                                     <th className="px-4 py-3 text-right">
                                         <TableSortButton column="amount" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>Pokok</TableSortButton>
                                     </th>
-                                    <th className="px-4 py-3 text-right">
-                                        <TableSortButton column="remaining_balance" sort={sort?.key} direction={sort?.direction} onSort={handleSort}>Sisa Kewajiban</TableSortButton>
+                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                        Sisa Kewajiban Pokok
                                     </th>
                                     <th className="hidden lg:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Jatuh Tempo Ke-1</th>
                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Aksi</th>

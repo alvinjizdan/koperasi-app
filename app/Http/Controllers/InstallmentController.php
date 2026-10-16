@@ -40,10 +40,12 @@ class InstallmentController extends Controller
         $loansQuery->when($search, fn ($q) => $q->where('loan_number', 'ilike', "%{$search}%")
             ->orWhereHas('member', fn ($m) => $m->where('full_name', 'ilike', "%{$search}%")));
 
+        // `remaining_balance` adalah accessor PHP, bukan kolom database, sehingga
+        // sengaja TIDAK masuk whitelist sorting — query hanya boleh mengurutkan
+        // kolom nyata (T107; sebelumnya menyebabkan QueryException 500).
         $sortStatus = $this->applySorting($loansQuery, $request, [
             'loan_number' => 'loan_number',
             'amount' => 'amount',
-            'remaining_balance' => 'remaining_balance',
             'created_at' => 'created_at',
         ], [['created_at', 'desc']]);
 
@@ -56,7 +58,7 @@ class InstallmentController extends Controller
 
         // `remaining_balance` adalah accessor (tanpa $appends) sehingga tidak
         // ikut ter-serialize oleh paginator model mentah; dikirim eksplisit
-        // agar kolom "Sisa Kewajiban" menampilkan nilai backend (T104).
+        // agar kolom "Sisa Kewajiban Pokok" menampilkan nilai backend (T104).
         $loans->getCollection()->transform(fn (Loan $loan) => array_merge($loan->toArray(), [
             'remaining_balance' => $loan->remaining_balance,
         ]));

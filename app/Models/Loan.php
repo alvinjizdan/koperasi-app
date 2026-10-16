@@ -101,7 +101,11 @@ class Loan extends Model
     }
 
     /**
-     * Hitung sisa kewajiban pokok (kompatibilitas laporan lama).
+     * Sisa kewajiban pokok — nominal dicairkan dikurangi total pembayaran
+     * berhasil (kompatibilitas laporan lama).
+     *
+     * Konsep ini BUKAN batas pembayaran: validasi overpayment dan keputusan
+     * lunas memakai total_owed (lihat di bawah). Jangan menukar keduanya.
      */
     public function getRemainingBalanceAttribute(): float
     {
@@ -114,6 +118,9 @@ class Loan extends Model
     /**
      * Sisa kewajiban total (pokok + bunga + denda belum dibayar) sesuai
      * jadwal — sumber kebenaran untuk pelunasan (Ticket 15, B.8).
+     *
+     * Dipakai InstallmentPaymentService sebagai batas overpayment dan
+     * keputusan PAID_OFF, serta frontend guard pada Angsuran/Pay (T104/T107).
      */
     public function getTotalOwedAttribute(): float
     {
