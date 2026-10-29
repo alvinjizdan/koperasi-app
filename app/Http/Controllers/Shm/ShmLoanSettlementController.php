@@ -4,13 +4,16 @@ namespace App\Http\Controllers\Shm;
 
 use App\Http\Controllers\Concerns\AuthorizesShmOwnership;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Shm\CorrectShmLoanSettlementRequest;
 use App\Models\AuditLog;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanPayment;
 use App\Models\ShmLoanSettlement;
 use App\Services\Shm\SettlementContractIncomplete;
 use App\Services\Shm\ShmLoanSettlementService;
+use App\Services\Shm\ShmSettlementCorrectionService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -18,7 +21,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * T89B — Halaman & workflow Pelunasan / Settlement Pinjaman SHM (Model B).
+ * T89B / T005 — Halaman & workflow Pelunasan / Settlement Pinjaman SHM (Model B + Correction).
  *
  * - index()          : daftar pinjaman layak pelunasan (active + cair + scope).
  * - show()           : PREVIEW read-only (GET) + status workflow settlement.
@@ -27,6 +30,7 @@ use Inertia\Response;
  * - recordPayment()  : tautkan Payment T86 (approved → payment_recorded).
  * - verifyPayment()  : verifikasi EKSPLISIT (payment_recorded → verified).
  * - complete()       : penyelesaikan → completed + pinjaman closed.
+ * - correct()        : koreksi pelunasan (completed → reversed + replacement pending).
  *
  * Otorisasi: baca = `shm.view` + scope kepemilikan; seluruh tulisan =
  * `shm.settlement.create` (permission technical, role authority PENDING
@@ -37,7 +41,10 @@ class ShmLoanSettlementController extends Controller
 {
     use AuthorizesShmOwnership;
 
-    public function __construct(private readonly ShmLoanSettlementService $settlements) {}
+    public function __construct(
+        private readonly ShmLoanSettlementService $settlements,
+        private readonly ShmSettlementCorrectionService $corrections,
+    ) {}
 
     /**
      * Daftar pinjaman yang layak diajukan pelunasannya.
@@ -102,6 +109,15 @@ class ShmLoanSettlementController extends Controller
             }
         }
 
+        $correctionPreview = null;
+        if ($loan->settlement?->status === ShmLoanSettlement::STATUS_COMPLETED) {
+            try {
+                $correctionPreview = $this->corrections->preview($loan, $loan->settlement);
+            } catch (ValidationException) {
+                $correctionPreview = null;
+            }
+        }
+
         return Inertia::render('Shm/Loans/Settlement', [
             'loan' => [
                 'id' => $loan->id,
@@ -121,6 +137,19 @@ class ShmLoanSettlementController extends Controller
             ],
             'preview' => $preview,
             'settlement' => $this->settlementPayload($loan->settlement),
+            'correction_preview' => $correctionPreview,
+            'corrections' => $loan->settlementCorrections()
+                ->with(['creator', 'originalSettlement', 'replacementSettlement'])
+                ->get()
+                ->map(fn ($c): array => [
+                    'id' => $c->id,
+                    'reason' => $c->reason,
+                    'status' => $c->status,
+                    'created_at' => $c->created_at?->toIso8601String(),
+                    'creator' => $c->creator?->name,
+                    'original_reference' => $c->originalSettlement?->settlement_reference,
+                    'replacement_reference' => $c->replacementSettlement?->settlement_reference,
+                ])->all(),
             'payments' => ShmLoanPayment::query()
                 ->where('shm_loan_id', $loan->id)
                 ->where('status', ShmLoanPayment::STATUS_POSTED)
@@ -239,11 +268,62 @@ class ShmLoanSettlementController extends Controller
     }
 
     /**
+     * Preview koreksi pelunasan (JSON) untuk konfirmasi / modal.
+     */
+    public function previewCorrection(Request $request, ShmLoan $loan): JsonResponse
+    {
+        $this->authorizeLoanRecordOwnership($request, $loan);
+
+        $settlement = $loan->settlement;
+        if ($settlement === null) {
+            throw ValidationException::withMessages([
+                'settlement' => ['Belum ada settlement untuk pinjaman ini.'],
+            ]);
+        }
+
+        return response()->json([
+            'preview' => $this->corrections->preview($loan, $settlement),
+        ]);
+    }
+
+    /**
+     * Koreksi pelunasan (POST): completed → reversed + replacement settlement pending.
+     */
+    public function correct(CorrectShmLoanSettlementRequest $request, ShmLoan $loan): RedirectResponse
+    {
+        $this->authorizeLoanRecordOwnership($request, $loan);
+
+        $settlement = $loan->settlement;
+        if ($settlement === null) {
+            return redirect()
+                ->route('shm.loans.pelunasan.show', $loan)
+                ->with('error', 'Belum ada settlement untuk pinjaman ini.');
+        }
+
+        $validated = $request->validated();
+
+        return $this->run(
+            fn () => $this->corrections->correct(
+                $loan,
+                $settlement,
+                $validated['reason'],
+                (int) $request->user()->id,
+                [
+                    'penalty' => $validated['penalty'] ?? 0,
+                    'notes' => $validated['notes'] ?? null,
+                ],
+            ),
+            $loan,
+            'Koreksi pelunasan berhasil diproses. Settlement original telah dibatalkan dan settlement baru telah diajukan.',
+        );
+    }
+
+    /**
      * Jalankan satu mutasi settlement: flash sukses, atau flash error
      * deterministik untuk penolakan bisnis (SettlementContractIncomplete)
      * dan guard validasi — tanpa asumsi hasil finansial.
      *
-     * @param  callable(): ShmLoanSettlement  $action
+     * @param  callable(): mixed  $action
      */
     private function run(callable $action, ShmLoan $loan, string $successMessage): RedirectResponse
     {

@@ -6,6 +6,7 @@ use App\Models\Member;
 use App\Models\SavingProduct;
 use App\Models\SavingsAccount;
 use App\Models\SavingsTransaction;
+use App\Models\ShmLoanSettlement;
 use App\Services\SavingsTransactionService;
 use Illuminate\Validation\ValidationException;
 
@@ -92,12 +93,23 @@ class ShmSavingsIntegrationService
         string $idempotencyKey,
         string $description,
         int $actorId,
+        bool $recordCashImpact = true,
     ): SavingsTransaction {
         if ($amount <= 0) {
             throw new \InvalidArgumentException('Nominal setoran simpanan harus > 0.');
         }
 
         $account = $this->resolveAccount($member, $category);
+
+        if (! $recordCashImpact) {
+            return $this->savingsService->depositWithoutCashImpact($account, [
+                'amount' => $amount,
+                'transaction_date' => now()->toDateString(),
+                'description' => $description,
+                'idempotency_key' => $idempotencyKey,
+                'processed_by' => $actorId,
+            ]);
+        }
 
         return $this->savingsService->deposit($account, [
             'amount' => $amount,
@@ -106,5 +118,34 @@ class ShmSavingsIntegrationService
             'idempotency_key' => $idempotencyKey,
             'processed_by' => $actorId,
         ]);
+    }
+
+    /**
+     * Kompensasi setoran overpayment settlement yang pernah diposting ke Simpanan Pokok.
+     * Tidak berdampak pada kas (non-cash impact) karena deposit overpayment juga tidak
+     * memiliki dampak kas fisik di kasir.
+     */
+    public function reverseOverpayment(
+        ShmLoanSettlement $settlement,
+        int $actorId,
+        string $reason,
+    ): ?SavingsTransaction {
+        $idempotencyKey = sprintf('shm-settlement-overpayment:%d', $settlement->id);
+        $tx = SavingsTransaction::where('idempotency_key', $idempotencyKey)->first();
+
+        if ($tx === null) {
+            return null;
+        }
+
+        $existingReversal = $tx->reversals()->where('status', 'completed')->first();
+        if ($existingReversal !== null) {
+            return $existingReversal;
+        }
+
+        return $this->savingsService->reverseWithoutCashImpact(
+            $tx,
+            $actorId,
+            sprintf('Koreksi settlement %s: %s', $settlement->settlement_reference, $reason),
+        );
     }
 }

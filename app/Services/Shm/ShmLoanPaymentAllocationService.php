@@ -101,14 +101,53 @@ class ShmLoanPaymentAllocationService
             //     Ditolak eksplisit; jangan dialokasikan diam-diam.
             $settlementLink = ShmLoanSettlement::query()
                 ->where('shm_loan_payment_id', $locked->id)
+                ->where('status', '!=', ShmLoanSettlement::STATUS_REVERSED)
                 ->first();
 
-            if ($settlementLink !== null) {
+            if ($settlementLink !== null && ! $locked->isReleasedToRegularDomain()) {
                 throw ValidationException::withMessages([
                     'payment' => sprintf(
                         'Pembayaran %s adalah pembayaran pelunasan (settlement %s) dan tidak dapat dialokasikan ke angsuran.',
                         $locked->payment_reference,
                         $settlementLink->settlement_reference,
+                    ),
+                ]);
+            }
+
+            // 2c. T004 / T158 — KUNCIAN REGULER saat settlement aktif pada pinjaman:
+            //     Selama workflow settlement aktif (pending, approved, payment_recorded,
+            //     payment_verified), pembayaran pada pinjaman ini milik domain pelunasan.
+            //     Alokasi reguler DITOLAK server-side, KECUALI bila pembayaran ini telah
+            //     dilepas (T89B replacement). Bila pembayaran sudah teralokasi penuh sebelumnya,
+            //     kembalikan hasil idempoten tanpa mutasi.
+            $activeSettlement = ShmLoanSettlement::query()
+                ->where('shm_loan_id', $locked->shm_loan_id)
+                ->whereIn('status', [
+                    ShmLoanSettlement::STATUS_PENDING,
+                    ShmLoanSettlement::STATUS_APPROVED,
+                    ShmLoanSettlement::STATUS_PAYMENT_RECORDED,
+                    ShmLoanSettlement::STATUS_PAYMENT_VERIFIED,
+                ])
+                ->orderByDesc('id')
+                ->first();
+
+            if ($activeSettlement !== null && ! $locked->isReleasedToRegularDomain()) {
+                if ($locked->isFullyAllocated()) {
+                    return [
+                        'allocated' => false,
+                        'allocations' => 0,
+                        'allocated_amount' => $locked->allocatedAmount(),
+                        'unallocated_amount' => '0.00',
+                        'installment_ids' => [],
+                    ];
+                }
+
+                throw ValidationException::withMessages([
+                    'payment' => sprintf(
+                        'Pinjaman %s sedang dalam proses pelunasan (settlement %s berstatus "%s") — pembayaran pada pinjaman ini dikunci untuk domain pelunasan dan tidak dapat dialokasikan ke angsuran.',
+                        $locked->loan->loan_number,
+                        $activeSettlement->settlement_reference,
+                        $activeSettlement->status,
                     ),
                 ]);
             }

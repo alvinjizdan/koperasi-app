@@ -66,7 +66,16 @@ class ShmLoanPayment extends Model
             'payment_date' => 'date',
             'amount' => 'decimal:2',
             'created_by' => 'integer',
+            'settlement_released_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Apakah pembayaran ini telah dilepas dari domain settlement ke domain reguler (T89B replacement)?
+     */
+    public function isReleasedToRegularDomain(): bool
+    {
+        return $this->settlement_released_at !== null;
     }
 
     /**

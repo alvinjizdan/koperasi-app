@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\AuditLog;
 use App\Models\Permission;
 use App\Models\Role;
-use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanInstallment;
@@ -17,6 +16,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Concerns\InteractsWithShmDisbursement;
 use Tests\TestCase;
 
 /**
@@ -39,6 +39,7 @@ use Tests\TestCase;
  */
 class ShmLoanScheduleActionTest extends TestCase
 {
+    use InteractsWithShmDisbursement;
     use RefreshDatabase;
 
     private const AUDIT_ACTION = 'shm.loan.schedule.generated';
@@ -64,6 +65,11 @@ class ShmLoanScheduleActionTest extends TestCase
         $this->marketing = $this->userWithRole('marketing');
         $this->marketing2 = $this->userWithRole('marketing');
         $this->kasir = $this->userWithRole('kasir');
+
+        // T002C — prasyarat pencairan fail-closed: produk simpanan aktif +
+        // sesi kasir aktif milik pelaku pencairan (admin).
+        $this->seedShmSavingsProducts();
+        $this->openCashierSessionFor($this->admin);
     }
 
     private function userWithRole(string $roleName): User
@@ -99,7 +105,8 @@ class ShmLoanScheduleActionTest extends TestCase
     /** Pinjaman hasil pencairan sungguhan (alur T69→T82 lengkap). */
     private function disbursedLoan(): ShmLoan
     {
-        $customer = ShmCustomer::factory()->create();
+        // T89C/T150 — nasabah wajib memiliki anggota sumber aktif.
+        $customer = $this->createShmCustomerWithMember();
 
         $product = ShmLoanProduct::factory()->create();
         $product->rateTiers()->delete();
@@ -161,7 +168,7 @@ class ShmLoanScheduleActionTest extends TestCase
             'income' => ['tetap' => '5000000'],
             'expense' => ['rumahTangga' => '2000000'],
             'persetujuan' => [
-                'approved_amount' => '',
+                'approved_amount' => '460000000',
                 'provision_fee' => '',
                 'administration_fee' => '',
                 'method' => 'flat',

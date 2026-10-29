@@ -18,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Concerns\InteractsWithShmDisbursement;
 use Tests\TestCase;
 
 /**
@@ -41,6 +42,7 @@ use Tests\TestCase;
  */
 class ShmLoanMonitoringTest extends TestCase
 {
+    use InteractsWithShmDisbursement;
     use RefreshDatabase;
 
     private User $admin;
@@ -66,6 +68,11 @@ class ShmLoanMonitoringTest extends TestCase
         $this->kasir = $this->userWithRole('kasir');
 
         $this->product = ShmLoanProduct::factory()->create();
+
+        // T002C — prasyarat pencairan fail-closed: produk simpanan aktif +
+        // sesi kasir aktif milik pelaku pencairan (admin).
+        $this->seedShmSavingsProducts();
+        $this->openCashierSessionFor($this->admin);
     }
 
     private function userWithRole(string $roleName): User
@@ -794,7 +801,7 @@ class ShmLoanMonitoringTest extends TestCase
             ],
             'kolektor' => ['name' => ''],
             'persetujuan' => [
-                'approved_amount' => '',
+                'approved_amount' => '460000000',
                 'provision_fee' => '',
                 'administration_fee' => '',
                 'method' => '',
@@ -806,7 +813,8 @@ class ShmLoanMonitoringTest extends TestCase
 
     private function makeApprovedApplication(): ShmLoanApplication
     {
-        $customer = ShmCustomer::factory()->create();
+        // T89C/T150 — nasabah wajib memiliki anggota sumber aktif.
+        $customer = $this->createShmCustomerWithMember();
 
         $this->actingAs($this->marketing)
             ->post(route('shm.loans.pengajuan.store'), $this->validPayload($customer->id))

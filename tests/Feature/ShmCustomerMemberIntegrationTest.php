@@ -19,6 +19,7 @@ use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Tests\Concerns\InteractsWithShmDisbursement;
 use Tests\TestCase;
 
 /**
@@ -35,6 +36,7 @@ use Tests\TestCase;
  */
 class ShmCustomerMemberIntegrationTest extends TestCase
 {
+    use InteractsWithShmDisbursement;
     use RefreshDatabase;
 
     private User $admin;
@@ -256,11 +258,15 @@ class ShmCustomerMemberIntegrationTest extends TestCase
             'shm_loan_product_id' => $product->id,
             'marketing_id' => $this->admin->id,
             'principal' => 50_000_000,
+            'approved_amount' => 50_000_000,
             'tenor_months' => 10,
             'first_due_date' => now()->addMonth()->startOfMonth()->toDateString(),
             'application_date' => now()->toDateString(),
             'status' => 'approved',
         ]);
+
+        // T002C — sesi kasir aktif milik pelaku pencairan WAJIB (F-01).
+        $this->openCashierSessionFor($this->admin);
 
         // Jalankan pencairan
         $service = app(ShmLoanDisbursementService::class);

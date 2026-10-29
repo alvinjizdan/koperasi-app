@@ -143,21 +143,25 @@ class ShmLoanSettlementTest extends TestCase
      * #2 masa depan (due tempo depan) — untuk mengunci pemisahan bunga
      * due vs future pada preview.
      */
-    private function scheduleWithDueAndFuture(ShmLoan $loan): iterable
+    private function scheduleWithDueAndFuture(ShmLoan $loan, float $futureInterest = 1_500_000): iterable
     {
         $installments = collect();
 
-        foreach ([['due' => now()->subMonth()->startOfMonth(), 'paid_i' => 0], ['due' => now()->addMonth()->startOfMonth(), 'paid_i' => 0]] as $index => $spec) {
+        foreach ([
+            ['due' => now()->subMonth()->startOfMonth(), 'principal' => 5_000_000, 'interest' => 1_500_000, 'paid_i' => 0],
+            ['due' => now()->addMonth()->startOfMonth(), 'principal' => 5_000_000, 'interest' => $futureInterest, 'paid_i' => 0],
+        ] as $index => $spec) {
+            $total = $spec['principal'] + $spec['interest'];
             $installments->push($loan->installments()->create([
                 'installment_number' => $index + 1,
                 'due_date' => $spec['due']->toDateString(),
-                'principal_amount' => 5_000_000,
-                'interest_amount' => 1_500_000,
-                'total_amount' => 6_500_000,
+                'principal_amount' => $spec['principal'],
+                'interest_amount' => $spec['interest'],
+                'total_amount' => $total,
                 'paid_amount' => 0,
                 'paid_interest_amount' => $spec['paid_i'],
                 'paid_principal_amount' => 0,
-                'remaining_amount' => 6_500_000,
+                'remaining_amount' => $total,
                 'status' => ShmLoanInstallment::STATUS_SCHEDULED,
             ]));
         }
@@ -272,8 +276,8 @@ class ShmLoanSettlementTest extends TestCase
     public function test_preview_page_content_is_authoritative(): void
     {
         $loan = $this->activeLoanOf($this->settlementUser);
-        $this->scheduleWithDueAndFuture($loan);
-        // Pinjaman 100jt > threshold → eligible; sisa 1 bulan → policy 10%.
+        $this->scheduleWithDueAndFuture($loan, 60_000_000);
+        // Sisa bunga 60jt > threshold (50jt) → eligible; sisa 1 bulan → policy 10%.
         $this->discountPolicy(1, 3, '10.00');
         // Pembayaran 2jt yang TIDAK dialokasikan → unallocated 2jt.
         $this->paymentFor($loan, 2_000_000, $this->settlementUser);
@@ -285,22 +289,22 @@ class ShmLoanSettlementTest extends TestCase
                 $page->where('preview.outstanding_principal', '10000000.00');
                 // Bunga due (angsuran #1, tempo lalu) = 1,5jt — TIDAK didiskon.
                 $page->where('preview.outstanding_interest_due', '1500000.00');
-                // Bunga masa depan (angsuran #2) = base discount.
-                $page->where('preview.remaining_interest', '1500000.00');
+                // Bunga masa depan (angsuran #2) = base discount (60jt).
+                $page->where('preview.remaining_interest', '60000000.00');
                 $page->where('preview.remaining_months', 1);
-                // Discount 10% × 1,5jt = 150rb; sisa bunga 1,35jt.
+                // Discount 10% × 60jt = 6jt; sisa bunga 54jt.
                 $page->where('preview.eligible', true);
                 $page->where('preview.applied', true);
                 $page->where('preview.discount_status', 'applied');
-                $page->where('preview.discount_amount', '150000.00');
-                $page->where('preview.interest_after_discount', '1350000.00');
+                $page->where('preview.discount_amount', '6000000.00');
+                $page->where('preview.interest_after_discount', '54000000.00');
                 $page->where('preview.policy_id', fn ($id) => $id !== null);
                 // Penalty selalu 0 di preview (diinput manual saat pengajuan).
                 $page->where('preview.outstanding_penalty', '0.00');
                 // Overpayment tampil terpisah, TIDAK mengurangi amount.
                 $page->where('preview.unallocated_payment', '2000000.00');
-                // Settlement amount = pokok + bunga due + bunga setelah diskon.
-                $page->where('preview.settlement_amount', '12850000.00');
+                // Settlement amount = pokok (10jt) + bunga due (1,5jt) + bunga setelah diskon (54jt).
+                $page->where('preview.settlement_amount', '65500000.00');
                 $page->has('preview.blocked_items');
                 $page->where('loan.status', ShmLoan::STATUS_ACTIVE);
             });
@@ -392,7 +396,7 @@ class ShmLoanSettlementTest extends TestCase
     public function test_settlement_request_creates_pending_without_closing_loan(): void
     {
         $loan = $this->activeLoanOf($this->settlementUser);
-        $this->scheduleWithDueAndFuture($loan);
+        $this->scheduleWithDueAndFuture($loan, 60_000_000);
         $this->discountPolicy(1, 3, '10.00');
 
         $this->actingAs($this->settlementUser)
@@ -414,10 +418,10 @@ class ShmLoanSettlementTest extends TestCase
 
     public function test_settlement_request_is_rejected_without_policy_for_eligible_loan(): void
     {
-        // Pinjaman 100jt (eligible) + bunga masa depan ada + TANPA policy
+        // Bunga masa depan 60jt (eligible > 50jt) + TANPA policy
         // → ditolak eksplisit; dilarang diam-diam memakai 0%.
         $loan = $this->activeLoanOf($this->settlementUser);
-        $this->scheduleWithDueAndFuture($loan);
+        $this->scheduleWithDueAndFuture($loan, 60_000_000);
 
         $response = $this->actingAs($this->settlementUser)
             ->post(route('shm.loans.pelunasan.store', $loan), ['penalty' => 0]);
@@ -438,7 +442,7 @@ class ShmLoanSettlementTest extends TestCase
     public function test_penalty_is_manual_and_never_calculated(): void
     {
         $loan = $this->activeLoanOf($this->settlementUser);
-        $this->scheduleWithDueAndFuture($loan);
+        $this->scheduleWithDueAndFuture($loan, 60_000_000);
         $this->discountPolicy(1, 3, '10.00');
 
         // Penalty manual 250rb → masuk amount; preview tetap 0.
@@ -451,8 +455,8 @@ class ShmLoanSettlementTest extends TestCase
 
         $settlement = ShmLoanSettlement::query()->sole();
         $this->assertSame('250000.00', (string) $settlement->outstanding_penalty);
-        // 10jt pokok + 1,5jt due + 1,35jt future setelah diskon + 250rb penalty.
-        $this->assertSame('13100000.00', (string) $settlement->settlement_amount);
+        // 10jt pokok + 1,5jt due + 54jt future setelah diskon + 250rb penalty = 65.750.000.
+        $this->assertSame('65750000.00', (string) $settlement->settlement_amount);
         $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->refresh()->status);
     }
 

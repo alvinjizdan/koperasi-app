@@ -15,11 +15,13 @@ use App\Models\Loan;
 use App\Models\Member;
 use App\Models\SavingsAccount;
 use App\Models\SavingsTransaction;
+use App\Models\ShmLoanApplication;
 use App\Services\CashierService;
 use App\Services\InstallmentPaymentService;
 use App\Services\LoanService;
 use App\Services\Penalty\PenaltyCalculator;
 use App\Services\SavingsTransactionService;
+use App\Services\Shm\ShmLoanDisbursementService;
 use App\Services\ShmCustomerService;
 use App\Support\DbTransaction;
 use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
@@ -196,6 +198,19 @@ try {
                 'customer_id' => $customer->id,
                 'customer_number' => $customer->customer_number,
             ];
+        })(),
+
+        'shm_disburse' => (function () use ($params) {
+            // T002C: pencairan SHM dari dua proses PARALEL untuk pengajuan
+            // yang sama — lockForUpdate baris pengajuan + constraint UNIQUE
+            // shm_loans.shm_loan_application_id harus menjamin tepat SATU
+            // pinjaman & SATU event finansial (idempotency + konkurensi).
+            $loan = app(ShmLoanDisbursementService::class)->disburse(
+                ShmLoanApplication::findOrFail($params['application_id']),
+                (int) $params['user_id'],
+            );
+
+            return ['loan_id' => $loan->id, 'loan_number' => $loan->loan_number];
         })(),
 
         'member_create' => (function () use ($params) {

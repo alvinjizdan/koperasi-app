@@ -116,22 +116,36 @@ class ShmSettlementCompletionTest extends TestCase
     /**
      * Dua angsuran: #1 jatuh tempo tempo lalu, #2 masa depan.
      */
-    private function scheduleWithDueAndFuture(ShmLoan $loan): void
+    private function scheduleWithDueAndFuture(ShmLoan $loan, float $futureInterest = 60_000_000): void
     {
-        foreach ([now()->subMonth()->startOfMonth(), now()->addMonth()->startOfMonth()] as $index => $due) {
-            $loan->installments()->create([
-                'installment_number' => $index + 1,
-                'due_date' => $due->toDateString(),
-                'principal_amount' => 5_000_000,
-                'interest_amount' => 1_500_000,
-                'total_amount' => 6_500_000,
-                'paid_amount' => 0,
-                'paid_interest_amount' => 0,
-                'paid_principal_amount' => 0,
-                'remaining_amount' => 6_500_000,
-                'status' => ShmLoanInstallment::STATUS_SCHEDULED,
-            ]);
-        }
+        $due = now()->subMonth()->startOfMonth();
+        $future = now()->addMonth()->startOfMonth();
+
+        $loan->installments()->create([
+            'installment_number' => 1,
+            'due_date' => $due->toDateString(),
+            'principal_amount' => 5_000_000,
+            'interest_amount' => 1_500_000,
+            'total_amount' => 6_500_000,
+            'paid_amount' => 0,
+            'paid_interest_amount' => 0,
+            'paid_principal_amount' => 0,
+            'remaining_amount' => 6_500_000,
+            'status' => ShmLoanInstallment::STATUS_SCHEDULED,
+        ]);
+
+        $loan->installments()->create([
+            'installment_number' => 2,
+            'due_date' => $future->toDateString(),
+            'principal_amount' => 5_000_000,
+            'interest_amount' => $futureInterest,
+            'total_amount' => 5_000_000 + $futureInterest,
+            'paid_amount' => 0,
+            'paid_interest_amount' => 0,
+            'paid_principal_amount' => 0,
+            'remaining_amount' => 5_000_000 + $futureInterest,
+            'status' => ShmLoanInstallment::STATUS_SCHEDULED,
+        ]);
     }
 
     private function policy(int $min, int $max, string $percent, array $extra = []): ShmSettlementDiscountPolicy
@@ -276,7 +290,7 @@ class ShmSettlementCompletionTest extends TestCase
         $policy = $this->policy(1, 3, '30.00');
 
         $settlement = $this->requested($loan);
-        $this->assertSame('450000.00', (string) $settlement->discount_amount); // 30% × 1,5jt
+        $this->assertSame('18000000.00', (string) $settlement->discount_amount); // 30% × 60jt
 
         // Admin mengubah policy menjadi 40%.
         $this->actingAs($this->user)
@@ -291,15 +305,15 @@ class ShmSettlementCompletionTest extends TestCase
         // Settlement LAMA tidak dihitung ulang (snapshot per baris).
         $settlement->refresh();
         $this->assertSame('30.00', (string) $settlement->discount_percent);
-        $this->assertSame('450000.00', (string) $settlement->discount_amount);
-        $this->assertSame('1050000.00', (string) $settlement->interest_after_discount_amount);
+        $this->assertSame('18000000.00', (string) $settlement->discount_amount);
+        $this->assertSame('42000000.00', (string) $settlement->interest_after_discount_amount);
 
         // Pengajuan BARU memakai policy terbaru.
         $loan2 = $this->activeLoanOf($this->user);
         $this->scheduleWithDueAndFuture($loan2);
         $settlement2 = $this->requested($loan2);
         $this->assertSame('40.00', (string) $settlement2->discount_percent);
-        $this->assertSame('600000.00', (string) $settlement2->discount_amount);
+        $this->assertSame('24000000.00', (string) $settlement2->discount_amount);
     }
 
     public function test_discount_base_is_future_interest_only_due_interest_not_discounted(): void
@@ -310,14 +324,14 @@ class ShmSettlementCompletionTest extends TestCase
 
         $settlement = $this->requested($loan);
 
-        // Base = future interest 1,5jt (bukan due 1,5jt, bukan total 3jt).
-        $this->assertSame('1500000.00', (string) $settlement->discount_base_amount);
-        $this->assertSame('750000.00', (string) $settlement->discount_amount);
-        $this->assertSame('750000.00', (string) $settlement->interest_after_discount_amount);
+        // Base = future interest 60jt (bukan due 1,5jt, bukan total 61,5jt).
+        $this->assertSame('60000000.00', (string) $settlement->discount_base_amount);
+        $this->assertSame('30000000.00', (string) $settlement->discount_amount);
+        $this->assertSame('30000000.00', (string) $settlement->interest_after_discount_amount);
         // Due interest tetap penuh sebagai komponen terpisah.
         $this->assertSame('1500000.00', (string) $settlement->outstanding_interest);
-        // 10jt pokok + 1,5jt due + 750rb future setelah diskon.
-        $this->assertSame('12250000.00', (string) $settlement->settlement_amount);
+        // 10jt pokok + 1,5jt due + 30jt future setelah diskon.
+        $this->assertSame('41500000.00', (string) $settlement->settlement_amount);
     }
 
     // ------------------------------------------------------------------
@@ -344,7 +358,7 @@ class ShmSettlementCompletionTest extends TestCase
         $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->refresh()->status);
 
         // 3. Payment recorded (Payment T86, nominal tepat kewajiban).
-        $payment = $this->paymentFor($loan, '12850000'); // 10jt + 1,5jt + 1,35jt
+        $payment = $this->paymentFor($loan, '65500000'); // 10jt pokok + 1,5jt due + 54jt future setelah diskon
         $this->actingAs($this->user)
             ->post(route('shm.loans.pelunasan.payment', $loan), ['payment_id' => $payment->id])
             ->assertSessionHas('success');
@@ -399,7 +413,7 @@ class ShmSettlementCompletionTest extends TestCase
         $settlement = $this->requested($loan);
         $this->actingAs($this->user)->post(route('shm.loans.pelunasan.approve', $loan));
 
-        $payment = $this->paymentFor($loan, '12850000');
+        $payment = $this->paymentFor($loan, '65500000');
         $this->actingAs($this->user)
             ->post(route('shm.loans.pelunasan.payment', $loan), ['payment_id' => $payment->id]);
 
@@ -425,7 +439,7 @@ class ShmSettlementCompletionTest extends TestCase
         $settlement = $this->requested($loan);
         $this->actingAs($this->user)->post(route('shm.loans.pelunasan.approve', $loan));
 
-        $short = $this->paymentFor($loan, '10000000');
+        $short = $this->paymentFor($loan, '50000000');
         $this->actingAs($this->user)
             ->post(route('shm.loans.pelunasan.payment', $loan), ['payment_id' => $short->id]);
 
@@ -440,7 +454,7 @@ class ShmSettlementCompletionTest extends TestCase
         $this->assertSame(ShmLoanSettlement::STATUS_PAYMENT_RECORDED, $settlement->refresh()->status);
 
         // Pembayaran tepat menggantikan tautan → verifikasi lulus.
-        $exact = $this->paymentFor($loan, '12850000');
+        $exact = $this->paymentFor($loan, '65500000');
         $this->actingAs($this->user)
             ->post(route('shm.loans.pelunasan.payment', $loan), ['payment_id' => $exact->id])
             ->assertSessionHas('success');
@@ -548,8 +562,8 @@ class ShmSettlementCompletionTest extends TestCase
         $settlement = $this->requested($loan);
         $this->actingAs($this->user)->post(route('shm.loans.pelunasan.approve', $loan));
 
-        // Bayar LEBIH dari kewajiban (13jt vs 12,85jt).
-        $payment = $this->paymentFor($loan, '13000000');
+        // Bayar LEBIH dari kewajiban (66jt vs 65,5jt).
+        $payment = $this->paymentFor($loan, '66000000');
         $this->actingAs($this->user)
             ->post(route('shm.loans.pelunasan.payment', $loan), ['payment_id' => $payment->id]);
         $this->actingAs($this->user)->post(route('shm.loans.pelunasan.payment.verify', $loan));

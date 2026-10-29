@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
@@ -81,6 +82,8 @@ class ShmLoanSettlement extends Model
     public const STATUS_COMPLETED = 'completed';
 
     public const STATUS_REJECTED = 'rejected';
+
+    public const STATUS_REVERSED = 'reversed';
 
     protected $fillable = [
         'shm_loan_id',
@@ -188,5 +191,25 @@ class ShmLoanSettlement extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * Koreksi settlement yang mereferensikan settlement ini sebagai transaksi original.
+     *
+     * @return HasOne<ShmSettlementCorrection, $this>
+     */
+    public function correctionAsOriginal(): HasOne
+    {
+        return $this->hasOne(ShmSettlementCorrection::class, 'original_settlement_id');
+    }
+
+    /**
+     * Koreksi settlement yang menghasilkan settlement ini sebagai replacement.
+     *
+     * @return HasOne<ShmSettlementCorrection, $this>
+     */
+    public function correctionAsReplacement(): HasOne
+    {
+        return $this->hasOne(ShmSettlementCorrection::class, 'replacement_settlement_id');
     }
 }

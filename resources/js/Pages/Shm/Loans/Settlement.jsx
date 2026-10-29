@@ -9,6 +9,7 @@ import {
     CheckCircle2,
     Clock,
     Link2,
+    RotateCcw,
     ScrollText,
     ShieldCheck,
     Wallet,
@@ -76,6 +77,7 @@ const STATUS_LABELS = {
     payment_recorded: 'Pembayaran Tercatat',
     payment_verified: 'Pembayaran Terverifikasi',
     completed: 'Selesai',
+    reversed: 'Dibatalkan (Reversed)',
     rejected: 'Ditolak',
 };
 
@@ -86,6 +88,7 @@ function StatusBadge({ status }) {
         payment_recorded: 'bg-indigo-50 text-indigo-700',
         payment_verified: 'bg-violet-50 text-violet-700',
         completed: 'bg-emerald-50 text-emerald-700',
+        reversed: 'bg-rose-50 text-rose-700 border border-rose-200',
         rejected: 'bg-rose-50 text-rose-700',
     };
 
@@ -104,6 +107,8 @@ export default function Settlement({
     settlement,
     payments,
     timeline,
+    correction_preview,
+    corrections,
     flash,
     error,
     errors,
@@ -114,6 +119,11 @@ export default function Settlement({
     });
 
     const [selectedPaymentId, setSelectedPaymentId] = useState('');
+    const [showCorrectionModal, setShowCorrectionModal] = useState(false);
+    const [correctionReason, setCorrectionReason] = useState('');
+    const [correctionPenalty, setCorrectionPenalty] = useState('');
+    const [correctionNotes, setCorrectionNotes] = useState('');
+    const [isSubmittingCorrection, setIsSubmittingCorrection] = useState(false);
 
     if (!loan) {
         return (
@@ -211,6 +221,37 @@ export default function Settlement({
                 { preserveScroll: true },
             );
         }
+    };
+
+    const submitCorrection = (e) => {
+        e.preventDefault();
+        if (!correctionReason || correctionReason.trim().length < 5) {
+            alert('Alasan koreksi pelunasan wajib diisi (minimal 5 karakter).');
+            return;
+        }
+
+        setIsSubmittingCorrection(true);
+        router.post(
+            route('shm.loans.pelunasan.correct', loan.id),
+            {
+                reason: correctionReason.trim(),
+                penalty: correctionPenalty === '' ? 0 : correctionPenalty,
+                notes: correctionNotes || null,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setShowCorrectionModal(false);
+                    setCorrectionReason('');
+                    setCorrectionPenalty('');
+                    setCorrectionNotes('');
+                    setIsSubmittingCorrection(false);
+                },
+                onError: () => {
+                    setIsSubmittingCorrection(false);
+                },
+            },
+        );
     };
 
     const discount = settlement?.discount || null;
@@ -617,9 +658,26 @@ export default function Settlement({
                             )}
 
                             {status === 'completed' && (
-                                <div className="flex items-center gap-2 rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                                    <BadgeCheck className="h-4 w-4" />
-                                    Pelunasan selesai — pinjaman sudah ditutup.
+                                <div className="flex flex-wrap items-center justify-between gap-3 w-full">
+                                    <div className="flex items-center gap-2 rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                                        <BadgeCheck className="h-4 w-4" />
+                                        Pelunasan selesai — pinjaman sudah ditutup.
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowCorrectionModal(true)}
+                                        className="inline-flex items-center gap-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 shadow-sm"
+                                    >
+                                        <RotateCcw className="h-4 w-4" />
+                                        Koreksi Pelunasan
+                                    </button>
+                                </div>
+                            )}
+
+                            {status === 'reversed' && (
+                                <div className="flex items-center gap-2 rounded-md bg-rose-50 px-4 py-3 text-sm text-rose-800 border border-rose-200 w-full">
+                                    <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                                    Pelunasan ini telah dibatalkan (REVERSED) melalui koreksi non-destruktif (Policy B).
                                 </div>
                             )}
                         </div>
@@ -648,6 +706,48 @@ export default function Settlement({
                                     </li>
                                 ))}
                             </ul>
+                        )}
+
+                        {/* ---- Riwayat Koreksi ---- */}
+                        {corrections && corrections.length > 0 && (
+                            <div className="mt-6 border-t border-slate-100 pt-4">
+                                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                    <RotateCcw className="h-4 w-4 text-amber-600" />
+                                    Riwayat Koreksi Pelunasan
+                                </h3>
+                                <div className="space-y-3">
+                                    {corrections.map((corr) => (
+                                        <div
+                                            key={corr.id}
+                                            className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm"
+                                        >
+                                            <div className="flex flex-wrap items-center justify-between gap-2 font-medium text-slate-800">
+                                                <span>Koreksi #{corr.id}</span>
+                                                <span className="text-xs text-slate-500">
+                                                    {formatDateTime(corr.created_at)}
+                                                </span>
+                                            </div>
+                                            <p className="mt-1 text-slate-600">
+                                                <strong>Alasan:</strong> {corr.reason}
+                                            </p>
+                                            <div className="mt-2 text-xs text-slate-500">
+                                                Diproses oleh:{' '}
+                                                <span className="font-medium text-slate-700">
+                                                    {corr.creator || 'Sistem'}
+                                                </span>{' '}
+                                                · Original:{' '}
+                                                <span className="font-mono">
+                                                    {corr.original_reference || '-'}
+                                                </span>{' '}
+                                                · Pengganti:{' '}
+                                                <span className="font-mono">
+                                                    {corr.replacement_reference || '-'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         )}
                     </section>
                 )}
@@ -735,6 +835,119 @@ export default function Settlement({
                         ))}
                     </ul>
                 </section>
+                )}
+
+                {/* -------- Modal Koreksi Pelunasan -------- */}
+                {showCorrectionModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                        <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                                    <RotateCcw className="h-5 w-5 text-amber-600" />
+                                    Koreksi Pelunasan (Policy B)
+                                </h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCorrectionModal(false)}
+                                    className="text-slate-400 hover:text-slate-600"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            <form onSubmit={submitCorrection} className="mt-4 space-y-4">
+                                <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800 leading-relaxed border border-amber-200">
+                                    <strong>Prinsip Non-Destruktif (Policy B):</strong> Transaksi original tidak akan dihapus. Statusnya akan diubah menjadi <span className="font-semibold text-rose-700">REVERSED</span>, pinjaman dibuka kembali (active), sisa angsuran dipulihkan, kompensasi lebih bayar dilakukan jika ada, dan settlement pengganti berstatus pending akan diterbitkan.
+                                </div>
+
+                                {correction_preview && (
+                                    <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs space-y-1">
+                                        <div className="font-medium text-slate-700 mb-1">Dampak Pemulihan Finansial:</div>
+                                        <div className="flex justify-between text-slate-600">
+                                            <span>Settlement Original:</span>
+                                            <span className="font-mono font-medium">{correction_preview.original_settlement?.reference}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600">
+                                            <span>Nominal Kewajiban Original:</span>
+                                            <span className="font-medium">{formatRupiah(correction_preview.original_settlement?.settlement_amount)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600">
+                                            <span>Kompensasi Lebih Bayar:</span>
+                                            <span className="font-medium">{formatRupiah(correction_preview.original_settlement?.overpayment_amount)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600">
+                                            <span>Angsuran Dipulihkan:</span>
+                                            <span className="font-medium">{correction_preview.restored_state?.installments_to_restore} angsuran</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-700">
+                                        Alasan Koreksi <span className="text-rose-600">*</span>
+                                    </label>
+                                    <textarea
+                                        required
+                                        minLength={5}
+                                        maxLength={1000}
+                                        rows={3}
+                                        className="mt-1 w-full rounded-md border-slate-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                        placeholder="Contoh: Kesalahan perhitungan denda / pembatalan pelunasan oleh manajemen..."
+                                        value={correctionReason}
+                                        onChange={(e) => setCorrectionReason(e.target.value)}
+                                    />
+                                    <p className="mt-1 text-xs text-slate-400">Minimal 5 karakter, tidak boleh kosong.</p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-700">
+                                        Penalty Settlement Pengganti (opsional)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        className="mt-1 w-full rounded-md border-slate-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                        placeholder="0"
+                                        value={correctionPenalty}
+                                        onChange={(e) => setCorrectionPenalty(e.target.value)}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-700">
+                                        Catatan Tambahan (opsional)
+                                    </label>
+                                    <textarea
+                                        rows={2}
+                                        maxLength={1000}
+                                        className="mt-1 w-full rounded-md border-slate-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                        value={correctionNotes}
+                                        onChange={(e) => setCorrectionNotes(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="mt-5 flex justify-end gap-3 pt-2 border-t border-slate-100">
+                                    <button
+                                        type="button"
+                                        disabled={isSubmittingCorrection}
+                                        onClick={() => setShowCorrectionModal(false)}
+                                        className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={isSubmittingCorrection}
+                                        className="inline-flex items-center gap-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 shadow-sm"
+                                    >
+                                        <RotateCcw className="h-4 w-4" />
+                                        {isSubmittingCorrection ? 'Memproses...' : 'Proses Koreksi Pelunasan'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
                 )}
             </div>
         </ShmLayout>

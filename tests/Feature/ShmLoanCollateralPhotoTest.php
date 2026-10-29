@@ -15,6 +15,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Concerns\InteractsWithShmDisbursement;
 use Tests\TestCase;
 
 /**
@@ -38,6 +39,7 @@ use Tests\TestCase;
  */
 class ShmLoanCollateralPhotoTest extends TestCase
 {
+    use InteractsWithShmDisbursement;
     use RefreshDatabase;
 
     private User $superadmin;
@@ -62,6 +64,11 @@ class ShmLoanCollateralPhotoTest extends TestCase
         $this->marketing = $this->userWithRole('marketing');
         $this->otherMarketing = $this->userWithRole('marketing');
         $this->kasir = $this->userWithRole('kasir');
+
+        // T002C — prasyarat pencairan fail-closed (AC-16/17): produk
+        // simpanan aktif + sesi kasir aktif milik pelaku pencairan (admin).
+        $this->seedShmSavingsProducts();
+        $this->openCashierSessionFor($this->admin);
 
         Storage::fake('local');
     }
@@ -396,7 +403,8 @@ class ShmLoanCollateralPhotoTest extends TestCase
 
     public function test_approval_and_disbursement_flow_still_works_with_photo(): void
     {
-        $customer = ShmCustomer::factory()->create();
+        // T89C/T150 — nasabah wajib memiliki anggota sumber aktif.
+        $customer = $this->createShmCustomerWithMember();
         $payload = $this->validPayload($customer->id);
         $payload['persetujuan']['approved_amount'] = '150000000';
         $payload['jaminan'][0]['foto'] = UploadedFile::fake()->image('jaminan.jpg', 120, 120);

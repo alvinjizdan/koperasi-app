@@ -149,7 +149,7 @@ class ShmLoanSettlementService
             $this->guardEligible($locked);
 
             $existing = $this->settlementOf($locked->id, true);
-            if ($existing !== null && $existing->status !== ShmLoanSettlement::STATUS_REJECTED) {
+            if ($existing !== null && ! in_array($existing->status, [ShmLoanSettlement::STATUS_REJECTED, ShmLoanSettlement::STATUS_REVERSED], true)) {
                 throw ValidationException::withMessages([
                     'loan' => sprintf(
                         'Pinjaman %s sudah memiliki pengajuan pelunasan berstatus "%s".',
@@ -342,6 +342,41 @@ class ShmLoanSettlementService
                 ]);
             }
 
+            // T89B / T158: Bila pembayaran settlement digantikan, lepas pembayaran lama kembali ke domain reguler.
+            $previousPaymentId = $settlement->shm_loan_payment_id;
+            if ($previousPaymentId !== null && $previousPaymentId !== $payment->id) {
+                $previousPayment = ShmLoanPayment::query()->lockForUpdate()->find($previousPaymentId);
+                if ($previousPayment !== null && $previousPayment->settlement_released_at === null) {
+                    $previousPayment->settlement_released_at = now();
+                    $previousPayment->save();
+
+                    AuditLogger::log(
+                        'shm.loan.payment.settlement_released',
+                        ShmLoanPayment::class,
+                        $previousPayment->id,
+                        $previousPayment->payment_reference,
+                        sprintf(
+                            'Pembayaran %s dilepas dari pelunasan %s kembali ke domain reguler karena digantikan oleh pembayaran %s.',
+                            $previousPayment->payment_reference,
+                            $settlement->settlement_reference,
+                            $payment->payment_reference,
+                        ),
+                        [
+                            'loan_id' => $lockedLoan->id,
+                            'loan_number' => $lockedLoan->loan_number,
+                            'payment_id' => $previousPayment->id,
+                            'payment_reference' => $previousPayment->payment_reference,
+                            'payment_amount' => (string) $previousPayment->amount,
+                            'settlement_id' => $settlement->id,
+                            'settlement_reference' => $settlement->settlement_reference,
+                            'replacement_payment_id' => $payment->id,
+                            'replacement_payment_reference' => $payment->payment_reference,
+                            'released_at' => now()->toIso8601String(),
+                        ],
+                    );
+                }
+            }
+
             $settlement->shm_loan_payment_id = $payment->id;
             $settlement->payment_recorded_at = now();
             $settlement->status = ShmLoanSettlement::STATUS_PAYMENT_RECORDED;
@@ -468,6 +503,7 @@ class ShmLoanSettlementService
                     sprintf('shm-settlement-overpayment:%d', $settlement->id),
                     sprintf('Setoran Simpanan Pokok dari lebih bayar pelunasan pinjaman SHM %s', $lockedLoan->loan_number),
                     $actorId,
+                    false,
                 );
             }
 
@@ -599,9 +635,9 @@ class ShmLoanSettlementService
      */
     private function resolveDiscount(ShmLoan $loan, array $components, Carbon $asOf): array
     {
-        $eligible = (float) $loan->principal > self::DISCOUNT_THRESHOLD;
         $remainingInterest = (float) $components['remaining_interest'];
         $remainingMonths = (int) $components['remaining_months'];
+        $eligible = $remainingInterest > self::DISCOUNT_THRESHOLD;
 
         // Tidak ada bunga masa depan → tidak ada yang didiskon (bukan "0%
         // diam-diam": memang tidak ada base).

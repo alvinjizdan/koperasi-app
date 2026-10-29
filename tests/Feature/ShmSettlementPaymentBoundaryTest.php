@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\AuditLog;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\ShmCustomer;
@@ -189,33 +188,26 @@ class ShmSettlementPaymentBoundaryTest extends TestCase
         $settlement = $this->requested($loan);
 
         $payment = $this->paymentFor($loan, '2000000');
-        app(ShmLoanPaymentAllocationService::class)->allocate($payment);
 
-        // Alokasi angsuran terjadi: bunga 1,5jt lalu pokok 0,5jt.
-        $this->assertDatabaseCount('shm_loan_payment_allocations', 1);
-        $allocation = ShmLoanPaymentAllocation::query()->sole();
-        $this->assertEquals(1_500_000, (float) $allocation->interest_amount);
-        $this->assertEquals(500_000, (float) $allocation->principal_amount);
-        $this->assertEquals(2_000_000, (float) $allocation->total_amount);
+        // T004 / T158 lock: alokasi reguler DITOLAK selama status settlement PENDING
+        try {
+            app(ShmLoanPaymentAllocationService::class)->allocate($payment);
+            $this->fail('Alokasi reguler harus ditolak selama settlement PENDING (T004 lock).');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('payment', $exception->errors());
+            $this->assertStringContainsString('dikunci', $exception->errors()['payment'][0]);
+        }
 
-        $installment = $loan->installments()->orderBy('installment_number')->first()->refresh();
-        $this->assertEquals(1_500_000, (float) $installment->paid_interest_amount);
-        $this->assertEquals(500_000, (float) $installment->paid_principal_amount);
-        $this->assertEquals(4_500_000, (float) $installment->remaining_amount);
-        $this->assertSame(ShmLoanInstallment::STATUS_SCHEDULED, $installment->status);
+        // Tidak ada alokasi angsuran yang terbentuk
+        $this->assertDatabaseCount('shm_loan_payment_allocations', 0);
+        $this->assertSame(0, $payment->refresh()->allocations()->count());
 
-        // Settlement TIDAK tersentuh: tetap pending, tanpa tautan pembayaran,
-        // tanpa audit settlement baru (hanya audit pengajuan awal).
+        // Settlement TIDAK tersentuh: tetap pending, tanpa tautan pembayaran
         $settlement->refresh();
         $this->assertSame(ShmLoanSettlement::STATUS_PENDING, $settlement->status);
         $this->assertNull($settlement->shm_loan_payment_id);
-        $this->assertEquals(12_850_000, (float) $settlement->settlement_amount);
-        $this->assertSame(
-            ['shm.loan.settlement.requested'],
-            AuditLog::query()->where('action', 'like', 'shm.loan.settlement.%')->pluck('action')->unique()->all(),
-        );
 
-        // Pinjaman tetap aktif — alokasi tidak pernah menutup pinjaman.
+        // Pinjaman tetap aktif
         $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->refresh()->status);
     }
 
@@ -322,13 +314,14 @@ class ShmSettlementPaymentBoundaryTest extends TestCase
     {
         $loan = $this->activeLoanWithSchedule();
         $this->policy();
-        $settlement = $this->requested($loan);
-        $this->actingAs($this->user)->post(route('shm.loans.pelunasan.approve', $loan));
 
-        // Pembayaran REGULER yang sudah teralokasi penuh ke angsuran.
+        // Pembayaran REGULER yang dialokasikan sebelum settlement dimulai (PBD-01 aturan 2).
         $installmentPayment = $this->paymentFor($loan, '6500000');
         app(ShmLoanPaymentAllocationService::class)->allocate($installmentPayment);
         $this->assertSame(1, ShmLoanPaymentAllocation::query()->count());
+
+        $settlement = $this->requested($loan);
+        $this->actingAs($this->user)->post(route('shm.loans.pelunasan.approve', $loan));
 
         try {
             app(ShmLoanSettlementService::class)
@@ -364,12 +357,13 @@ class ShmSettlementPaymentBoundaryTest extends TestCase
     {
         $loan = $this->activeLoanWithSchedule();
         $this->policy();
-        $settlement = $this->requested($loan);
-        $this->actingAs($this->user)->post(route('shm.loans.pelunasan.approve', $loan));
 
-        // Domain angsuran: pembayaran A dialokasikan.
+        // Domain angsuran: pembayaran A dialokasikan sebelum settlement dimulai.
         $installmentPayment = $this->paymentFor($loan, '2000000');
         app(ShmLoanPaymentAllocationService::class)->allocate($installmentPayment);
+
+        $settlement = $this->requested($loan);
+        $this->actingAs($this->user)->post(route('shm.loans.pelunasan.approve', $loan));
 
         // Domain pelunasan: pembayaran B ditautkan ke settlement.
         $settlementPayment = $this->paymentFor($loan, (string) $settlement->settlement_amount);

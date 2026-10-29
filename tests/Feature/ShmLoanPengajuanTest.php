@@ -343,9 +343,11 @@ class ShmLoanPengajuanTest extends TestCase
             'shm.loans.payments.index',
             'shm.loans.payments.show',
             'shm.loans.payments.store',
-            // T89/T89B — pelunasan / settlement.
+            // T89/T89B/T005 — pelunasan / settlement.
             'shm.loans.pelunasan.approve',
             'shm.loans.pelunasan.complete',
+            'shm.loans.pelunasan.correct',
+            'shm.loans.pelunasan.correct.preview',
             'shm.loans.pelunasan.index',
             'shm.loans.pelunasan.payment',
             'shm.loans.pelunasan.payment.verify',

@@ -677,6 +677,8 @@ Route::prefix('shm')->name('shm.')->group(function () {
                 ->name('loans.pelunasan.index');
             Route::get('/pinjaman/pelunasan/policy', [ShmSettlementDiscountPolicyController::class, 'index'])
                 ->name('loans.pelunasan.policies.index');
+            Route::get('/pinjaman/pelunasan/{loan}/correct/preview', [ShmLoanSettlementController::class, 'previewCorrection'])
+                ->name('loans.pelunasan.correct.preview');
             Route::get('/pinjaman/pelunasan/{loan}', [ShmLoanSettlementController::class, 'show'])
                 ->name('loans.pelunasan.show');
 
@@ -854,6 +856,9 @@ Route::prefix('shm')->name('shm.')->group(function () {
         Route::post('/pinjaman/pelunasan/{loan}/complete', [ShmLoanSettlementController::class, 'complete'])
             ->middleware('permission:shm.settlement.create')
             ->name('loans.pelunasan.complete');
+        Route::post('/pinjaman/pelunasan/{loan}/correct', [ShmLoanSettlementController::class, 'correct'])
+            ->middleware('permission:shm.settlement.create')
+            ->name('loans.pelunasan.correct');
 
         // -----------------------------------------------------------------
         // Modul Export — pemantauan data operasional (Ticket 55).

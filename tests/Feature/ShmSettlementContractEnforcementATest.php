@@ -112,22 +112,36 @@ class ShmSettlementContractEnforcementATest extends TestCase
     }
 
     /** Dua angsuran: #1 tempo lalu, #2 masa depan. */
-    private function scheduleWithDueAndFuture(ShmLoan $loan): void
+    private function scheduleWithDueAndFuture(ShmLoan $loan, float $futureInterest = 60_000_000): void
     {
-        foreach ([now()->subMonth()->startOfMonth(), now()->addMonth()->startOfMonth()] as $index => $due) {
-            $loan->installments()->create([
-                'installment_number' => $index + 1,
-                'due_date' => $due->toDateString(),
-                'principal_amount' => 5_000_000,
-                'interest_amount' => 1_500_000,
-                'total_amount' => 6_500_000,
-                'paid_amount' => 0,
-                'paid_interest_amount' => 0,
-                'paid_principal_amount' => 0,
-                'remaining_amount' => 6_500_000,
-                'status' => ShmLoanInstallment::STATUS_SCHEDULED,
-            ]);
-        }
+        $due = now()->subMonth()->startOfMonth();
+        $future = now()->addMonth()->startOfMonth();
+
+        $loan->installments()->create([
+            'installment_number' => 1,
+            'due_date' => $due->toDateString(),
+            'principal_amount' => 5_000_000,
+            'interest_amount' => 1_500_000,
+            'total_amount' => 6_500_000,
+            'paid_amount' => 0,
+            'paid_interest_amount' => 0,
+            'paid_principal_amount' => 0,
+            'remaining_amount' => 6_500_000,
+            'status' => ShmLoanInstallment::STATUS_SCHEDULED,
+        ]);
+
+        $loan->installments()->create([
+            'installment_number' => 2,
+            'due_date' => $future->toDateString(),
+            'principal_amount' => 5_000_000,
+            'interest_amount' => $futureInterest,
+            'total_amount' => 5_000_000 + $futureInterest,
+            'paid_amount' => 0,
+            'paid_interest_amount' => 0,
+            'paid_principal_amount' => 0,
+            'remaining_amount' => 5_000_000 + $futureInterest,
+            'status' => ShmLoanInstallment::STATUS_SCHEDULED,
+        ]);
     }
 
     private function policy(int $min, int $max, string $percent, array $extra = []): ShmSettlementDiscountPolicy
@@ -169,7 +183,7 @@ class ShmSettlementContractEnforcementATest extends TestCase
     public function test_loan_at_or_below_threshold_has_no_discount_even_if_policy_exists(): void
     {
         $loan = $this->activeLoanOf($this->user, '50000000');
-        $this->scheduleWithDueAndFuture($loan);
+        $this->scheduleWithDueAndFuture($loan, 1_500_000);
         $this->policy(1, 3, '20.00');
 
         $settlement = $this->requested($loan);
@@ -184,7 +198,7 @@ class ShmSettlementContractEnforcementATest extends TestCase
     public function test_loan_below_threshold_has_no_discount_even_with_future_interest(): void
     {
         $loan = $this->activeLoanOf($this->user, '10000000');
-        $this->scheduleWithDueAndFuture($loan);
+        $this->scheduleWithDueAndFuture($loan, 10_000_000);
         $this->policy(1, 3, '50.00');
 
         $settlement = $this->requested($loan);
@@ -237,7 +251,7 @@ class ShmSettlementContractEnforcementATest extends TestCase
 
         $settlement = $this->requested($loan);
 
-        $this->assertTrue($settlement->discount_eligible);
+        $this->assertFalse($settlement->discount_eligible);
         $this->assertFalse($settlement->discount_applied);
         $this->assertSame('0.00', (string) $settlement->discount_amount);
     }
@@ -253,7 +267,7 @@ class ShmSettlementContractEnforcementATest extends TestCase
         $policy = $this->policy(1, 3, '25.00');
 
         $settlement = $this->requested($loan);
-        $this->assertSame('375000.00', (string) $settlement->discount_amount);
+        $this->assertSame('15000000.00', (string) $settlement->discount_amount);
         $this->assertSame('25.00', (string) $settlement->discount_percent);
 
         $this->actingAs($this->user)
@@ -267,15 +281,15 @@ class ShmSettlementContractEnforcementATest extends TestCase
 
         $settlement->refresh();
         $this->assertSame('25.00', (string) $settlement->discount_percent);
-        $this->assertSame('375000.00', (string) $settlement->discount_amount);
-        $this->assertSame('1125000.00', (string) $settlement->interest_after_discount_amount);
+        $this->assertSame('15000000.00', (string) $settlement->discount_amount);
+        $this->assertSame('45000000.00', (string) $settlement->interest_after_discount_amount);
 
         $loan2 = $this->activeLoanOf($this->user);
         $this->scheduleWithDueAndFuture($loan2);
         $settlement2 = $this->requested($loan2);
 
         $this->assertSame('35.00', (string) $settlement2->discount_percent);
-        $this->assertSame('525000.00', (string) $settlement2->discount_amount);
+        $this->assertSame('21000000.00', (string) $settlement2->discount_amount);
     }
 
     public function test_snapshot_discount_on_existing_settlement_does_not_change_after_policy_deactivated(): void
@@ -285,7 +299,7 @@ class ShmSettlementContractEnforcementATest extends TestCase
         $policy = $this->policy(1, 3, '20.00');
 
         $settlement = $this->requested($loan);
-        $this->assertSame('300000.00', (string) $settlement->discount_amount);
+        $this->assertSame('12000000.00', (string) $settlement->discount_amount);
 
         // Nonaktifkan policy lewat master.
         $this->actingAs($this->user)
@@ -296,7 +310,7 @@ class ShmSettlementContractEnforcementATest extends TestCase
         $settlement->refresh();
         $this->assertTrue($settlement->discount_applied);
         $this->assertSame('20.00', (string) $settlement->discount_percent);
-        $this->assertSame('300000.00', (string) $settlement->discount_amount);
+        $this->assertSame('12000000.00', (string) $settlement->discount_amount);
 
         // Pengajuan BARU pada pinjaman kedua sekarang gagal karena
         // policy aktif tidak tersedia.

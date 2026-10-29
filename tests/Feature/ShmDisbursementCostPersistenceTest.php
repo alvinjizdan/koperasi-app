@@ -16,6 +16,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use InvalidArgumentException;
 use RuntimeException;
+use Tests\Concerns\InteractsWithShmDisbursement;
 use Tests\TestCase;
 
 /**
@@ -28,6 +29,7 @@ use Tests\TestCase;
  */
 class ShmDisbursementCostPersistenceTest extends TestCase
 {
+    use InteractsWithShmDisbursement;
     use RefreshDatabase;
 
     private const AUDIT_ACTION = 'shm.loan_application.disbursed';
@@ -45,6 +47,12 @@ class ShmDisbursementCostPersistenceTest extends TestCase
 
         $this->admin = $this->userWithRole('admin');
         $this->marketing = $this->userWithRole('marketing');
+
+        // T002C — prasyarat pencairan fail-closed: produk simpanan aktif +
+        // sesi kasir aktif milik pelaku pencairan (admin) dengan saldo cukup
+        // untuk kas keluar net.
+        $this->seedShmSavingsProducts();
+        $this->openCashierSessionFor($this->admin);
     }
 
     private function userWithRole(string $roleName): User
@@ -142,7 +150,8 @@ class ShmDisbursementCostPersistenceTest extends TestCase
 
     private function makeApplication(array $override = []): ShmLoanApplication
     {
-        $customer = ShmCustomer::factory()->create();
+        // T89C/T150 — nasabah wajib memiliki anggota sumber aktif.
+        $customer = $this->createShmCustomerWithMember();
 
         $this->storeAs($this->marketing, $this->validPayload($customer->id, $override))
             ->assertSessionHasNoErrors()
@@ -301,7 +310,7 @@ class ShmDisbursementCostPersistenceTest extends TestCase
 
     public function test_frontend_cannot_override_total_deduction_or_net_disbursement(): void
     {
-        $customer = ShmCustomer::factory()->create();
+        $customer = $this->createShmCustomerWithMember();
 
         // Kunci derived dikirim paksa oleh klien — harus DIABAIKAN.
         $payload = $this->validPayload($customer->id);
@@ -345,6 +354,21 @@ class ShmDisbursementCostPersistenceTest extends TestCase
         $this->disburse($application)->assertSessionHasErrors('application');
 
         $this->assertSame(0, ShmLoan::query()->count(), 'Pinjaman aktif dengan net negatif tidak boleh dibuat.');
+        $this->assertSame(0, $this->disburseAuditCount());
+    }
+
+    public function test_zero_net_disbursement_is_rejected(): void
+    {
+        // T002 (BR-02 / PBC-02): total deduction = principal → dana bersih nol (DITOLAK).
+        $application = $this->approvedApplication([
+            'pengajuan' => ['principal' => '1000000', 'tenor_months' => 12],
+            'analisa' => ['value' => '1000000'],
+            'persetujuan' => ['approved_amount' => '1000000', 'notary_fee' => '540000'],
+        ]);
+
+        $this->disburse($application)->assertSessionHasErrors('application');
+
+        $this->assertSame(0, ShmLoan::query()->count(), 'Pinjaman aktif dengan net nol tidak boleh dibuat.');
         $this->assertSame(0, $this->disburseAuditCount());
     }
 

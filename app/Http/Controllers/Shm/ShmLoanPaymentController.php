@@ -11,6 +11,7 @@ use App\Models\ShmLoan;
 use App\Models\ShmLoanPayment;
 use App\Services\Shm\ShmLoanPaymentAllocationService;
 use App\Services\Shm\ShmLoanPaymentService;
+use App\Services\Shm\ShmRegularPaymentService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -46,6 +47,7 @@ class ShmLoanPaymentController extends Controller
     public function __construct(
         private readonly ShmLoanPaymentService $payments,
         private readonly ShmLoanPaymentAllocationService $allocation,
+        private readonly ShmRegularPaymentService $regularPayments,
     ) {}
 
     /**
@@ -154,19 +156,47 @@ class ShmLoanPaymentController extends Controller
         // bypass visibility.
         $this->authorizeLoanRecordOwnership($request, $loan);
 
-        $payment = $this->payments->create(
+        $result = $this->regularPayments->pay(
             $loan,
             $request->validated(),
             (int) $request->user()->id,
         );
 
+        $payment = $result['payment'];
+
+        if ($result['was_replayed']) {
+            return redirect()
+                ->route('shm.loans.payments.index')
+                ->with('success', sprintf('Pembayaran %s sudah tercatat sebelumnya.', $payment->payment_reference));
+        }
+
+        $message = sprintf(
+            'Pembayaran %s berhasil dicatat: Rp %s dialokasikan ke angsuran.',
+            $payment->payment_reference,
+            number_format($result['allocated_amount'], 0, ',', '.'),
+        );
+
+        if ($result['excess_amount'] > 0.005) {
+            $accountNumber = $result['savings_account']?->account_number ?? '-';
+            $message .= sprintf(
+                ' Lebih bayar Rp %s disetor ke Simpanan Pokok (%s).',
+                number_format($result['excess_amount'], 0, ',', '.'),
+                $accountNumber,
+            );
+        }
+
+        if ($result['loan_closed']) {
+            $message .= sprintf(' Seluruh kewajiban lunas — pinjaman %s ditutup otomatis.', $loan->loan_number);
+        } else {
+            $message .= sprintf(
+                ' Sisa kewajiban pinjaman: Rp %s.',
+                number_format($result['remaining_total_owed'], 0, ',', '.'),
+            );
+        }
+
         return redirect()
             ->route('shm.loans.payments.index')
-            ->with('success', $payment->wasRecentlyCreated
-                ? sprintf('Pembayaran %s berhasil dicatat.', $payment->payment_reference)
-                // Replay idempoten: mengembalikan baris yang sama, tanpa
-                // pembayaran/audit kedua.
-                : sprintf('Pembayaran %s sudah tercatat sebelumnya.', $payment->payment_reference));
+            ->with('success', $message);
     }
 
     /**
@@ -247,6 +277,7 @@ class ShmLoanPaymentController extends Controller
             ->whereIn('action', [
                 'shm.loan.payment.created',
                 'shm.loan.payment.allocated',
+                'shm.loan.payment.applied',
             ])
             ->with('actor:id,name')
             ->orderBy('id')

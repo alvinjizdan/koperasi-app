@@ -15,10 +15,22 @@ class SavingsTransactionService
     /**
      * Catat transaksi setoran.
      *
-     * @param  array{amount: numeric, transaction_date: string, description: ?string, idempotency_key: ?string}  $data
+     * @param  array{amount: numeric, transaction_date: string, description: ?string, idempotency_key: ?string, record_cash_impact?: bool}  $data
      */
     public function deposit(SavingsAccount $account, array $data): SavingsTransaction
     {
+        return $this->record($account, 'deposit', $data);
+    }
+
+    /**
+     * Catat transaksi setoran tanpa dampak kas.
+     *
+     * @param  array{amount: numeric, transaction_date: string, description: ?string, idempotency_key: ?string}  $data
+     */
+    public function depositWithoutCashImpact(SavingsAccount $account, array $data): SavingsTransaction
+    {
+        $data['record_cash_impact'] = false;
+
         return $this->record($account, 'deposit', $data);
     }
 
@@ -148,19 +160,22 @@ class SavingsTransactionService
             // Integrasi kas: setoran tunai menambah kas, penarikan tunai mengurangi kas.
             // Idempotensi dijaga melalui referensi transaksi sumber sehingga satu transaksi
             // simpanan tidak pernah menghasilkan dampak kas ganda.
-            $isDeposit = $type === 'deposit';
+            $recordCashImpact = $data['record_cash_impact'] ?? true;
+            if ($recordCashImpact) {
+                $isDeposit = $type === 'deposit';
 
-            $this->cashierService->recordSourceImpact(
-                $isDeposit ? CashTransaction::TYPE_INCOME : CashTransaction::TYPE_EXPENSE,
-                $isDeposit
-                    ? config('cashier.source_categories.savings_deposit')
-                    : config('cashier.source_categories.savings_withdrawal'),
-                $amount,
-                $data['transaction_date'],
-                ($isDeposit ? 'Setoran simpanan ' : 'Penarikan simpanan ').$lockedAccount->account_number,
-                $transaction,
-                $data['processed_by'],
-            );
+                $this->cashierService->recordSourceImpact(
+                    $isDeposit ? CashTransaction::TYPE_INCOME : CashTransaction::TYPE_EXPENSE,
+                    $isDeposit
+                        ? config('cashier.source_categories.savings_deposit')
+                        : config('cashier.source_categories.savings_withdrawal'),
+                    $amount,
+                    $data['transaction_date'],
+                    ($isDeposit ? 'Setoran simpanan ' : 'Penarikan simpanan ').$lockedAccount->account_number,
+                    $transaction,
+                    $data['processed_by'],
+                );
+            }
 
             return $transaction;
         });
@@ -173,13 +188,13 @@ class SavingsTransactionService
      * transaksi penyesuaian baru yang mereferensikan transaksi asal, dengan
      * dampak saldo dan kas yang berlawanan.
      */
-    public function reverse(SavingsTransaction $transaction, int $userId, string $reason): SavingsTransaction
+    public function reverse(SavingsTransaction $transaction, int $userId, string $reason, bool $recordCashImpact = true): SavingsTransaction
     {
         // Ticket 16: seluruh pemeriksaan state dievaluasi DI DALAM transaksi
         // database setelah baris transaksi dikunci, sehingga dua reversal
         // konkuren terhadap transaksi yang sama tidak dapat lolos bersamaan
         // (proteksi double-reversal benar-benar atomik, bukan hanya check-then-act).
-        return DbTransaction::run(function () use ($transaction, $userId, $reason) {
+        return DbTransaction::run(function () use ($transaction, $userId, $reason, $recordCashImpact) {
             $lockedTransaction = SavingsTransaction::lockForUpdate()->findOrFail($transaction->id);
 
             if ($lockedTransaction->status !== 'completed') {
@@ -230,6 +245,7 @@ class SavingsTransactionService
                 'description' => 'Reversal '.$transaction->transaction_number.': '.$reason,
                 'idempotency_key' => null,
                 'processed_by' => $userId,
+                'record_cash_impact' => $recordCashImpact,
             ]);
 
             $reversal->forceFill([
@@ -254,6 +270,14 @@ class SavingsTransactionService
 
             return $reversal;
         });
+    }
+
+    /**
+     * Koreksi transaksi simpanan melalui reversal tanpa dampak kas (non-cash impact).
+     */
+    public function reverseWithoutCashImpact(SavingsTransaction $transaction, int $userId, string $reason): SavingsTransaction
+    {
+        return $this->reverse($transaction, $userId, $reason, false);
     }
 
     /**

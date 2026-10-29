@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\Role;
-use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanProduct;
@@ -18,6 +17,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia;
 use RuntimeException;
+use Tests\Concerns\InteractsWithShmDisbursement;
 use Tests\TestCase;
 
 /**
@@ -35,6 +35,7 @@ use Tests\TestCase;
  */
 class ShmLoanProductMasterTest extends TestCase
 {
+    use InteractsWithShmDisbursement;
     use RefreshDatabase;
 
     /**
@@ -57,6 +58,9 @@ class ShmLoanProductMasterTest extends TestCase
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
         $this->seed(ShmLoanProductSeeder::class);
+
+        // T002C — produk simpanan aktif untuk posting potongan pencairan.
+        $this->seedShmSavingsProducts();
     }
 
     private function product(string $code): ShmLoanProduct
@@ -360,7 +364,11 @@ class ShmLoanProductMasterTest extends TestCase
             $admin->roles()->attach($adminRole->id);
         }
 
-        $customer = ShmCustomer::factory()->create();
+        // T002C — sesi kasir aktif milik pelaku pencairan (wajib).
+        $this->openCashierSessionFor($admin);
+
+        // T89C/T150 — nasabah wajib memiliki anggota sumber aktif.
+        $customer = $this->createShmCustomerWithMember();
         $product = $this->product('BSM-PRIORITAS');
 
         $firstDueDate = '2026-11-25';
@@ -380,7 +388,7 @@ class ShmLoanProductMasterTest extends TestCase
             'income' => ['tetap' => '5000000'],
             'expense' => ['rumahTangga' => '2000000'],
             'persetujuan' => [
-                'approved_amount' => '',
+                'approved_amount' => '460000000',
                 'provision_fee' => '',
                 'administration_fee' => '',
                 'method' => 'flat',

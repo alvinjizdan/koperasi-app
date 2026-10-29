@@ -1,5 +1,5 @@
 import React from 'react';
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import ShmLayout from '@/Layouts/ShmLayout';
 import SecondaryButton from '@/Components/SecondaryButton';
 import { formatDateTime, formatRupiah } from '@/utils/format';
@@ -85,6 +85,18 @@ export default function PengajuanShow({ application, flash }) {
     const customer = application.customer ?? {};
     // Ticket 76-FIX — Data Pribadi milik pengajuan ini (bukan master nasabah).
     const pribadi = application.pribadi ?? {};
+    // T002C F-05 — Alasan penolakan backend (validation errors dari
+    // ShmLoanDisbursementService: approval, sesi kasir, idempotency, rate,
+    // dsb.) harus TERLIHAT oleh pengguna — bukan hanya tersimpan di session.
+    const { errors: pageErrors } = usePage().props;
+    const pageErrorKeys = pageErrors ? Object.keys(pageErrors) : [];
+    const pageError =
+        pageErrorKeys.length > 0
+            ? (() => {
+                  const value = pageErrors[pageErrorKeys[0]];
+                  return Array.isArray(value) ? value[0] : value;
+              })()
+            : null;
     const money = (value) =>
         value === null || value === undefined || value === ''
             ? '—'
@@ -195,6 +207,14 @@ export default function PengajuanShow({ application, flash }) {
                 {flash?.error && (
                     <div className="rounded-md bg-rose-50 px-4 py-3 text-sm text-rose-800">
                         {flash.error}
+                    </div>
+                )}
+                {pageError && (
+                    <div
+                        className="rounded-md bg-rose-50 px-4 py-3 text-sm text-rose-800"
+                        role="alert"
+                    >
+                        {pageError}
                     </div>
                 )}
 

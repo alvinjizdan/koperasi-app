@@ -2,10 +2,12 @@
 
 namespace App\Services\Shm;
 
+use App\Models\CashTransaction;
 use App\Models\SavingProduct;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Services\AuditLogger;
+use App\Services\CashierService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -57,6 +59,9 @@ class ShmLoanDisbursementService
         private readonly ShmProductRateService $productRates,
         private readonly ShmDisbursementCostService $costs,
         private readonly ShmSavingsIntegrationService $savingsIntegration,
+        // T002C F-01 — tanpa default null: layanan kasir WAJIB tersedia
+        // sehingga pencairan tidak dapat berjalan tanpa mekanisme sesi kasir.
+        private readonly CashierService $cashierService,
     ) {}
 
     /**
@@ -71,7 +76,7 @@ class ShmLoanDisbursementService
         return DB::transaction(function () use ($application, $actorId): ShmLoan {
             // 1. Lock baris pengajuan — state dibaca di dalam transaksi,
             //    bukan dari state UI yang mungkin sudah basi.
-            $locked = ShmLoanApplication::query()->lockForUpdate()->findOrFail($application->id);
+            $locked = ShmLoanApplication::query()->lockForUpdate()->with(['customer.member', 'product'])->findOrFail($application->id);
 
             // 2. Ownership (aturan identik AuthorizesShmOwnership) — ditegakkan
             //    di server, bukan hanya tombol frontend.
@@ -139,46 +144,97 @@ class ShmLoanDisbursementService
                 (int) $locked->tenor_months,
             );
 
+            // T150 / T002 (BR-01): approved_amount adalah otoritas tunggal gross
+            // principal pencairan. Fallback ke requested principal DILARANG
+            // (fail-closed): pengajuan tanpa approved_amount ditolak tanpa efek finansial.
+            if ($locked->approved_amount === null) {
+                throw ValidationException::withMessages([
+                    'application' => 'Pengajuan belum memiliki nominal persetujuan (approved amount) sehingga tidak dapat dicairkan.',
+                ]);
+            }
+
+            $grossPrincipal = (float) $locked->approved_amount;
+            if ($grossPrincipal <= 0) {
+                throw ValidationException::withMessages([
+                    'application' => 'Nominal persetujuan pencairan tidak valid (harus lebih dari 0).',
+                ]);
+            }
+
             // 5d. T85 — kalkulasi biaya pencairan (admin/provisi/asuransi/
-            //     notaris/simpanan) berbasis principal ASLI pengajuan.
+            //     notaris/simpanan) berbasis gross principal (approved_amount).
             //     Backend authoritative: total_deduction & net_disbursement
             //     TIDAK PERNAH datang dari frontend.
             $costBreakdown = $this->costs->calculate(
-                (float) $locked->principal,
+                $grossPrincipal,
                 (int) $locked->tenor_months,
                 (float) ($locked->notary_fee ?? 0),
             );
 
-            // 5e. T85 — net_disbursement negatif DITOLAK: tidak ada pinjaman
-            //     aktif dengan dana bersih di bawah 0.
-            if ($costBreakdown['net_disbursement'] < 0) {
+            // 5e. T85 / T002 (BR-02): net_disbursement non-positif (<= 0) DITOLAK:
+            //     tidak ada pinjaman aktif dengan dana bersih nol atau negatif (fail-closed).
+            if ($costBreakdown['net_disbursement'] <= 0) {
                 throw ValidationException::withMessages([
                     'application' => sprintf(
-                        'Pencairan ditolak: total biaya potongan (%s) melebihi plafon (%s) sehingga dana bersih menjadi negatif.',
+                        'Pencairan ditolak: total biaya potongan (%s) mencapai atau melebihi plafon (%s) sehingga dana bersih tidak bernilai positif.',
                         number_format($costBreakdown['total_deduction'], 0, ',', '.'),
-                        number_format((float) $locked->principal, 0, ',', '.'),
+                        number_format($grossPrincipal, 0, ',', '.'),
                     ),
                 ]);
             }
 
-            // 5f. T89C — Alokasi potongan Simpanan Pokok dan Simpanan Wajib ke rekening anggota sumber
+            // 5f. T89C / T150 — Alokasi potongan Simpanan Pokok dan Simpanan
+            //     Wajib ke rekening anggota sumber. FAIL CLOSED: relasi anggota
+            //     sumber wajib ada dan aktif; tidak ada fallback yang boleh
+            //     melewatkan posting simpanan (T002C).
             $customer = $locked->customer;
             $member = $customer?->member;
 
-            if ($member && $this->savingsIntegration) {
-                // Simpanan Pokok: Rp100.000 (fixed)
+            if (! $member) {
+                throw ValidationException::withMessages([
+                    'application' => 'Nasabah SHM tidak memiliki relasi anggota sumber.',
+                ]);
+            }
+
+            if ($member->status !== 'active') {
+                throw ValidationException::withMessages([
+                    'application' => 'Anggota sumber tidak aktif.',
+                ]);
+            }
+
+            // T002C F-01 — SESI KASIR AKTIF MILIK ACTOR WAJIB. Pencairan
+            // tidak boleh lanjut tanpa sesi kasir yang terbuka dan dimiliki
+            // oleh pelaku (activeSessionFor sudah memfilter opened_by =
+            // actor). Tanpa sesi: REJECT — tanpa loan, tanpa simpanan,
+            // tanpa kas keluar, tanpa audit sukses. Config bypass DIHAPUS:
+            // syarat ini tidak dapat dimatikan untuk kompatibilitas mundur.
+            // (Layanan kasir sendiri kini non-optional di constructor.)
+            $activeSession = $this->cashierService->activeSessionFor($actorId);
+
+            if ($activeSession === null) {
+                throw ValidationException::withMessages([
+                    'application' => 'Sesi kasir aktif diperlukan untuk pencairan. Buka sesi kasir terlebih dahulu.',
+                ]);
+            }
+
+            if ($this->savingsIntegration) {
+                // Simpanan Pokok: Rp100.000 (fixed) - tanpa dampak kas
+                // (bukan pendapatan kasir). Gagal → rollback seluruh event.
                 if ((float) $costBreakdown['principal_savings'] > 0) {
                     $this->savingsIntegration->deposit(
                         $member,
                         SavingProduct::CATEGORY_PRINCIPAL,
                         (float) $costBreakdown['principal_savings'],
+                        // Idempotency key deterministik & sudah tersedia saat
+                        // posting: application_id (bukan loan_id yang belum
+                        // ada pada tahap ini).
                         sprintf('shm-disbursement-principal:%d', $locked->id),
                         sprintf('Setoran Simpanan Pokok dari pencairan pinjaman SHM %s', $locked->application_number),
                         $actorId,
+                        false,
                     );
                 }
 
-                // Simpanan Wajib: Rp25.000 × tenor
+                // Simpanan Wajib: Rp25.000 × tenor - tanpa dampak kas.
                 if ((float) $costBreakdown['mandatory_savings'] > 0) {
                     $this->savingsIntegration->deposit(
                         $member,
@@ -187,6 +243,7 @@ class ShmLoanDisbursementService
                         sprintf('shm-disbursement-mandatory:%d', $locked->id),
                         sprintf('Setoran Simpanan Wajib dari pencairan pinjaman SHM %s', $locked->application_number),
                         $actorId,
+                        false,
                     );
                 }
             }
@@ -198,7 +255,7 @@ class ShmLoanDisbursementService
                 'shm_customer_id' => $locked->shm_customer_id,
                 'shm_loan_product_id' => $locked->shm_loan_product_id,
                 'shm_loan_application_id' => $locked->id,
-                'principal' => $locked->principal,
+                'principal' => $grossPrincipal,
                 'tenor_months' => $locked->tenor_months,
                 // Kontrak finansial distempel DI DALAM transaksi yang sama
                 // dengan pembuatan loan (atomik): rate = hasil resolusi
@@ -225,6 +282,28 @@ class ShmLoanDisbursementService
                 'disbursed_at' => now()->toDateString(),
             ]);
 
+            // T002C F-02 — KAS KELUAR NET WAJIB dalam transaksi yang sama.
+            // Tidak ada config gate dan tidak ada swallow exception: bila
+            // kas keluar gagal (sesi ditutup, saldo kas kurang, dst.) seluruh
+            // pencairan ROLLBACK — tidak pernah ada state loan + simpanan
+            // sukses tanpa kas keluar. Idempotensi dijaga oleh unique source
+            // (source_type + source_id) pada CashierService::recordSourceImpact.
+            $cashTransaction = $this->cashierService->recordSourceImpact(
+                CashTransaction::TYPE_EXPENSE,
+                config('cashier.source_categories.loan_disbursement') ?? 'Pencairan Pinjaman',
+                (float) $costBreakdown['net_disbursement'],
+                now()->toDateString(),
+                'Pencairan pinjaman SHM '.$loan->loan_number,
+                $loan,
+                $actorId,
+            );
+
+            if ($cashTransaction === null) {
+                throw ValidationException::withMessages([
+                    'application' => 'Kas keluar pencairan tidak dapat dicatat (sesi kasir tidak valid) — pencairan dibatalkan.',
+                ]);
+            }
+
             // 7. Tepat SATU baris audit pencairan, di dalam transaksi yang
             //    sama (rollback bila pencairan gagal). Actor = pengguna
             //    authenticated yang melakukan pencairan.
@@ -243,14 +322,24 @@ class ShmLoanDisbursementService
                     'loan_number' => $loan->loan_number,
                     'shm_customer_id' => $locked->shm_customer_id,
                     'shm_loan_product_id' => $locked->shm_loan_product_id,
+                    'requested_principal' => (string) $locked->principal,
+                    'approved_amount' => (string) $grossPrincipal,
+                    'gross_plafond' => (string) $grossPrincipal,
                     'principal' => (string) $loan->principal,
                     'tenor_months' => $loan->tenor_months,
                     'status' => $loan->status,
                     'disbursed_at' => $loan->disbursed_at?->toDateString(),
                     // T85 — hasil finansial pencairan pada event YANG SAMA
                     // (bukan audit event baru).
+                    'admin_fee' => (string) $loan->admin_fee,
+                    'provision_fee' => (string) $loan->provision_fee,
+                    'insurance_fee' => (string) $loan->insurance_fee,
+                    'notary_fee' => (string) $loan->notary_fee,
+                    'principal_savings' => (string) $loan->principal_savings,
+                    'mandatory_savings' => (string) $loan->mandatory_savings,
                     'total_deduction' => (string) $loan->total_deduction,
                     'net_disbursement' => (string) $loan->net_disbursement,
+                    'actor_id' => $actorId,
                 ],
             );
 

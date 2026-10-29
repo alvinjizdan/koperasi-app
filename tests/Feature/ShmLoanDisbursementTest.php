@@ -3,14 +3,18 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
+use App\Models\CashTransaction;
 use App\Models\Permission;
 use App\Models\Role;
-use App\Models\ShmCustomer;
+use App\Models\SavingProduct;
+use App\Models\SavingsAccount;
+use App\Models\SavingsTransaction;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
+use App\Services\CashierService;
 use App\Services\Shm\ShmRepaymentScheduleService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -19,6 +23,7 @@ use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Inertia\Testing\AssertableInertia as Assert;
 use RuntimeException;
+use Tests\Concerns\InteractsWithShmDisbursement;
 use Tests\TestCase;
 
 /**
@@ -47,6 +52,7 @@ use Tests\TestCase;
  */
 class ShmLoanDisbursementTest extends TestCase
 {
+    use InteractsWithShmDisbursement;
     use RefreshDatabase;
 
     private const AUDIT_ACTION = 'shm.loan_application.disbursed';
@@ -70,6 +76,12 @@ class ShmLoanDisbursementTest extends TestCase
         $this->marketing = $this->userWithRole('marketing');
         $this->marketing2 = $this->userWithRole('marketing');
         $this->kasir = $this->userWithRole('kasir');
+
+        // T002C — prasyarat pencairan fail-closed: produk simpanan aktif +
+        // sesi kasir aktif milik pelaku pencairan (admin) dengan saldo cukup
+        // untuk kas keluar net.
+        $this->seedShmSavingsProducts();
+        $this->openCashierSessionFor($this->admin);
     }
 
     private function userWithRole(string $roleName): User
@@ -199,7 +211,7 @@ class ShmLoanDisbursementTest extends TestCase
             ],
             'kolektor' => ['name' => 'Kolektor Uji T69'],
             'persetujuan' => [
-                'approved_amount' => '',
+                'approved_amount' => '460000000',
                 'provision_fee' => '',
                 'administration_fee' => '',
                 'method' => 'flat',
@@ -222,7 +234,8 @@ class ShmLoanDisbursementTest extends TestCase
     /** Pengajuan milik $this->marketing (belum diajukan approval). */
     private function makeApplication(?array $payloadOverride = null): ShmLoanApplication
     {
-        $customer = ShmCustomer::factory()->create();
+        // T89C/T150 — nasabah wajib memiliki anggota sumber aktif.
+        $customer = $this->createShmCustomerWithMember();
         $payload = $this->validPayload($customer->id);
 
         if ($payloadOverride !== null) {
@@ -749,5 +762,308 @@ class ShmLoanDisbursementTest extends TestCase
 
         $this->assertSame(0, ShmLoan::query()->count(), 'Pencairan tanpa first_due_date harus rollback penuh.');
         $this->assertSame(0, $this->disburseAuditCount());
+    }
+
+    // -----------------------------------------------------------------
+    // I. T002C — SESI KASIR WAJIB & KAS KELUAR ATOMIK (F-01 / F-02)
+    // -----------------------------------------------------------------
+
+    /**
+     * N-03 (T002C F-01) — tanpa sesi kasir aktif, pencairan DITOLAK:
+     * tanpa loan, tanpa simpanan, tanpa kas keluar, tanpa audit sukses.
+     * Config bypass sudah dihapus — syarat ini berlaku tanpa pengecualian.
+     */
+    public function test_disbursement_without_active_cashier_session_is_rejected(): void
+    {
+        $application = $this->approvedApplication();
+
+        // Tutup sesi kasir admin sehingga pelaku tidak memiliki sesi aktif.
+        $cashierService = app(CashierService::class);
+        $session = $cashierService->activeSessionFor($this->admin->id);
+        $this->assertNotNull($session);
+        $cashierService->closeSession($session, [
+            'physical_closing_balance' => 5_000_000_000,
+            'closing_notes' => null,
+        ], $this->admin->id);
+
+        $this->disburse($application)
+            ->assertSessionHasErrors('application');
+
+        $this->assertSame(0, ShmLoan::query()->count(), 'Tanpa sesi kasir aktif tidak boleh ada loan.');
+        $this->assertSame(0, SavingsTransaction::query()->count(), 'Tanpa sesi kasir aktif tidak boleh ada posting simpanan.');
+        $this->assertSame(0, CashTransaction::query()->where('source_type', ShmLoan::class)->count(), 'Tanpa sesi kasir aktif tidak boleh ada kas keluar.');
+        $this->assertSame(0, $this->disburseAuditCount(), 'Tanpa sesi kasir aktif tidak boleh ada audit sukses.');
+    }
+
+    /**
+     * N-04 (T002C F-01) — sesi kasir milik pelaku LAIN tidak memenuhi
+     * syarat: disburser tanpa sesi sendiri tetap ditolak.
+     */
+    public function test_disbursement_requires_cashier_session_owned_by_disburser(): void
+    {
+        $application = $this->approvedApplication();
+
+        // $other berwenang (view_all + disburse) tetapi tidak memiliki sesi
+        // kasir — sesi aktif hanya dimiliki $this->admin.
+        $other = $this->userWithPermissions(['shm.view', 'shm.disburse', 'shm.view_all']);
+
+        $this->disburse($application, $other)
+            ->assertSessionHasErrors('application');
+
+        $this->assertSame(0, ShmLoan::query()->count(), 'Sesi kasir pelaku lain tidak dapat dipakai.');
+        $this->assertSame(0, $this->disburseAuditCount());
+    }
+
+    /**
+     * F-02 (T002C) — kas keluar NET WAJIB dan berada di dalam transaksi.
+     * Sesi kasir ada (lolos F-01) tetapi saldo kas kurang → kas keluar
+     * gagal SETELAH loan + simpanan tercatat → ROLLBACK PENUH: tidak ada
+     * state parsial loan + simpanan tanpa kas keluar.
+     */
+    public function test_cash_out_failure_after_savings_and_loan_rolls_back_everything(): void
+    {
+        $application = $this->approvedApplication();
+
+        // Ganti sesi admin menjadi saldo kas kecil (Rp1.000) sehingga kas
+        // keluar net (Rp431.100.000) gagal pada tahap akhir.
+        $cashierService = app(CashierService::class);
+        $session = $cashierService->activeSessionFor($this->admin->id);
+        $cashierService->closeSession($session, [
+            'physical_closing_balance' => 5_000_000_000,
+            'closing_notes' => null,
+        ], $this->admin->id);
+        $this->openCashierSessionFor($this->admin, 1_000);
+
+        $this->disburse($application)
+            ->assertSessionHasErrors();
+
+        $this->assertSame(0, ShmLoan::query()->count(), 'Loan harus ikut rollback saat kas keluar gagal.');
+        $this->assertSame(0, SavingsTransaction::query()->count(), 'Posting simpanan harus ikut rollback.');
+        $this->assertSame(0, CashTransaction::query()->where('source_type', ShmLoan::class)->count(), 'Tidak boleh ada kas keluar tersisa.');
+        $this->assertSame(0, $this->disburseAuditCount(), 'Tidak boleh ada audit sukses pencairan.');
+    }
+
+    /**
+     * P-04/P-05/P-06 + invariant finansial (T002C) — pencairan sukses:
+     * simpanan Pokok/Wajib masuk ke rekening anggota sumber TANPA dampak
+     * kas, kas keluar NET tercatat tepat sekali melalui kasir, dan seluruh
+     * nominal konsisten.
+     */
+    public function test_successful_disbursement_records_savings_postings_and_net_cash_out(): void
+    {
+        $application = $this->approvedApplication();
+
+        $this->disburse($application)->assertSessionHasNoErrors();
+
+        $loan = ShmLoan::query()->sole();
+
+        // Invariant finansial: gross 460jt, potongan 28,9jt, net 431,1jt.
+        $this->assertSame('460000000.00', (string) $loan->principal);
+        $this->assertEqualsWithDelta(460_000_000 * 0.02, (float) $loan->admin_fee, 0.001);
+        $this->assertEqualsWithDelta(460_000_000 * 0.03, (float) $loan->provision_fee, 0.001);
+        $this->assertEqualsWithDelta(460_000_000 * 0.01, (float) $loan->insurance_fee, 0.001);
+        $this->assertEqualsWithDelta(100_000, (float) $loan->principal_savings, 0.001);
+        $this->assertEqualsWithDelta(25_000 * 48, (float) $loan->mandatory_savings, 0.001);
+        $this->assertEqualsWithDelta(
+            (float) $loan->principal - (float) $loan->total_deduction,
+            (float) $loan->net_disbursement,
+            0.001,
+        );
+
+        // Simpanan Pokok & Wajib → rekening anggota sumber (bukan kasir).
+        $memberId = $application->customer->member_id;
+        $principalAccount = SavingsAccount::query()
+            ->where('member_id', $memberId)
+            ->whereHas('savingProduct', fn ($q) => $q->where('category', SavingProduct::CATEGORY_PRINCIPAL))
+            ->sole();
+        $mandatoryAccount = SavingsAccount::query()
+            ->where('member_id', $memberId)
+            ->whereHas('savingProduct', fn ($q) => $q->where('category', SavingProduct::CATEGORY_MANDATORY))
+            ->sole();
+
+        $this->assertEqualsWithDelta(100_000, (float) $principalAccount->balance, 0.001);
+        $this->assertEqualsWithDelta(25_000 * 48, (float) $mandatoryAccount->balance, 0.001);
+
+        // Idempotency key deterministik berbasis application_id (tersedia
+        // sebelum posting — bukan loan_id yang belum ada).
+        $this->assertDatabaseHas('savings_transactions', [
+            'savings_account_id' => $principalAccount->id,
+            'idempotency_key' => sprintf('shm-disbursement-principal:%d', $application->id),
+            'type' => 'deposit',
+            'amount' => 100000,
+        ]);
+        $this->assertDatabaseHas('savings_transactions', [
+            'savings_account_id' => $mandatoryAccount->id,
+            'idempotency_key' => sprintf('shm-disbursement-mandatory:%d', $application->id),
+            'type' => 'deposit',
+            'amount' => 1200000,
+        ]);
+
+        // Kas keluar NET tercatat TEPAT SEKALI untuk loan ini.
+        $cashOut = CashTransaction::query()
+            ->where('source_type', ShmLoan::class)
+            ->where('source_id', $loan->id)
+            ->get();
+        $this->assertCount(1, $cashOut, 'Tepat SATU kas keluar per pencairan.');
+        $this->assertSame(CashTransaction::TYPE_EXPENSE, $cashOut->first()->type);
+        $this->assertEqualsWithDelta((float) $loan->net_disbursement, (float) $cashOut->first()->amount, 0.001);
+
+        // Simpanan bukan kasir income: tidak ada kas masuk dari pencairan ini.
+        $this->assertSame(0, CashTransaction::query()->where('type', CashTransaction::TYPE_INCOME)->count());
+    }
+
+    // -----------------------------------------------------------------
+    // J. T002 BUSINESS RULE CLOSURE (PBC-01 / PBC-02 — BR-01 / BR-02)
+    // -----------------------------------------------------------------
+
+    /**
+     * BR-01 / AC-02 / AC-03 / AC-04 (PBC-01): approved_amount IS NULL
+     * menyebabkan pencairan DITOLAK (fail-closed) tanpa fallback ke
+     * requested principal. Seluruh efek finansial tetap nol dan transaksi
+     * rollback penuh.
+     */
+    public function test_disbursement_rejected_when_approved_amount_is_null_even_with_valid_principal(): void
+    {
+        // Pengajuan dibuat dengan principal valid (Rp460.000.000) tetapi
+        // approved_amount kosong/NULL.
+        $application = $this->makeApplication([
+            'persetujuan' => [
+                'approved_amount' => '',
+                'provision_fee' => '',
+                'administration_fee' => '',
+                'method' => 'flat',
+                'notes' => 'Menunggu keputusan tanpa approved_amount.',
+            ],
+        ]);
+        $this->assertNull($application->approved_amount);
+        $this->assertGreaterThan(0, (float) $application->principal);
+
+        $this->submit($application);
+        $this->decide($application, 'approve');
+
+        $this->disburse($application)
+            ->assertSessionHasErrors('application');
+
+        // Verifikasi atomisitas: seluruh efek finansial tetap nol.
+        $this->assertSame(0, ShmLoan::query()->count(), 'Loan tidak boleh dibuat saat approved_amount NULL.');
+        $this->assertSame(0, SavingsTransaction::query()->count(), 'Simpanan Pokok & Wajib tidak boleh diposting saat approved_amount NULL.');
+        $this->assertSame(0, CashTransaction::query()->where('source_type', ShmLoan::class)->count(), 'Kas keluar kasir tidak boleh dicatat saat approved_amount NULL.');
+        $this->assertSame(0, $this->disburseAuditCount(), 'Audit sukses pencairan tidak boleh dicatat saat approved_amount NULL.');
+    }
+
+    /**
+     * BR-01 / AC-01 / AC-05 (PBC-01): approved_amount adalah otoritas tunggal
+     * gross principal pencairan. Bila approved_amount berbeda dari requested
+     * principal, gross principal = approved_amount (bukan requested principal).
+     */
+    public function test_disbursement_uses_approved_amount_as_authoritative_gross_when_different_from_principal(): void
+    {
+        // Requested principal Rp500.000.000, tetapi approved_amount Rp450.000.000
+        $application = $this->makeApplication([
+            'pengajuan' => array_merge($this->validPayload(1)['pengajuan'], [
+                'principal' => '500000000',
+            ]),
+            'persetujuan' => [
+                'approved_amount' => '450000000',
+                'provision_fee' => '',
+                'administration_fee' => '',
+                'method' => 'flat',
+                'notes' => 'Disetujui di bawah nominal pengajuan.',
+            ],
+        ]);
+        $this->assertSame('500000000.00', (string) $application->principal);
+        $this->assertSame('450000000.00', (string) $application->approved_amount);
+
+        $this->submit($application);
+        $this->decide($application, 'approve');
+
+        $this->disburse($application)->assertSessionHasNoErrors();
+
+        $loan = ShmLoan::query()->sole();
+
+        // Otoritas backend: principal pinjaman = approved_amount (Rp450jt), BUKAN requested principal (Rp500jt)
+        $this->assertSame('450000000.00', (string) $loan->principal);
+        $this->assertNotSame((string) $application->principal, (string) $loan->principal);
+
+        // Biaya potongan dihitung dari approved_amount (Rp450jt)
+        $this->assertEqualsWithDelta(450_000_000 * 0.02, (float) $loan->admin_fee, 0.001);
+        $this->assertEqualsWithDelta(450_000_000 * 0.03, (float) $loan->provision_fee, 0.001);
+        $this->assertEqualsWithDelta(450_000_000 * 0.01, (float) $loan->insurance_fee, 0.001);
+
+        // Kas keluar kasir mengikuti net disbursement dari approved_amount
+        $cashOut = CashTransaction::query()
+            ->where('source_type', ShmLoan::class)
+            ->where('source_id', $loan->id)
+            ->sole();
+        $this->assertEqualsWithDelta((float) $loan->net_disbursement, (float) $cashOut->amount, 0.001);
+    }
+
+    /**
+     * BR-02 / AC-06 / AC-07 (PBC-02): net_disbursement = 0 DITOLAK (fail-closed).
+     * Fixture deterministik: approved_amount Rp1.000.000, tenor 12 bulan (SW 300rb),
+     * SP 100rb, fee 6% (60rb), notaris Rp540.000 -> total potongan = Rp1.000.000,
+     * net = Rp0. Seluruh efek finansial harus rollback penuh.
+     */
+    public function test_disbursement_rejected_when_net_disbursement_equals_zero(): void
+    {
+        $application = $this->makeApplication([
+            'pengajuan' => array_merge($this->validPayload(1)['pengajuan'], [
+                'principal' => '1000000',
+                'tenor_months' => 12,
+            ]),
+            'persetujuan' => [
+                'approved_amount' => '1000000',
+                'notary_fee' => '540000',
+                'provision_fee' => '',
+                'administration_fee' => '',
+                'method' => 'flat',
+                'notes' => 'Fixture net nol deterministik.',
+            ],
+        ]);
+
+        $this->submit($application);
+        $this->decide($application, 'approve');
+
+        $this->disburse($application)
+            ->assertSessionHasErrors('application');
+
+        // Verifikasi atomisitas: tidak ada side effect finansial tersisa
+        $this->assertSame(0, ShmLoan::query()->count(), 'Loan tidak boleh dibuat saat net disbursement = 0.');
+        $this->assertSame(0, SavingsTransaction::query()->count(), 'Posting simpanan tidak boleh ada saat net disbursement = 0.');
+        $this->assertSame(0, CashTransaction::query()->where('source_type', ShmLoan::class)->count(), 'Kas keluar kasir tidak boleh dicatat saat net disbursement = 0.');
+        $this->assertSame(0, $this->disburseAuditCount(), 'Audit sukses tidak boleh dicatat saat net disbursement = 0.');
+    }
+
+    /**
+     * BR-02 / AC-08 (PBC-02): net_disbursement < 0 DITOLAK (fail-closed).
+     * Seluruh efek finansial tetap nol.
+     */
+    public function test_disbursement_rejected_when_net_disbursement_is_negative(): void
+    {
+        $application = $this->makeApplication([
+            'pengajuan' => array_merge($this->validPayload(1)['pengajuan'], [
+                'principal' => '1000000',
+                'tenor_months' => 12,
+            ]),
+            'persetujuan' => [
+                'approved_amount' => '1000000',
+                'notary_fee' => '600000',
+                'provision_fee' => '',
+                'administration_fee' => '',
+                'method' => 'flat',
+                'notes' => 'Fixture net negatif.',
+            ],
+        ]);
+
+        $this->submit($application);
+        $this->decide($application, 'approve');
+
+        $this->disburse($application)
+            ->assertSessionHasErrors('application');
+
+        $this->assertSame(0, ShmLoan::query()->count(), 'Loan tidak boleh dibuat saat net disbursement < 0.');
+        $this->assertSame(0, SavingsTransaction::query()->count(), 'Posting simpanan tidak boleh ada saat net disbursement < 0.');
+        $this->assertSame(0, CashTransaction::query()->where('source_type', ShmLoan::class)->count(), 'Kas keluar kasir tidak boleh dicatat saat net disbursement < 0.');
+        $this->assertSame(0, $this->disburseAuditCount(), 'Audit sukses tidak boleh dicatat saat net disbursement < 0.');
     }
 }

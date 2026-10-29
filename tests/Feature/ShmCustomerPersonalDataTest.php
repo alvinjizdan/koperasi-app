@@ -14,6 +14,7 @@ use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Concerns\InteractsWithShmDisbursement;
 use Tests\TestCase;
 
 /**
@@ -34,6 +35,7 @@ use Tests\TestCase;
  */
 class ShmCustomerPersonalDataTest extends TestCase
 {
+    use InteractsWithShmDisbursement;
     use RefreshDatabase;
 
     private User $marketing;
@@ -49,6 +51,11 @@ class ShmCustomerPersonalDataTest extends TestCase
 
         $this->marketing = $this->userWithRole('marketing');
         $this->admin = $this->userWithRole('admin');
+
+        // T002C — prasyarat pencairan fail-closed (AC-12): produk simpanan
+        // aktif + sesi kasir aktif milik pelaku pencairan (admin).
+        $this->seedShmSavingsProducts();
+        $this->openCashierSessionFor($this->admin);
     }
 
     private function userWithRole(string $roleName): User
@@ -459,7 +466,8 @@ class ShmCustomerPersonalDataTest extends TestCase
 
     public function test_approval_and_disbursement_workflow_still_works(): void
     {
-        $customer = ShmCustomer::factory()->create();
+        // T89C/T150 — nasabah wajib memiliki anggota sumber aktif.
+        $customer = $this->createShmCustomerWithMember();
         $payload = $this->validPayload($customer->id);
         $payload['pribadi'] = array_merge($payload['pribadi'], $this->personalData());
         $payload['persetujuan']['approved_amount'] = '150000000';

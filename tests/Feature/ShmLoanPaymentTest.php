@@ -3,8 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
+use App\Models\Member;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\SavingProduct;
+use App\Models\SavingsTransaction;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
@@ -24,10 +27,15 @@ use Tests\TestCase;
  * Ticket 86 — Transaksi Pembayaran Pinjaman SHM.
  *
  * Mengunci: sumber pembayaran (hanya pinjaman SHM aktif yang sudah dicairkan),
- * nominal > 0 tanpa pembatasan ke angsuran (overpayment disimpan persis),
- * referensi & idempotensi server-side, transaksionalitas, audit tepat satu,
- * serta BATAS keras bahwa T86 tidak pernah mengubah angsuran, saldo pokok,
- * maupun status pinjaman (alokasi = T87).
+ * nominal > 0, referensi & idempotensi server-side, transaksionalitas, audit
+ * tepat satu, serta BATAS keras bahwa T86 TIDAK mengubah angsuran, saldo
+ * pokok, maupun status pinjaman saat dipanggil sebagai service.
+ *
+ * T151 — endpoint `store` kini menjadi SATU operasi reguler atomik
+ * (validasi underpayment → pembayaran → alokasi → lebih bayar ke Simpanan
+ * Pokok → penutupan otomatis). Karena itu test file ini memakai fixture
+ * jadwal angsuran yang valid; perilaku underpayment/lebih bayar/penutupan
+ * diuji fokus di `ShmRegularPaymentOverpaymentClosureTest`.
  */
 class ShmLoanPaymentTest extends TestCase
 {
@@ -87,12 +95,19 @@ class ShmLoanPaymentTest extends TestCase
         return $user;
     }
 
-    /** Pengajuan fixture milik $user (langsung ke model, tanpa alur form). */
-    private function applicationOwnedBy(User $user): ShmLoanApplication
+    /**
+     * Pengajuan fixture milik $user (langsung ke model, tanpa alur form).
+     *
+     * T151 — `$member` dipakai untuk skenario lebih bayar yang wajib
+     * memindahkan kelebihan ke Simpanan Pokok anggota sumber.
+     */
+    private function applicationOwnedBy(User $user, ?Member $member = null): ShmLoanApplication
     {
         return ShmLoanApplication::query()->create([
             'application_number' => 'PENGAJ-PIN-'.Str::upper(Str::random(10)),
-            'shm_customer_id' => ShmCustomer::factory()->create()->id,
+            'shm_customer_id' => ShmCustomer::factory()->create([
+                'member_id' => $member?->id,
+            ])->id,
             'application_date' => now()->toDateString(),
             'principal' => '100000000',
             'tenor_months' => 12,
@@ -102,32 +117,54 @@ class ShmLoanPaymentTest extends TestCase
         ]);
     }
 
-    /** Pinjaman aktif & sudah dicairkan yang berasal dari pengajuan $user. */
-    private function activeLoanOf(User $user): ShmLoan
+    /**
+     * Pinjaman aktif & sudah dicairkan yang berasal dari pengajuan $user.
+     *
+     * T151 — pinjaman selalu memiliki jadwal angsuran karena kewajiban yang
+     * harus dibayar TIDAK boleh ditebak dari saldo pokok.
+     */
+    private function activeLoanOf(User $user, ?Member $member = null): ShmLoan
     {
-        $application = $this->applicationOwnedBy($user);
+        $application = $this->applicationOwnedBy($user, $member);
 
-        return ShmLoan::factory()->create([
+        $loan = ShmLoan::factory()->create([
             'shm_customer_id' => $application->shm_customer_id,
             'shm_loan_application_id' => $application->id,
             'principal' => $application->principal,
             'tenor_months' => $application->tenor_months,
         ]);
+
+        $this->scheduleOf($loan, 3);
+
+        return $loan;
     }
 
-    /** Satu angsuran jadwal untuk mengunci batas "T86 tidak mengubah angsuran". */
-    private function installmentOf(ShmLoan $loan): ShmLoanInstallment
+    /**
+     * Jadwal angsuran sederhana: 3 angsuran, masing-masing Rp10.000.000
+     * (bunga Rp1.666.666,67 + pokok Rp8.333.333,33).
+     *
+     * @return array<int, ShmLoanInstallment>
+     */
+    private function scheduleOf(ShmLoan $loan, int $count = 3): array
     {
-        return $loan->installments()->create([
-            'installment_number' => 1,
-            'due_date' => now()->addMonth()->toDateString(),
-            'principal_amount' => 8333333.33,
-            'interest_amount' => 1666666.67,
-            'total_amount' => 10000000,
-            'paid_amount' => 0,
-            'remaining_amount' => 10000000,
-            'status' => ShmLoanInstallment::STATUS_SCHEDULED,
-        ]);
+        $installments = [];
+
+        for ($index = 0; $index < $count; $index++) {
+            $installments[] = $loan->installments()->create([
+                'installment_number' => $index + 1,
+                'due_date' => now()->addMonths($index + 1)->startOfMonth()->toDateString(),
+                'principal_amount' => 8333333.33,
+                'interest_amount' => 1666666.67,
+                'total_amount' => 10000000,
+                'paid_amount' => 0,
+                'paid_interest_amount' => 0,
+                'paid_principal_amount' => 0,
+                'remaining_amount' => 10000000,
+                'status' => ShmLoanInstallment::STATUS_SCHEDULED,
+            ]);
+        }
+
+        return $installments;
     }
 
     /**
@@ -140,7 +177,8 @@ class ShmLoanPaymentTest extends TestCase
             array_merge([
                 'loan_id' => $loan->id,
                 'payment_date' => now()->toDateString(),
-                'amount' => '1500000',
+                // T151 — nominal default menutup satu angsuran (tidak underpayment).
+                'amount' => '10000000',
                 'idempotency_key' => (string) Str::uuid(),
             ], $payload),
         );
@@ -308,30 +346,34 @@ class ShmLoanPaymentTest extends TestCase
     {
         $loan = $this->activeLoanOf($this->marketing);
 
-        $this->pay($loan, ['amount' => '1234500.25'])->assertSessionHasNoErrors();
+        $this->pay($loan, ['amount' => '12345000.25'])->assertSessionHasNoErrors();
 
         $payment = ShmLoanPayment::query()->sole();
 
-        $this->assertSame('1234500.25', (string) $payment->amount);
+        $this->assertSame('12345000.25', (string) $payment->amount);
     }
 
     public function test_overpayment_is_persisted_without_truncation(): void
     {
-        $loan = $this->activeLoanOf($this->marketing);
-        $installment = $this->installmentOf($loan);
+        $member = Member::factory()->create();
+        SavingProduct::factory()->category(SavingProduct::CATEGORY_PRINCIPAL)->create();
 
-        // Jauh melebihi angsuran (Rp10jt) dan melebihi plafon (Rp100jt).
+        $loan = $this->activeLoanOf($this->marketing, $member);
+
+        // Jauh melebihi sisa angsuran (3 × Rp10jt) dan melebihi plafon.
         $this->pay($loan, ['amount' => '150000000'])->assertSessionHasNoErrors();
 
         $payment = ShmLoanPayment::query()->sole();
 
         $this->assertSame('150000000.00', (string) $payment->amount, 'Kelebihan nominal tidak boleh ditrunk.');
 
-        // Alokasi belum ada: angsuran tidak berubah sama sekali.
-        $installment->refresh();
-        $this->assertSame('0.00', (string) $installment->paid_amount);
-        $this->assertSame('10000000.00', (string) $installment->remaining_amount);
-        $this->assertSame(ShmLoanInstallment::STATUS_SCHEDULED, $installment->status);
+        // T151 — kelebihan TIDAK dibuang: sisanya dipindahkan ke Simpanan
+        // Pokok anggota sumber (bukan dibiarkan unallocated).
+        $this->assertSame(1, SavingsTransaction::query()->count());
+        $this->assertEquals(
+            150000000 - 30000000,
+            (float) SavingsTransaction::query()->sole()->amount,
+        );
     }
 
     // -----------------------------------------------------------------
@@ -476,24 +518,26 @@ class ShmLoanPaymentTest extends TestCase
         $loan->refresh();
 
         $this->assertSame($principalBefore, (string) $loan->principal, 'Pokok tidak boleh berubah.');
-        $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->status, 'Pinjaman tidak boleh ditutup otomatis.');
-        $this->assertEquals($loan->outstanding(), (float) $loan->principal, 'Saldo pokok tidak berubah oleh T86.');
+        // T151 — pinjaman tetap aktif selama masih ada angsuran yang belum
+        // lunas; penutupan hanya terjadi bila total kewajiban = 0.
+        $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->status);
+        $this->assertEquals($loan->outstanding(), (float) $loan->principal, 'Saldo pokok tidak berubah oleh pembayaran.');
         $this->assertNotNull($loan->disbursed_at);
     }
 
-    public function test_payment_does_not_change_installment_state(): void
+    public function test_payment_updates_installment_state(): void
     {
         $loan = $this->activeLoanOf($this->marketing);
-        $installment = $this->installmentOf($loan);
 
-        $this->pay($loan, ['amount' => '5000000'])->assertSessionHasNoErrors();
+        $this->pay($loan)->assertSessionHasNoErrors();
 
-        $installment->refresh();
+        // T151 — endpoint `store` adalah satu operasi reguler atomik:
+        // pembayaran dialokasikan ke angsuran pada saat yang sama.
+        $installment = $loan->installments()->orderBy('installment_number')->first();
 
-        $this->assertSame('0.00', (string) $installment->paid_amount, 'Alokasi = T87.');
-        $this->assertSame('10000000.00', (string) $installment->remaining_amount, 'Alokasi = T87.');
-        $this->assertSame(ShmLoanInstallment::STATUS_SCHEDULED, $installment->status);
-        $this->assertNull($installment->paid_at);
+        $this->assertSame('10000000.00', (string) $installment->paid_amount);
+        $this->assertSame('0.00', (string) $installment->remaining_amount);
+        $this->assertSame(ShmLoanInstallment::STATUS_PAID, $installment->status);
     }
 
     // -----------------------------------------------------------------
@@ -504,7 +548,7 @@ class ShmLoanPaymentTest extends TestCase
     {
         $loan = $this->activeLoanOf($this->marketing);
 
-        $this->pay($loan, ['amount' => '2500000'])->assertSessionHasNoErrors();
+        $this->pay($loan, ['amount' => '12000000'])->assertSessionHasNoErrors();
 
         $logs = AuditLog::query()->where('action', self::AUDIT_ACTION)->get();
 
@@ -515,7 +559,7 @@ class ShmLoanPaymentTest extends TestCase
         $payment = ShmLoanPayment::query()->sole();
         $this->assertSame($payment->id, $logs->first()->object_id);
         $this->assertSame($payment->payment_reference, $logs->first()->object_label);
-        $this->assertSame('2500000.00', data_get($logs->first()->changes, 'amount'));
+        $this->assertSame('12000000.00', data_get($logs->first()->changes, 'amount'));
         $this->assertSame($payment->payment_reference, data_get($logs->first()->changes, 'payment_reference'));
         $this->assertSame($loan->id, data_get($logs->first()->changes, 'shm_loan_id'));
     }
@@ -567,7 +611,7 @@ class ShmLoanPaymentTest extends TestCase
     public function test_payment_detail_page_shows_foundation(): void
     {
         $loan = $this->activeLoanOf($this->marketing);
-        $this->pay($loan, ['amount' => '750000'], $this->admin);
+        $this->pay($loan, ['amount' => '10000000'], $this->admin);
 
         $payment = ShmLoanPayment::query()->sole();
 

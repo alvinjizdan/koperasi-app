@@ -202,6 +202,26 @@ class ShmLoan extends Model
     }
 
     /**
+     * Seluruh record settlement / pelunasan pinjaman SHM.
+     *
+     * @return HasMany<ShmLoanSettlement, $this>
+     */
+    public function settlements(): HasMany
+    {
+        return $this->hasMany(ShmLoanSettlement::class, 'shm_loan_id')->orderByDesc('id');
+    }
+
+    /**
+     * Riwayat koreksi settlement pada pinjaman ini.
+     *
+     * @return HasMany<ShmSettlementCorrection, $this>
+     */
+    public function settlementCorrections(): HasMany
+    {
+        return $this->hasMany(ShmSettlementCorrection::class, 'shm_loan_id')->orderByDesc('id');
+    }
+
+    /**
      * Transaksi pembayaran pinjaman SHM (Ticket 86).
      *
      * Murni transaksi pembayaran — T86 tidak pernah mengubah angsuran maupun
@@ -232,6 +252,51 @@ class ShmLoan extends Model
         }
 
         return (float) $this->principal;
+    }
+
+    /**
+     * Total kewajiban berjalan yang belum dibayar (pokok + bunga).
+     *
+     * Berdasarkan jadwal angsuran aktif (T107). Nilai 0 jika pinjaman closed.
+     */
+    public function totalOwed(): float
+    {
+        if ($this->status === self::STATUS_CLOSED) {
+            return 0.0;
+        }
+
+        return (float) $this->installments()
+            ->where('status', ShmLoanInstallment::STATUS_SCHEDULED)
+            ->sum('remaining_amount');
+    }
+
+    /**
+     * Angsuran belum lunas pertama sesuai urutan kronologis (T151/T003).
+     */
+    public function currentPayableInstallment(): ?ShmLoanInstallment
+    {
+        return $this->installments()
+            ->where('status', ShmLoanInstallment::STATUS_SCHEDULED)
+            ->where('remaining_amount', '>', 0)
+            ->orderBy('installment_number')
+            ->first();
+    }
+
+    /**
+     * Settlement aktif yang mengunci operasi pembayaran angsuran reguler (T108/T003).
+     */
+    public function activeSettlement(): ?ShmLoanSettlement
+    {
+        return ShmLoanSettlement::query()
+            ->where('shm_loan_id', $this->id)
+            ->whereIn('status', [
+                ShmLoanSettlement::STATUS_PENDING,
+                ShmLoanSettlement::STATUS_APPROVED,
+                ShmLoanSettlement::STATUS_PAYMENT_RECORDED,
+                ShmLoanSettlement::STATUS_PAYMENT_VERIFIED,
+            ])
+            ->latest('id')
+            ->first();
     }
 
     /**
