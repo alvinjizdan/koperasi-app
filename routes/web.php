@@ -24,12 +24,16 @@ use App\Http\Controllers\SavingProductController;
 use App\Http\Controllers\SavingsAccountController;
 use App\Http\Controllers\SavingsTransactionController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\Shm\ShmAccountController;
+use App\Http\Controllers\Shm\ShmAccountingMappingController;
 use App\Http\Controllers\Shm\ShmApplicationController;
 use App\Http\Controllers\Shm\ShmApprovalController;
+use App\Http\Controllers\Shm\ShmBalanceSheetController;
 use App\Http\Controllers\Shm\ShmCollectionActivityController;
 use App\Http\Controllers\Shm\ShmCollectionController;
 use App\Http\Controllers\Shm\ShmCollectionPtpController;
 use App\Http\Controllers\Shm\ShmCreditCheckController;
+use App\Http\Controllers\Shm\ShmCumulativeProfitLossController;
 use App\Http\Controllers\Shm\ShmCustomerController;
 use App\Http\Controllers\Shm\ShmDashboardController;
 use App\Http\Controllers\Shm\ShmDocumentsController;
@@ -40,7 +44,10 @@ use App\Http\Controllers\Shm\ShmLoanPaymentController;
 use App\Http\Controllers\Shm\ShmLoanSettlementController;
 use App\Http\Controllers\Shm\ShmLoginController;
 use App\Http\Controllers\Shm\ShmMemorandumController;
+use App\Http\Controllers\Shm\ShmPeriodProfitLossController;
+use App\Http\Controllers\Shm\ShmProductAccountingController;
 use App\Http\Controllers\Shm\ShmSettlementDiscountPolicyController;
+use App\Http\Controllers\Shm\ShmTrialBalanceController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -886,6 +893,98 @@ Route::prefix('shm')->name('shm.')->group(function () {
             Route::get('/export/pencairan', [ShmExportController::class, 'index'])
                 ->defaults('category', 'pencairan')
                 ->name('exports.pencairan');
+        });
+
+        // -----------------------------------------------------------------
+        // T006B: Modul Akuntansi SHM — Chart of Accounts Master Data & XLSX
+        // -----------------------------------------------------------------
+        Route::prefix('akuntansi')->name('coa.')->group(function () {
+            Route::middleware('permission:accounting.shm.view')->group(function () {
+                Route::get('/coa', [ShmAccountController::class, 'index'])->name('index');
+                Route::get('/coa/export', [ShmAccountController::class, 'export'])->name('export');
+                Route::get('/coa/template', [ShmAccountController::class, 'template'])->name('template');
+            });
+
+            Route::middleware('permission:accounting.shm.accounts.manage')->group(function () {
+                Route::get('/coa/create', [ShmAccountController::class, 'create'])->name('create');
+                Route::post('/coa', [ShmAccountController::class, 'store'])->name('store');
+                Route::post('/coa/import', [ShmAccountController::class, 'import'])->name('import');
+                Route::get('/coa/{account}/edit', [ShmAccountController::class, 'edit'])->name('edit');
+                Route::put('/coa/{account}', [ShmAccountController::class, 'update'])->name('update');
+                Route::patch('/coa/{account}/deactivate', [ShmAccountController::class, 'deactivate'])->name('deactivate');
+            });
+        });
+
+        // -----------------------------------------------------------------
+        // T006C: Modul Akuntansi SHM — Product Accounting Configuration
+        // -----------------------------------------------------------------
+        Route::prefix('akuntansi/produk')->name('product-accounting.')->group(function () {
+            Route::middleware('permission:accounting.shm.view')->group(function () {
+                Route::get('/', [ShmProductAccountingController::class, 'index'])->name('index');
+            });
+
+            Route::middleware('permission:accounting.shm.accounts.manage')->group(function () {
+                Route::get('/{product}/edit', [ShmProductAccountingController::class, 'edit'])->name('edit');
+                Route::put('/{product}', [ShmProductAccountingController::class, 'update'])->name('update');
+                Route::post('/{config}/toggle', [ShmProductAccountingController::class, 'toggle'])->name('toggle');
+            });
+        });
+
+        // -----------------------------------------------------------------
+        // T006D: Modul Akuntansi SHM — Accounting Mapping & Journal Engine
+        // -----------------------------------------------------------------
+        Route::prefix('akuntansi/mapping')->name('accounting-mapping.')->group(function () {
+            Route::middleware('permission:accounting.shm.view')->group(function () {
+                Route::get('/', [ShmAccountingMappingController::class, 'index'])->name('index');
+            });
+
+            Route::middleware('permission:accounting.shm.accounts.manage')->group(function () {
+                Route::get('/create', [ShmAccountingMappingController::class, 'create'])->name('create');
+                Route::post('/', [ShmAccountingMappingController::class, 'store'])->name('store');
+                Route::get('/{mapping}/edit', [ShmAccountingMappingController::class, 'edit'])->name('edit');
+                Route::put('/{mapping}', [ShmAccountingMappingController::class, 'update'])->name('update');
+                Route::post('/{mapping}/toggle', [ShmAccountingMappingController::class, 'toggle'])->name('toggle');
+            });
+        });
+
+        // -----------------------------------------------------------------
+        // T006F: Modul Akuntansi SHM — Neraca Saldo (Trial Balance)
+        // -----------------------------------------------------------------
+        Route::prefix('akuntansi/neraca-saldo')->name('trial-balance.')->group(function () {
+            Route::middleware('permission:accounting.shm.reports.view')->group(function () {
+                Route::get('/', [ShmTrialBalanceController::class, 'index'])->name('index');
+                Route::get('/export', [ShmTrialBalanceController::class, 'export'])->name('export');
+            });
+        });
+
+        // -----------------------------------------------------------------
+        // T006G: Modul Akuntansi SHM — Laba Rugi Periode (Period Profit & Loss)
+        // -----------------------------------------------------------------
+        Route::prefix('akuntansi/laba-rugi-periode')->name('period-profit-loss.')->group(function () {
+            Route::middleware('permission:accounting.shm.reports.view')->group(function () {
+                Route::get('/', [ShmPeriodProfitLossController::class, 'index'])->name('index');
+                Route::get('/export', [ShmPeriodProfitLossController::class, 'export'])->name('export');
+            });
+        });
+
+        // -----------------------------------------------------------------
+        // T006H: Modul Akuntansi SHM — Laba Rugi Kumulatif (Cumulative Profit & Loss)
+        // -----------------------------------------------------------------
+        Route::prefix('akuntansi/laba-rugi-kumulatif')->name('cumulative-profit-loss.')->group(function () {
+            Route::middleware('permission:accounting.shm.reports.view')->group(function () {
+                Route::get('/', [ShmCumulativeProfitLossController::class, 'index'])->name('index');
+                Route::get('/export', [ShmCumulativeProfitLossController::class, 'export'])->name('export');
+            });
+        });
+
+        // -----------------------------------------------------------------
+        // T006I: Modul Akuntansi SHM — Neraca (Balance Sheet)
+        // -----------------------------------------------------------------
+        Route::prefix('akuntansi/neraca')->name('balance-sheet.')->group(function () {
+            Route::middleware('permission:accounting.shm.reports.view')->group(function () {
+                Route::get('/', [ShmBalanceSheetController::class, 'index'])->name('index');
+                Route::get('/export', [ShmBalanceSheetController::class, 'export'])->name('export');
+            });
         });
     });
 });

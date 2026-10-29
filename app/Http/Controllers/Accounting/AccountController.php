@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Accounting;
 use App\Http\Controllers\Controller;
 use App\Models\ChartOfAccount;
 use App\Services\AuditLogger;
+use App\Support\AccountingContext;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -25,6 +26,7 @@ class AccountController extends Controller
     public function index(): Response
     {
         $accounts = ChartOfAccount::query()
+            ->koperasi()
             ->with(['parent:id,code,name', 'children:id,parent_id'])
             ->withCount('journalLines as journal_usage_count')
             ->orderBy('code')
@@ -180,6 +182,7 @@ class AccountController extends Controller
     private function parents(): array
     {
         return ChartOfAccount::query()
+            ->koperasi()
             ->where('is_active', true)
             ->orderBy('code')
             ->get(['id', 'code', 'name', 'category'])
@@ -200,13 +203,17 @@ class AccountController extends Controller
         $data = $request->validate([
             'code' => [
                 'required', 'string', 'max:20',
-                Rule::unique('chart_of_accounts', 'code')->ignore($ignoreId),
+                Rule::unique('chart_of_accounts', 'code')
+                    ->where('accounting_context', AccountingContext::KOPERASI)
+                    ->ignore($ignoreId),
             ],
             'name' => ['required', 'string', 'max:150'],
             'category' => ['required', Rule::in(array_keys(ChartOfAccount::CATEGORIES))],
             'parent_id' => ['nullable', 'integer', 'exists:chart_of_accounts,id'],
             'description' => ['nullable', 'string', 'max:1000'],
         ]);
+
+        $data['accounting_context'] = AccountingContext::KOPERASI;
 
         $categoryDefinition = ChartOfAccount::CATEGORIES[$data['category']];
         $data['normal_balance'] = $categoryDefinition['normal_balance'];

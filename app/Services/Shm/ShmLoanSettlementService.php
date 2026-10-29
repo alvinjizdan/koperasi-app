@@ -9,6 +9,7 @@ use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanPayment;
 use App\Models\ShmLoanPaymentAllocation;
 use App\Models\ShmLoanSettlement;
+use App\Services\Accounting\ShmAutomaticJournalService;
 use App\Services\AuditLogger;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -88,6 +89,8 @@ class ShmLoanSettlementService
     public function __construct(
         private readonly ShmSettlementDiscountPolicyService $policies,
         private readonly ShmSavingsIntegrationService $savingsIntegration,
+        // T006E — Layanan integrasi jurnal akuntansi otomatis SHM
+        private readonly ShmAutomaticJournalService $autoJournalService,
     ) {}
 
     // ==================================================================
@@ -530,6 +533,9 @@ class ShmLoanSettlementService
             $settlement->overpayment_amount = $this->money($overpayment > 0.005 ? $overpayment : 0.0);
             $settlement->status = ShmLoanSettlement::STATUS_COMPLETED;
             $settlement->save();
+
+            // T006E — Jurnal Otomatis Pelunasan Pinjaman SHM (atomik di dalam transaksi yang sama)
+            $this->autoJournalService->createSettlementJournal($settlement, $actorId);
 
             AuditLogger::log(
                 'shm.loan.settled',

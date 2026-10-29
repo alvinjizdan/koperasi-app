@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\AccountingContext;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -21,6 +22,7 @@ class JournalEntry extends Model
     public const STATUS_REVERSED = 'REVERSED';
 
     protected $fillable = [
+        'accounting_context',
         'journal_number',
         'transaction_date',
         'description',
@@ -72,5 +74,31 @@ class JournalEntry extends Model
     public function isBalanced(): bool
     {
         return $this->totalDebit() === $this->totalCredit() && $this->totalDebit() > 0.0;
+    }
+
+    /**
+     * Scope query to a specific accounting context.
+     */
+    public function scopeContext($query, ?string $context)
+    {
+        $normalized = AccountingContext::normalize($context);
+
+        return $query->where('accounting_context', $normalized);
+    }
+
+    /**
+     * Scope query to Koperasi accounting context.
+     */
+    public function scopeKoperasi($query)
+    {
+        return $query->where('accounting_context', AccountingContext::KOPERASI);
+    }
+
+    /**
+     * Scope query to SHM accounting context.
+     */
+    public function scopeShm($query)
+    {
+        return $query->where('accounting_context', AccountingContext::SHM);
     }
 }

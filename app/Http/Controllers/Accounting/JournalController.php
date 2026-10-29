@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ChartOfAccount;
 use App\Models\JournalEntry;
 use App\Services\Accounting\JournalService;
+use App\Support\AccountingContext;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -21,6 +22,7 @@ class JournalController extends Controller
     public function index(): Response
     {
         $entries = JournalEntry::query()
+            ->koperasi()
             ->with(['creator:id,name', 'poster:id,name'])
             ->withCount('lines')
             ->orderByDesc('transaction_date')
@@ -58,6 +60,8 @@ class JournalController extends Controller
     public function store(): RedirectResponse
     {
         [$data, $lines] = $this->validatedPayload();
+
+        $data['accounting_context'] = AccountingContext::KOPERASI;
 
         $entry = $this->journals->createDraft($data, $lines, (int) auth()->id());
 
@@ -174,6 +178,7 @@ class JournalController extends Controller
     private function activeAccounts(): array
     {
         return ChartOfAccount::query()
+            ->koperasi()
             ->where('is_active', true)
             ->orderBy('code')
             ->get(['id', 'code', 'name', 'category', 'normal_balance'])

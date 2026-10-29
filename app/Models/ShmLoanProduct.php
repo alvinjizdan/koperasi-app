@@ -6,7 +6,10 @@ use Database\Factories\ShmLoanProductFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany; /**
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+
+/**
  * Master produk Pinjaman SHM (Ticket 64; kontrak rate T82).
  *
  * TERPISAH dari `App\Models\Loan` dan master pinjaman koperasi. Sejak T82
@@ -86,6 +89,16 @@ class ShmLoanProduct extends Model
     public function loans(): HasMany
     {
         return $this->hasMany(ShmLoan::class);
+    }
+
+    /**
+     * Konfigurasi Akuntansi Produk SHM (T006C).
+     *
+     * @return HasOne<ShmProductAccounting, $this>
+     */
+    public function accounting(): HasOne
+    {
+        return $this->hasOne(ShmProductAccounting::class, 'shm_loan_product_id');
     }
 
     /**

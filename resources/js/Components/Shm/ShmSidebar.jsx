@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, usePage } from "@inertiajs/react";
 import { ScrollArea } from "@/Components/ui/scroll-area";
 import {
+    BookOpen,
     Briefcase,
     Calculator,
     ChevronDown,
@@ -242,6 +243,47 @@ const shmNavigation = [
                 // Ticket 101: mengikuti permission route (shm.collection.view)
                 // sehingga menu tidak terlihat bagi role tanpa hak Collection.
                 permission: "shm.collection.view",
+            },
+        ],
+    },
+    {
+        name: "Akuntansi",
+        icon: BookOpen,
+        children: [
+            {
+                name: "Daftar Perkiraan (COA)",
+                route: "shm.coa.index",
+                permission: "accounting.shm.view",
+            },
+            {
+                name: "Konfigurasi Produk",
+                route: "shm.product-accounting.index",
+                permission: "accounting.shm.view",
+            },
+            {
+                name: "Accounting Mapping",
+                route: "shm.accounting-mapping.index",
+                permission: "accounting.shm.view",
+            },
+            {
+                name: "Neraca Saldo",
+                route: "shm.trial-balance.index",
+                permission: "accounting.shm.reports.view",
+            },
+            {
+                name: "Laba Rugi Periode",
+                route: "shm.period-profit-loss.index",
+                permission: "accounting.shm.reports.view",
+            },
+            {
+                name: "Laba Rugi Kumulatif",
+                route: "shm.cumulative-profit-loss.index",
+                permission: "accounting.shm.reports.view",
+            },
+            {
+                name: "Neraca",
+                route: "shm.balance-sheet.index",
+                permission: "accounting.shm.reports.view",
             },
         ],
     },

@@ -8,6 +8,7 @@ use App\Models\SavingsAccount;
 use App\Models\SavingsTransaction;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanPayment;
+use App\Services\Accounting\ShmAutomaticJournalService;
 use App\Services\AuditLogger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -36,6 +37,8 @@ class ShmRegularPaymentService
         private readonly ShmLoanPaymentService $paymentService,
         private readonly ShmLoanPaymentAllocationService $allocationService,
         private readonly ShmSavingsIntegrationService $savingsIntegration,
+        // T006E — Layanan integrasi jurnal akuntansi otomatis SHM
+        private readonly ShmAutomaticJournalService $autoJournalService,
     ) {}
 
     /**
@@ -260,6 +263,9 @@ class ShmRegularPaymentService
                     recordCashImpact: false,
                 );
             }
+
+            // T006E — Jurnal Otomatis Pembayaran Angsuran SHM (atomik di dalam transaksi yang sama)
+            $this->autoJournalService->createPaymentJournal($payment, $actorId);
 
             // 15. Audit transaksi lengkap (T151)
             AuditLogger::log(

@@ -8,6 +8,7 @@ use App\Models\ShmLoanPayment;
 use App\Models\ShmLoanPaymentAllocation;
 use App\Models\ShmLoanSettlement;
 use App\Models\ShmSettlementCorrection;
+use App\Services\Accounting\ShmAutomaticJournalService;
 use App\Services\AuditLogger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -30,6 +31,8 @@ class ShmSettlementCorrectionService
     public function __construct(
         private readonly ShmLoanSettlementService $settlementService,
         private readonly ShmSavingsIntegrationService $savingsIntegration,
+        // T006E — Layanan integrasi jurnal akuntansi otomatis SHM
+        private readonly ShmAutomaticJournalService $autoJournalService,
     ) {}
 
     /**
@@ -249,6 +252,9 @@ class ShmSettlementCorrectionService
                 'status' => ShmSettlementCorrection::STATUS_COMPLETED,
                 'created_by' => $actorId,
             ]);
+
+            // T006E — Reversal Jurnal Akuntansi Pelunasan Original (atomik di dalam transaksi yang sama)
+            $this->autoJournalService->reverseSettlementJournal($correction, $actorId);
 
             // 8. Audit trail
             AuditLogger::log(

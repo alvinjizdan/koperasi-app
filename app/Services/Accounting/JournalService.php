@@ -6,6 +6,7 @@ use App\Models\ChartOfAccount;
 use App\Models\JournalEntry;
 use App\Models\JournalLine;
 use App\Services\AuditLogger;
+use App\Support\AccountingContext;
 use App\Support\DbTransaction;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -33,14 +34,17 @@ class JournalService
      * Buat jurnal DRAFT dari baris-baris yang diberikan.
      *
      * @param  array<int, array{account_id: int, description?: ?string, debit: numeric, credit: numeric}>  $lines
-     * @param  array{transaction_date: string, description?: ?string, source_type?: ?string, source_id?: int|string|null, posting_type?: ?string}  $data
+     * @param  array{transaction_date: string, description?: ?string, source_type?: ?string, source_id?: int|string|null, posting_type?: ?string, accounting_context?: ?string}  $data
      */
     public function createDraft(array $data, array $lines, int $userId): JournalEntry
     {
         $this->assertNoPartialDebitCredit($lines);
 
-        return DbTransaction::run(function () use ($data, $lines, $userId) {
+        $context = AccountingContext::normalize($data['accounting_context'] ?? null);
+
+        return DbTransaction::run(function () use ($data, $lines, $userId, $context) {
             $entry = JournalEntry::create([
+                'accounting_context' => $context,
                 'journal_number' => $this->generateJournalNumber(),
                 'transaction_date' => $data['transaction_date'],
                 'description' => $data['description'] ?? null,
@@ -58,8 +62,8 @@ class JournalService
                 JournalEntry::class,
                 $entry->id,
                 $entry->journal_number,
-                sprintf('Jurnal DRAFT %s dibuat (debit Rp %s, kredit Rp %s).', $entry->journal_number, number_format($entry->totalDebit(), 2, ',', '.'), number_format($entry->totalCredit(), 2, ',', '.')),
-                ['transaction_date' => $entry->transaction_date->toDateString(), 'line_count' => count($lines)]
+                sprintf('Jurnal DRAFT %s [%s] dibuat (debit Rp %s, kredit Rp %s).', $entry->journal_number, $entry->accounting_context, number_format($entry->totalDebit(), 2, ',', '.'), number_format($entry->totalCredit(), 2, ',', '.')),
+                ['transaction_date' => $entry->transaction_date->toDateString(), 'line_count' => count($lines), 'accounting_context' => $entry->accounting_context]
             );
 
             return $entry->fresh(['lines.account']);
@@ -153,6 +157,12 @@ class JournalService
                         'lines' => ['Akun '.$line->account->code.' - '.$line->account->name.' berstatus nonaktif dan tidak dapat digunakan untuk jurnal baru.'],
                     ]);
                 }
+
+                if ($line->account->accounting_context !== $locked->accounting_context) {
+                    throw ValidationException::withMessages([
+                        'lines' => ['Akun '.$line->account->code.' memiliki accounting_context ['.$line->account->accounting_context.'], tidak cocok dengan jurnal context ['.$locked->accounting_context.'].'],
+                    ]);
+                }
             }
 
             $locked->update([
@@ -198,6 +208,7 @@ class JournalService
             $locked->load('lines');
 
             $reversal = JournalEntry::create([
+                'accounting_context' => $locked->accounting_context,
                 'journal_number' => $this->generateJournalNumber(),
                 'transaction_date' => now()->format('Y-m-d'),
                 'description' => 'Reversal '.$locked->journal_number.': '.$reason,
@@ -253,14 +264,23 @@ class JournalService
      *
      * @return array{account: ?ChartOfAccount, rows: array<int, array<string, mixed>>, totals: array{debit: float, credit: float, balance: float}}
      */
-    public function ledger(?int $accountId, ?string $startDate, ?string $endDate): array
+    public function ledger(?int $accountId, ?string $startDate, ?string $endDate, ?string $context = AccountingContext::KOPERASI): array
     {
+        $normalizedContext = AccountingContext::normalize($context);
         $account = $accountId !== null ? ChartOfAccount::findOrFail($accountId) : null;
+
+        if ($account !== null && $account->accounting_context !== $normalizedContext) {
+            throw ValidationException::withMessages([
+                'account_id' => ["Akun tidak ditemukan dalam konteks {$normalizedContext}."],
+            ]);
+        }
 
         $query = DB::table('journal_lines')
             ->join('journal_entries', 'journal_lines.journal_entry_id', '=', 'journal_entries.id')
             ->join('chart_of_accounts', 'journal_lines.account_id', '=', 'chart_of_accounts.id')
             ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+            ->where('journal_entries.accounting_context', $normalizedContext)
+            ->where('chart_of_accounts.accounting_context', $normalizedContext)
             ->when($accountId !== null, fn ($q) => $q->where('journal_lines.account_id', $accountId))
             ->when($startDate !== null, fn ($q) => $q->where('journal_entries.transaction_date', '>=', $startDate))
             ->when($endDate !== null, fn ($q) => $q->where('journal_entries.transaction_date', '<=', $endDate))
@@ -341,6 +361,13 @@ class JournalService
             if (! $accounts->has($accountId)) {
                 throw ValidationException::withMessages([
                     'lines' => ['Akun tidak ditemukan pada baris '.($index + 1).'.'],
+                ]);
+            }
+
+            $account = $accounts->get($accountId);
+            if ($account->accounting_context !== $entry->accounting_context) {
+                throw ValidationException::withMessages([
+                    'lines' => ['Akun '.$account->code.' memiliki context ['.$account->accounting_context.'], tidak cocok dengan jurnal context ['.$entry->accounting_context.'].'],
                 ]);
             }
 

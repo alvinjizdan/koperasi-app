@@ -49,6 +49,7 @@ class LedgerController extends Controller
     private function allAccounts(): array
     {
         return ChartOfAccount::query()
+            ->koperasi()
             ->orderBy('code')
             ->get(['id', 'code', 'name', 'category', 'normal_balance'])
             ->map(fn ($account) => [

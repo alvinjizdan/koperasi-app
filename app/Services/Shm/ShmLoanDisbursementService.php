@@ -6,6 +6,7 @@ use App\Models\CashTransaction;
 use App\Models\SavingProduct;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
+use App\Services\Accounting\ShmAutomaticJournalService;
 use App\Services\AuditLogger;
 use App\Services\CashierService;
 use Illuminate\Support\Facades\DB;
@@ -62,6 +63,8 @@ class ShmLoanDisbursementService
         // T002C F-01 — tanpa default null: layanan kasir WAJIB tersedia
         // sehingga pencairan tidak dapat berjalan tanpa mekanisme sesi kasir.
         private readonly CashierService $cashierService,
+        // T006E — Layanan integrasi jurnal akuntansi otomatis SHM
+        private readonly ShmAutomaticJournalService $autoJournalService,
     ) {}
 
     /**
@@ -303,6 +306,9 @@ class ShmLoanDisbursementService
                     'application' => 'Kas keluar pencairan tidak dapat dicatat (sesi kasir tidak valid) — pencairan dibatalkan.',
                 ]);
             }
+
+            // T006E — Jurnal Otomatis Pencairan Pinjaman SHM (atomik di dalam transaksi yang sama)
+            $this->autoJournalService->createDisbursementJournal($loan, $actorId);
 
             // 7. Tepat SATU baris audit pencairan, di dalam transaksi yang
             //    sama (rollback bila pencairan gagal). Actor = pengguna

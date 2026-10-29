@@ -243,7 +243,7 @@ return [
         ],
 
         'accounting' => [
-            'label' => 'Akuntansi',
+            'label' => 'Akuntansi Koperasi',
             'actions' => [
                 'view' => 'Melihat daftar perkiraan (COA)',
                 'accounts.manage' => 'Mengelola daftar perkiraan (COA)',
@@ -253,6 +253,15 @@ return [
                 'journals.reverse' => 'Mereversi jurnal yang sudah diposting',
                 'ledger.view' => 'Melihat buku besar',
                 'reports.view' => 'Melihat laporan keuangan (neraca saldo, neraca, laba rugi)',
+                // SHM Accounting Foundation actions
+                'shm.view' => 'Melihat akuntansi SHM',
+                'shm.accounts.manage' => 'Mengelola daftar perkiraan (COA) SHM',
+                'shm.journals.view' => 'Melihat jurnal umum SHM',
+                'shm.journals.create' => 'Membuat & mengubah jurnal DRAFT SHM',
+                'shm.journals.post' => 'Memposting jurnal ke buku besar SHM',
+                'shm.journals.reverse' => 'Mereversi jurnal yang sudah diposting SHM',
+                'shm.ledger.view' => 'Melihat buku besar SHM',
+                'shm.reports.view' => 'Melihat laporan keuangan SHM',
             ],
         ],
     ],

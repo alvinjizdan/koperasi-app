@@ -5,6 +5,7 @@ namespace App\Services\Accounting;
 use App\Models\CashTransaction;
 use App\Models\ChartOfAccount;
 use App\Models\JournalEntry;
+use App\Support\AccountingContext;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -27,14 +28,18 @@ class FinancialReportService
      *
      * @return array<int, array<string, mixed>> kode, nama, kategori, saldo normal, debit, kredit
      */
-    private function accountTotals(?string $startDate, ?string $endDate): array
+    private function accountTotals(?string $startDate, ?string $endDate, string $context = AccountingContext::KOPERASI): array
     {
+        $normalizedContext = AccountingContext::normalize($context);
+
         return DB::table('journal_lines')
             ->join('journal_entries', 'journal_lines.journal_entry_id', '=', 'journal_entries.id')
             ->join('chart_of_accounts', 'journal_lines.account_id', '=', 'chart_of_accounts.id')
             ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
-            ->when($startDate !== null, fn ($q) => $q->where('journal_entries.transaction_date', '>=', $startDate))
-            ->when($endDate !== null, fn ($q) => $q->where('journal_entries.transaction_date', '<=', $endDate))
+            ->where('journal_entries.accounting_context', $normalizedContext)
+            ->where('chart_of_accounts.accounting_context', $normalizedContext)
+            ->when($startDate !== null, fn ($q) => $q->whereDate('journal_entries.transaction_date', '>=', $startDate))
+            ->when($endDate !== null, fn ($q) => $q->whereDate('journal_entries.transaction_date', '<=', $endDate))
             ->groupBy('chart_of_accounts.id', 'chart_of_accounts.code', 'chart_of_accounts.name', 'chart_of_accounts.category', 'chart_of_accounts.normal_balance')
             ->orderBy('chart_of_accounts.code')
             ->get([
@@ -68,14 +73,16 @@ class FinancialReportService
      *
      * @return array{rows: array<int, array<string, mixed>>, totals: array{debit: float, credit: float, balance_debit: float, balance_credit: float}, balanced: bool, meta: array<string, mixed>}
      */
-    public function trialBalance(?string $startDate, ?string $endDate, bool $includeEmpty = true): array
+    public function trialBalance(?string $startDate, ?string $endDate, bool $includeEmpty = true, string $context = AccountingContext::KOPERASI): array
     {
-        $accounts = $this->accountTotals($startDate, $endDate);
+        $normalizedContext = AccountingContext::normalize($context);
+        $accounts = $this->accountTotals($startDate, $endDate, $normalizedContext);
 
         // Akun tanpa mutasi tetap bisa ditampilkan dengan angka nol.
         if ($includeEmpty) {
             $usedIds = array_column($accounts, 'id');
             $allAccounts = ChartOfAccount::query()
+                ->where('accounting_context', $normalizedContext)
                 ->whereNotIn('id', $usedIds === [] ? [0] : $usedIds)
                 ->orderBy('code')
                 ->get(['id', 'code', 'name', 'category', 'normal_balance']);
@@ -118,6 +125,8 @@ class FinancialReportService
             $totalBalanceDebit = round($totalBalanceDebit + $balanceDebit, 2);
             $totalBalanceCredit = round($totalBalanceCredit + $balanceCredit, 2);
 
+            $balance = $account['normal_balance'] === ChartOfAccount::NORMAL_DEBIT ? $net : -$net;
+
             $rows[] = [
                 'id' => $account['id'],
                 'code' => $account['code'],
@@ -129,8 +138,11 @@ class FinancialReportService
                 'total_credit' => $credit,
                 'balance_debit' => $balanceDebit,
                 'balance_credit' => $balanceCredit,
+                'balance' => $balance,
             ];
         }
+
+        $difference = round(abs($totalDebit - $totalCredit), 2);
 
         return [
             'rows' => $rows,
@@ -139,8 +151,10 @@ class FinancialReportService
                 'credit' => $totalCredit,
                 'balance_debit' => $totalBalanceDebit,
                 'balance_credit' => $totalBalanceCredit,
+                'difference' => $difference,
             ],
             'balanced' => $totalDebit === $totalCredit,
+            'status' => $totalDebit === $totalCredit ? 'BALANCED' : 'NOT BALANCED',
             'meta' => $this->reportMeta($startDate, $endDate),
         ];
     }
@@ -155,9 +169,10 @@ class FinancialReportService
      *
      * @return array{sections: array<string, array<string, mixed>>, summary: array<string, mixed>, balanced: bool, meta: array<string, mixed>}
      */
-    public function balanceSheet(string $asOfDate): array
+    public function balanceSheet(string $asOfDate, string $context = AccountingContext::KOPERASI): array
     {
-        $accounts = $this->accountTotals(null, $asOfDate);
+        $normalizedContext = AccountingContext::normalize($context);
+        $accounts = $this->accountTotals(null, $asOfDate, $normalizedContext);
 
         $sections = [];
         $totals = [];
@@ -195,11 +210,14 @@ class FinancialReportService
         $totalAssets = $totals[ChartOfAccount::CATEGORY_ASSET];
         $totalLiabilities = $totals[ChartOfAccount::CATEGORY_LIABILITY];
         $totalEquity = $totals[ChartOfAccount::CATEGORY_EQUITY];
+        $totalLiabilitiesAndEquity = round($totalLiabilities + $totalEquity, 2);
         $difference = round($totalAssets - ($totalLiabilities + $totalEquity), 2);
 
         // Surplus/defisit periode berjalan (pemanfaatan-laba belum diposting
         // ke ekuitas): keterangan saja, bukan komponen neraca.
-        $result = $this->incomeStatement(null, $asOfDate);
+        $result = $this->incomeStatement(null, $asOfDate, $normalizedContext);
+
+        $status = $difference === 0.0 ? 'BALANCED' : 'NOT BALANCED';
 
         return [
             'sections' => $sections,
@@ -207,9 +225,11 @@ class FinancialReportService
                 'total_assets' => $totalAssets,
                 'total_liabilities' => $totalLiabilities,
                 'total_equity' => $totalEquity,
+                'total_liabilities_and_equity' => $totalLiabilitiesAndEquity,
                 'difference' => $difference,
                 'current_period_result' => $result['summary']['surplus_deficit'],
                 'balanced_with_result' => round($difference - $result['summary']['surplus_deficit'], 2) === 0.0,
+                'status' => $status,
             ],
             'balanced' => $difference === 0.0,
             'meta' => $this->reportMeta(null, $asOfDate),
@@ -222,9 +242,10 @@ class FinancialReportService
      *
      * @return array{sections: array<string, array<string, mixed>>, summary: array<string, mixed>, meta: array<string, mixed>}
      */
-    public function incomeStatement(?string $startDate, ?string $endDate): array
+    public function incomeStatement(?string $startDate, ?string $endDate, string $context = AccountingContext::KOPERASI): array
     {
-        $accounts = $this->accountTotals($startDate, $endDate);
+        $normalizedContext = AccountingContext::normalize($context);
+        $accounts = $this->accountTotals($startDate, $endDate, $normalizedContext);
 
         $sections = [];
         $totals = [];
@@ -261,12 +282,21 @@ class FinancialReportService
 
         $surplus = round($totals[ChartOfAccount::CATEGORY_REVENUE] - $totals[ChartOfAccount::CATEGORY_EXPENSE], 2);
 
+        $status = 'IMPAS';
+        if ($surplus > 0.0) {
+            $status = 'LABA';
+        } elseif ($surplus < 0.0) {
+            $status = 'RUGI';
+        }
+
         return [
             'sections' => $sections,
             'summary' => [
                 'total_revenue' => $totals[ChartOfAccount::CATEGORY_REVENUE],
                 'total_expense' => $totals[ChartOfAccount::CATEGORY_EXPENSE],
                 'surplus_deficit' => $surplus,
+                'net_profit_loss' => $surplus,
+                'status' => $status,
             ],
             'meta' => $this->reportMeta($startDate, $endDate),
         ];

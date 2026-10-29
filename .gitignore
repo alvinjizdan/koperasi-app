@@ -4,6 +4,7 @@
 .env
 .env.backup
 .env.production
+
 # Semua varian .env KECUALI contoh tanpa secret
 .env.*
 !.env.example
@@ -74,6 +75,7 @@ _ide_helper.php
 # ============================================================
 /.freebuff
 /.agents
+/.codegraph
 
 # Instruksi tooling agent di root proyek
 /AGENTS.md
