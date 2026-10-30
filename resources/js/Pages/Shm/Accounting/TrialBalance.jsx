@@ -23,12 +23,12 @@ export default function TrialBalance({ report, filters }) {
     };
 
     return (
-        <ShmLayout title="Neraca Saldo SHM" pageTitle="Akuntansi SHM — Neraca Saldo (Trial Balance)">
+        <ShmLayout title="Neraca Saldo BSM Makro" pageTitle="Akuntansi BSM Makro — Neraca Saldo (Trial Balance)">
             <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                    <h2 className="text-xl font-bold text-slate-900">Neraca Saldo SHM</h2>
-                    <p className="mt-1 text-xs sm:text-sm text-slate-500">
-                        Laporan saldo akun dari jurnal berstatus <strong>POSTED</strong> pada entitas <strong>Akuntansi SHM</strong>. Terisolasi penuh dari Koperasi.
+                    <h1 className="text-xl font-semibold text-gray-800">Neraca Saldo BSM Makro</h1>
+                    <p className="mt-1 text-sm text-gray-500">
+                        Laporan saldo akun dari jurnal berstatus <strong>POSTED</strong> pada entitas <strong>Akuntansi BSM Makro</strong>. Terisolasi penuh dari BSM Mikro.
                     </p>
                 </div>
                 <div>
@@ -106,8 +106,8 @@ export default function TrialBalance({ report, filters }) {
             {rows.length === 0 ? (
                 <EmptyState
                     icon={Scale}
-                    title="Belum Ada Akun SHM"
-                    description="Belum ada akun SHM yang terdaftar dalam Chart of Accounts atau belum ada transaksi jurnal POSTED."
+                    title="Belum Ada Akun BSM Makro"
+                    description="Belum ada akun BSM Makro yang terdaftar dalam Chart of Accounts atau belum ada transaksi jurnal POSTED."
                 />
             ) : (
                 <ScrollArea className="rounded-xl border border-slate-200 bg-white shadow-xs">

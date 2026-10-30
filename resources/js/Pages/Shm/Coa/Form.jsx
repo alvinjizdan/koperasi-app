@@ -28,8 +28,8 @@ export default function Form({ categories, parents, account }) {
 
     return (
         <ShmLayout
-            title={isEdit ? 'Ubah Akun SHM' : 'Tambah Akun SHM'}
-            pageTitle={isEdit ? 'Ubah Akun SHM' : 'Tambah Akun SHM'}
+            title={isEdit ? 'Ubah Akun BSM Makro' : 'Tambah Akun BSM Makro'}
+            pageTitle={isEdit ? 'Ubah Akun BSM Makro' : 'Tambah Akun BSM Makro'}
         >
             <div className="mb-6">
                 <Link
@@ -37,13 +37,13 @@ export default function Form({ categories, parents, account }) {
                     className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800"
                 >
                     <ArrowLeft className="h-4 w-4" />
-                    <span>Kembali ke Daftar Perkiraan SHM</span>
+                    <span>Kembali ke Daftar Perkiraan BSM Makro</span>
                 </Link>
-                <h2 className="mt-2 text-xl font-bold text-slate-900">
-                    {isEdit ? `Ubah Akun: ${account.code}` : 'Tambah Akun Baru (SHM)'}
-                </h2>
-                <p className="mt-1 text-xs text-slate-500">
-                    Akun ini akan dialokasikan khusus pada entitas <strong>Akuntansi SHM</strong>.
+                <h1 className="mt-2 text-xl font-semibold text-gray-800">
+                    {isEdit ? `Ubah Akun: ${account.code}` : 'Tambah Akun Baru (BSM Makro)'}
+                </h1>
+                <p className="mt-1 text-sm text-gray-500">
+                    Akun ini akan dialokasikan khusus pada entitas <strong>Akuntansi BSM Makro</strong>.
                 </p>
             </div>
 
@@ -173,7 +173,7 @@ export default function Form({ categories, parents, account }) {
                         <button
                             type="submit"
                             disabled={processing}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-5 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 shadow-xs"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-bsm-primary px-5 py-2 text-xs font-semibold text-white hover:bg-bsm-primary-hover disabled:opacity-50 shadow-xs"
                         >
                             <Save className="h-4 w-4" />
                             <span>{processing ? 'Menyimpan...' : 'Simpan Akun'}</span>

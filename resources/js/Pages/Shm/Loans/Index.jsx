@@ -125,17 +125,17 @@ export default function Index({ loans, sort, filters }) {
     ];
 
     return (
-        <ShmLayout title="Pinjaman SHM">
+        <ShmLayout title="Pinjaman BSM Makro">
             <div className="space-y-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                         <h1 className="flex items-center gap-2 text-xl font-semibold text-gray-800">
                             <Calculator className="h-5 w-5 text-slate-400" />
-                            Pinjaman SHM
+                            Pinjaman BSM Makro
                         </h1>
                         <p className="text-sm text-gray-500">
-                            Record pinjaman nasabah SHM. Terpisah dari pinjaman
-                            koperasi. Rate bunga/jasa resmi SHM: 2%.
+                            Record pinjaman nasabah BSM Makro. Terpisah dari pinjaman
+                            BSM Mikro. Rate bunga/jasa resmi BSM Makro: 2%.
                         </p>
                     </div>
                     <Link href={route('shm.loans.simulation')}>
@@ -182,8 +182,8 @@ export default function Index({ loans, sort, filters }) {
                     sort={sort}
                     onSort={handleSort}
                     routeName="shm.loans.index"
-                    emptyTitle="Belum ada pinjaman SHM"
-                    emptyDescription="Record pinjaman nasabah SHM akan tampil di sini."
+                    emptyTitle="Belum ada pinjaman BSM Makro"
+                    emptyDescription="Record pinjaman nasabah BSM Makro akan tampil di sini."
                 />
             </div>
         </ShmLayout>

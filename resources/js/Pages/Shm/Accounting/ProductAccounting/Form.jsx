@@ -35,15 +35,15 @@ export default function Form({ product, configuration, selectableAccounts }) {
                     <span>Kembali ke Konfigurasi Akuntansi Produk</span>
                 </Link>
                 <div className="mt-2 flex items-center gap-3">
-                    <h2 className="text-xl font-bold text-slate-900">
+                    <h1 className="text-xl font-semibold text-gray-800">
                         {product.code} — {product.name}
-                    </h2>
+                    </h1>
                     <span className="rounded bg-slate-100 border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600 uppercase">
                         {product.category}
                     </span>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
-                    Pilih akun perkiraan resmi (COA SHM) yang akan dikaitkan dengan transaksi produk ini.
+                <p className="mt-1 text-sm text-gray-500">
+                    Pilih akun perkiraan resmi (COA BSM Makro) yang akan dikaitkan dengan transaksi produk ini.
                 </p>
             </div>
 
@@ -55,7 +55,7 @@ export default function Form({ product, configuration, selectableAccounts }) {
                         <div>
                             <p className="font-semibold mb-1">Prinsip Isolasi & Validasi Server-Side</p>
                             <p className="text-blue-700 leading-relaxed">
-                                Hanya akun yang terdaftar dalam <strong>Akuntansi SHM (AccountingContext::SHM)</strong> dan berstatus <strong>Aktif</strong> yang dapat dipilih. Pilihan akun Koperasi tidak dapat diakses dari modul ini.
+                                Hanya akun yang terdaftar dalam <strong>Akuntansi BSM Makro (AccountingContext::SHM)</strong> dan berstatus <strong>Aktif</strong> yang dapat dipilih. Pilihan akun BSM Mikro tidak dapat diakses dari modul ini.
                             </p>
                         </div>
                     </div>
@@ -207,7 +207,7 @@ export default function Form({ product, configuration, selectableAccounts }) {
                         <button
                             type="submit"
                             disabled={processing}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-5 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 shadow-xs"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-bsm-primary px-5 py-2 text-xs font-semibold text-white hover:bg-bsm-primary-hover disabled:opacity-50 shadow-xs"
                         >
                             <Save className="h-4 w-4" />
                             <span>{processing ? 'Menyimpan...' : 'Simpan Konfigurasi'}</span>

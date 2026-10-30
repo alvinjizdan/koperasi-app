@@ -34,7 +34,7 @@ export default function Form({
 
     return (
         <ShmLayout>
-            <Head title={`${isEdit ? 'Edit' : 'Tambah'} Accounting Mapping — Akuntansi SHM`} />
+            <Head title={`${isEdit ? 'Edit' : 'Tambah'} Accounting Mapping — Akuntansi BSM Makro`} />
 
             <div className="max-w-4xl mx-auto space-y-6">
                 <div className="flex items-center gap-4">
@@ -45,7 +45,7 @@ export default function Form({
                         <ArrowLeft className="w-5 h-5" />
                     </Link>
                     <div>
-                        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                        <h1 className="text-xl font-semibold text-gray-800">
                             {isEdit ? 'Edit Accounting Mapping' : 'Tambah Accounting Mapping'}
                         </h1>
                         <p className="mt-1 text-sm text-slate-500">
@@ -246,7 +246,7 @@ export default function Form({
                         <button
                             type="submit"
                             disabled={processing}
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-bsm-primary hover:bg-bsm-primary-hover text-white rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
                         >
                             <Save className="w-4 h-4" />
                             {processing ? 'Menyimpan...' : 'Simpan Mapping'}

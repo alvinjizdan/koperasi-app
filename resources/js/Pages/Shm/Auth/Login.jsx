@@ -36,15 +36,19 @@ export default function Login({ status, canResetPassword }) {
 
     return (
         <div className="flex min-h-screen flex-col items-center justify-center bg-slate-100 px-4 py-10 font-sans antialiased">
-            <Head title="Masuk SHM" />
+            <Head title="Masuk BSM Makro" />
 
             <div className="mb-6 flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-base font-bold text-white shadow-sm">
-                    SHM
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white p-1.5 shadow-sm border border-slate-200">
+                    <img
+                        src="/images/logo.png"
+                        alt="BSM Logo"
+                        className="h-full w-full object-contain"
+                    />
                 </div>
                 <div>
                     <p className="text-lg font-semibold tracking-tight text-slate-900">
-                        Sistem Manajemen SHM
+                        BSM Makro
                     </p>
                     <p className="text-xs font-medium text-slate-500">
                         KSP Bima Sakti Mandiri
@@ -121,7 +125,7 @@ export default function Login({ status, canResetPassword }) {
                         {canResetPassword && (
                             <Link
                                 href={route("password.request")}
-                                className="rounded-md text-sm text-gray-600 underline hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                                className="rounded-md text-sm text-slate-600 underline hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-bsm-accent focus:ring-offset-2"
                             >
                                 Lupa password?
                             </Link>
@@ -134,16 +138,11 @@ export default function Login({ status, canResetPassword }) {
                 </form>
 
                 <div className="mt-6 border-t border-slate-100 pt-4 text-xs text-slate-500">
-                    <p>
-                        Akun, role, dan password SHM sama dengan akun aplikasi
-                        koperasi. Hubungi administrator koperasi bila akun Anda
-                        belum memiliki akses SHM.
-                    </p>
                     <Link
                         href={route("login")}
-                        className="mt-2 inline-block font-semibold text-indigo-600 hover:underline"
+                        className="inline-block font-semibold text-bsm-accent hover:underline"
                     >
-                        Masuk sebagai pengguna koperasi
+                        Masuk sebagai pengguna BSM Mikro
                     </Link>
                 </div>
             </div>

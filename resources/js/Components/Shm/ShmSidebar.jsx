@@ -322,7 +322,7 @@ function renderPendingBadge(child, pendingCounts) {
 
     return (
         <span
-            className="inline-flex min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+            className="inline-flex min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-bsm-accent px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
             title={`${count} approval menunggu keputusan`}
         >
             {count}
@@ -343,7 +343,7 @@ function ShmNavItem({ item, open, onToggle, variant = "desktop", onNavigate, pen
     const rowPadding = isMobile ? "px-3 py-3" : "px-3 py-2.5";
     const rowClass = `group flex w-full items-center justify-between rounded-lg ${rowPadding} text-sm font-medium transition-all duration-150 active:scale-[0.98] ${
         isActive
-            ? "bg-slate-800 text-white font-semibold border-l-4 border-indigo-500 shadow-sm"
+            ? "bg-slate-800 text-white font-semibold border-l-4 border-bsm-accent shadow-sm"
             : "text-slate-300 hover:bg-slate-800/60 hover:text-white border-l-4 border-transparent"
     }`;
 
@@ -355,7 +355,7 @@ function ShmNavItem({ item, open, onToggle, variant = "desktop", onNavigate, pen
                         isMobile ? "h-5 w-5" : "h-4 w-4"
                     } transition-colors ${
                         isActive
-                            ? "text-indigo-400"
+                            ? "text-orange-400"
                             : "text-slate-400 group-hover:text-slate-200"
                     }`}
                 />
@@ -382,7 +382,7 @@ function ShmNavItem({ item, open, onToggle, variant = "desktop", onNavigate, pen
                                     : route(child.route)
                             }
                             onClick={onNavigate}
-                            className={`flex items-center justify-between gap-2 rounded-md px-3 py-1.5 text-[13px] transition-colors duration-150 ${
+                            className={`flex items-center justify-between gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
                                 isChildActive(child)
                                     ? "bg-slate-800/80 font-semibold text-indigo-300"
                                     : "text-slate-400 hover:bg-slate-800/60 hover:text-white"
@@ -394,7 +394,7 @@ function ShmNavItem({ item, open, onToggle, variant = "desktop", onNavigate, pen
                     ) : (
                         <span
                             key={child.name}
-                            className="block cursor-default rounded-md px-3 py-1.5 text-[13px] text-slate-500"
+                            className="block cursor-default rounded-md px-3 py-1.5 text-xs text-slate-500"
                         >
                             {child.name}
                         </span>
@@ -512,7 +512,7 @@ function ShmUserFooter({ onNavigate }) {
                 className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-rose-400 transition-colors hover:bg-slate-800/60 hover:text-rose-300"
             >
                 <LogOut className="h-4 w-4" />
-                <span>Keluar dari SHM</span>
+                <span>Keluar dari BSM Makro</span>
             </Link>
         </div>
     );
@@ -586,9 +586,9 @@ export default function ShmSidebar({ mobileOpen, setMobileOpen }) {
         });
 
     const renderNav = (variant) => (
-        <>
-            <div className="px-3 pb-2 pt-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                Menu SHM
+        <div className="p-3">
+            <div className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                Menu BSM Makro
             </div>
             <nav className="space-y-1">
                 {visibleItems.map((item) => (
@@ -610,7 +610,7 @@ export default function ShmSidebar({ mobileOpen, setMobileOpen }) {
                     />
                 ))}
             </nav>
-        </>
+        </div>
     );
 
     return (
@@ -620,14 +620,18 @@ export default function ShmSidebar({ mobileOpen, setMobileOpen }) {
                 <div className="flex h-16 items-center border-b border-slate-800 px-6">
                     <Link
                         href={route("shm.dashboard")}
-                        className="group flex items-center gap-3 rounded-lg p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                        className="group flex items-center gap-3 rounded-lg p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bsm-accent"
                     >
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 font-bold text-white shadow-sm transition-transform duration-100 active:scale-95">
-                            SHM
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white p-1 shadow-sm transition-transform duration-100 active:scale-95">
+                            <img
+                                src="/images/logo.png"
+                                alt="BSM Logo"
+                                className="h-full w-full object-contain"
+                            />
                         </div>
                         <div className="flex flex-col">
                             <span className="text-sm font-semibold tracking-tight text-white transition-colors group-hover:text-indigo-300">
-                                Sistem SHM
+                                BSM Makro
                             </span>
                             <span className="text-xs font-medium text-slate-400">
                                 KSP Bima Sakti Mandiri
@@ -652,12 +656,16 @@ export default function ShmSidebar({ mobileOpen, setMobileOpen }) {
                     <div className="fixed inset-y-0 left-0 flex w-full max-w-xs flex-col bg-slate-900 text-slate-100 shadow-xl transition-transform duration-200 ease-out">
                         <div className="flex h-16 items-center justify-between border-b border-slate-800 px-6">
                             <div className="flex items-center gap-3">
-                                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
-                                    SHM
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white p-1">
+                                    <img
+                                        src="/images/logo.png"
+                                        alt="BSM Logo"
+                                        className="h-full w-full object-contain"
+                                    />
                                 </div>
                                 <div className="flex flex-col">
                                     <span className="text-sm font-semibold tracking-tight text-white">
-                                        Sistem SHM
+                                        BSM Makro
                                     </span>
                                     <span className="text-xs font-medium text-slate-400">
                                         KSP Bima Sakti Mandiri

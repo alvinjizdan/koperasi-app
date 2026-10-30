@@ -3,11 +3,16 @@
 namespace Tests\Concerns;
 
 use App\Models\CashierSession;
+use App\Models\ChartOfAccount;
 use App\Models\Member;
 use App\Models\SavingProduct;
+use App\Models\ShmAccountingMapping;
 use App\Models\ShmCustomer;
+use App\Models\ShmLoanProduct;
+use App\Models\ShmProductAccounting;
 use App\Models\User;
 use App\Services\CashierService;
+use App\Support\AccountingContext;
 
 /**
  * T002C — Prasyarat fixture pencairan SHM.
@@ -58,6 +63,54 @@ trait InteractsWithShmDisbursement
                 'is_active' => true,
             ],
         );
+
+        // T006E — Pastikan akun SHM & mapping generic untuk pencairan tersedia
+        $cash = ChartOfAccount::firstOrCreate(
+            ['accounting_context' => AccountingContext::SHM, 'code' => '1-1101'],
+            [
+                'name' => 'Kas Operasional SHM',
+                'category' => ChartOfAccount::CATEGORY_ASSET,
+                'normal_balance' => ChartOfAccount::NORMAL_DEBIT,
+                'is_active' => true,
+            ]
+        );
+
+        $receivable = ChartOfAccount::firstOrCreate(
+            ['accounting_context' => AccountingContext::SHM, 'code' => '1-1301'],
+            [
+                'name' => 'Piutang Pokok SHM',
+                'category' => ChartOfAccount::CATEGORY_ASSET,
+                'normal_balance' => ChartOfAccount::NORMAL_DEBIT,
+                'is_active' => true,
+            ]
+        );
+
+        ShmAccountingMapping::firstOrCreate(
+            [
+                'accounting_context' => AccountingContext::SHM,
+                'business_event' => ShmAccountingMapping::EVENT_DISBURSEMENT,
+                'shm_loan_product_id' => null,
+            ],
+            [
+                'debit_account_role' => ShmAccountingMapping::ROLE_RECEIVABLE,
+                'credit_account_role' => ShmAccountingMapping::ROLE_CASH,
+                'is_active' => true,
+            ]
+        );
+
+        foreach (ShmLoanProduct::all() as $product) {
+            ShmProductAccounting::firstOrCreate(
+                [
+                    'shm_loan_product_id' => $product->id,
+                    'accounting_context' => AccountingContext::SHM,
+                ],
+                [
+                    'cash_account_id' => $cash->id,
+                    'receivable_account_id' => $receivable->id,
+                    'is_active' => true,
+                ]
+            );
+        }
     }
 
     /**

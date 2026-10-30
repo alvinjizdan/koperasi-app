@@ -39,7 +39,7 @@ export default function Edit({ customer, flash }) {
                         Edit Nasabah {customer.customer_number}
                     </h1>
                     <p className="text-sm text-gray-500">
-                        Kode Nasabah SHM dibuat server dan tidak dapat diubah.
+                        Kode Nasabah BSM Makro dibuat server dan tidak dapat diubah.
                     </p>
                 </div>
 
@@ -47,7 +47,7 @@ export default function Edit({ customer, flash }) {
                     anggota sumber tidak dapat diubah dari form ini (T102). */}
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
                     <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-slate-500">Kode Nasabah SHM:</span>
+                        <span className="text-xs text-slate-500">Kode Nasabah BSM Makro:</span>
                         <span className="font-semibold text-slate-800">{customer.customer_number}</span>
                         <span className="text-xs text-slate-400">(otomatis, tidak berubah)</span>
                     </div>

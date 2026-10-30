@@ -166,26 +166,87 @@ class UserController extends Controller
         ]);
     }
 
-    public function edit(User $user): Response
+    public function edit(Request $request, User $user): Response
     {
         return Inertia::render('Pengaturan/Users/Edit', [
             'user' => [
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'is_active' => $user->is_active,
+                'roles' => $user->roles()->pluck('roles.id')->all(),
             ],
+            'roles' => $this->assignableRoles($request->user())->get(['id', 'name', 'display_name', 'description']),
         ]);
     }
 
     public function update(UpdateUserRequest $request, User $user): RedirectResponse
     {
         $validated = $request->validated();
+        $actor = $request->user();
 
-        // Nama dan email adalah identitas akun; perubahan keduanya diaudit.
-        // Password tidak diubah melalui form ini (lihat reset terpisah).
-        $user->update($validated);
+        // Cek eskalasi role jika roles dikirimkan
+        if (array_key_exists('roles', $validated)) {
+            $newRoleIds = array_values(array_unique(array_map('intval', $validated['roles'] ?? [])));
 
-        AuditLogger::logChanges($user, 'user.updated', ['name', 'email'], 'Data akun pengguna diperbarui.');
+            // Proteksi self-role escalation
+            if ($user->id === $actor->id && $newRoleIds !== $user->roles()->pluck('roles.id')->all()) {
+                return redirect()->back()->withErrors(['roles' => 'Anda tidak dapat mengubah role akun Anda sendiri.']);
+            }
+
+            // Proteksi akun Superadmin
+            if ($user->isSuperadmin() && ! $actor->isSuperadmin()) {
+                return redirect()->back()->withErrors(['roles' => 'Akun Superadmin hanya dapat dikelola oleh Superadmin.']);
+            }
+
+            $assignmentError = $this->roleAssignmentError($actor, $newRoleIds);
+            if ($assignmentError !== null) {
+                return redirect()->back()->withErrors(['roles' => $assignmentError]);
+            }
+
+            // Proteksi last active superadmin
+            if ($user->is_active && $user->isSuperadmin() && ! in_array($this->superadminRoleId(), $newRoleIds, true)
+                && $user->isLastActiveSuperadmin()) {
+                return redirect()->back()->withErrors(['roles' => 'Akun ini adalah satu-satunya Superadmin aktif; role Superadmin tidak dapat dilepas.']);
+            }
+        }
+
+        // Proteksi self-deactivation & last superadmin deactivation jika is_active diubah
+        if (array_key_exists('is_active', $validated)) {
+            $newActive = (bool) $validated['is_active'];
+            if ($user->id === $actor->id && ! $newActive) {
+                return redirect()->back()->withErrors(['is_active' => 'Anda tidak dapat menonaktifkan akun Anda sendiri.']);
+            }
+            if ($user->isSuperadmin() && ! $actor->isSuperadmin()) {
+                return redirect()->back()->withErrors(['is_active' => 'Akun Superadmin hanya dapat dikelola oleh Superadmin.']);
+            }
+            if (! $newActive && $user->is_active && $user->isLastActiveSuperadmin()) {
+                return redirect()->back()->withErrors(['is_active' => 'Akun ini adalah satu-satunya Superadmin aktif; tidak dapat dinonaktifkan.']);
+            }
+        }
+
+        DB::transaction(function () use ($user, $validated) {
+            $updateData = [
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+            ];
+
+            if (! empty($validated['password'])) {
+                $updateData['password'] = $validated['password'];
+            }
+
+            if (array_key_exists('is_active', $validated)) {
+                $updateData['is_active'] = (bool) $validated['is_active'];
+            }
+
+            $user->update($updateData);
+
+            if (array_key_exists('roles', $validated)) {
+                $user->roles()->sync($validated['roles'] ?? []);
+            }
+        });
+
+        AuditLogger::logChanges($user, 'user.updated', ['name', 'email', 'is_active'], 'Data akun pengguna diperbarui.');
 
         return redirect()
             ->route('pengaturan.users.show', $user->id)

@@ -334,7 +334,7 @@ export default function Show({
                         <section className="rounded-lg bg-white p-5 shadow">
                             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">
                                 <User className="h-4 w-4 text-slate-400" />
-                                Data Nasabah SHM
+                                Data Nasabah BSM Makro
                             </h2>
                             <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                                 <Field label="No. Nasabah">
@@ -350,11 +350,6 @@ export default function Show({
                                         : '-'}
                                 </Field>
                             </dl>
-                            <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                                Data nasabah diambil dari master Nasabah SHM
-                                (shm_customers) dan tidak dicampur dengan data
-                                anggota koperasi.
-                            </p>
                         </section>
 
                         {/* 3. Informasi Pengajuan */}
@@ -581,7 +576,7 @@ export default function Show({
                                 <button
                                     type="button"
                                     onClick={generateSchedule}
-                                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+                                    className="inline-flex items-center gap-2 rounded-lg bg-bsm-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-bsm-primary-hover"
                                 >
                                     <CalendarDays className="h-4 w-4" />
                                     Generate Jadwal Angsuran
@@ -647,14 +642,7 @@ export default function Show({
                         </>
                     ) : (
                         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                            Pinjaman ini belum memiliki jadwal angsuran
-                            tersimpan dan kontrak perhitungan eksplisit
-                            (metode & periode) pada record — tabel angsuran
-                            tidak ditampilkan. Baseline resmi untuk produk
-                            SHM: metode flat, periode bulanan, rate dari
-                            matriks produk (T79/T82). Rate tersimpan pada
-                            record ini:{' '}
-                            <strong>{Number(loan.rate_percent)}%</strong>.
+                            Pinjaman ini belum memiliki jadwal angsuran tersimpan. Rate pinjaman: <strong>{Number(loan.rate_percent)}%</strong>.
                         </div>
                     )}
                 </section>

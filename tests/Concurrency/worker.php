@@ -15,13 +15,18 @@ use App\Models\Loan;
 use App\Models\Member;
 use App\Models\SavingsAccount;
 use App\Models\SavingsTransaction;
+use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
+use App\Models\ShmLoanSettlement;
 use App\Services\CashierService;
 use App\Services\InstallmentPaymentService;
 use App\Services\LoanService;
 use App\Services\Penalty\PenaltyCalculator;
 use App\Services\SavingsTransactionService;
 use App\Services\Shm\ShmLoanDisbursementService;
+use App\Services\Shm\ShmLoanSettlementService;
+use App\Services\Shm\ShmRegularPaymentService;
+use App\Services\Shm\ShmSettlementCorrectionService;
 use App\Services\ShmCustomerService;
 use App\Support\DbTransaction;
 use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
@@ -211,6 +216,51 @@ try {
             );
 
             return ['loan_id' => $loan->id, 'loan_number' => $loan->loan_number];
+        })(),
+
+        'shm_payment' => (function () use ($params) {
+            // T006E-FV: Pembayaran angsuran SHM dari dua proses PARALEL
+            $result = app(ShmRegularPaymentService::class)->pay(
+                ShmLoan::findOrFail($params['loan_id']),
+                [
+                    'payment_date' => $params['payment_date'] ?? now()->toDateString(),
+                    'amount' => $params['amount'],
+                    'idempotency_key' => $params['idempotency_key'] ?? null,
+                ],
+                (int) $params['user_id'],
+            );
+
+            return [
+                'payment_id' => $result['payment']->id,
+                'payment_reference' => $result['payment']->payment_reference,
+            ];
+        })(),
+
+        'shm_settlement_complete' => (function () use ($params) {
+            // T006E-FV: Penyelesaian settlement SHM dari dua proses PARALEL
+            $settlement = app(ShmLoanSettlementService::class)->complete(
+                ShmLoan::findOrFail($params['loan_id']),
+                (int) $params['user_id'],
+            );
+
+            return [
+                'settlement_id' => $settlement->id,
+                'settlement_reference' => $settlement->settlement_reference,
+            ];
+        })(),
+
+        'shm_settlement_correct' => (function () use ($params) {
+            // T006E-FV: Koreksi settlement SHM dari dua proses PARALEL
+            $correction = app(ShmSettlementCorrectionService::class)->correct(
+                ShmLoan::findOrFail($params['loan_id']),
+                ShmLoanSettlement::findOrFail($params['settlement_id']),
+                $params['reason'] ?? 'Koreksi konkurensi paralel',
+                (int) $params['user_id'],
+            );
+
+            return [
+                'correction_id' => $correction->id,
+            ];
         })(),
 
         'member_create' => (function () use ($params) {

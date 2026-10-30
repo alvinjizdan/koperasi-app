@@ -7,7 +7,7 @@ export default function AdminLayout({ title, pageTitle, children }) {
     const [mobileOpen, setMobileOpen] = useState(false);
 
     return (
-        <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased selection:bg-emerald-500 selection:text-white">
+        <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased selection:bg-bsm-accent selection:text-white">
             <Head title={title || pageTitle || 'Dashboard KSP'} />
 
             {/* Sidebar Component */}
@@ -30,7 +30,7 @@ export default function AdminLayout({ title, pageTitle, children }) {
                 <footer className="border-t border-slate-200 bg-white px-4 py-4 sm:px-6 lg:px-8 lg:pl-64 text-xs text-slate-500 flex flex-col sm:flex-row justify-between items-center gap-2">
                     <div>
                         <span className="font-semibold text-slate-700">
-                            KSP Bima Sakti Mandiri
+                            BSM Mikro — KSP Bima Sakti Mandiri
                         </span>{' '}
                         &copy; {new Date().getFullYear()} Sistem Informasi
                         Koperasi Simpan Pinjam.

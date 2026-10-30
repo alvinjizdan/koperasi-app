@@ -77,7 +77,7 @@ const navigationItems = [
         // satu-satunya rute marketing yang tersisa di koperasi adalah
         // pembaruan lokasi anggota (marketing.member-location.update) yang
         // dipakai halaman Anggota, bukan modul Marketing.
-        name: "Aplikasi SHM",
+        name: "BSM Makro",
         route: "shm.entry",
         icon: Home,
         isReleased: true,
@@ -206,7 +206,7 @@ function UserFooter({ onNavigate }) {
 const isItemActive = (item) =>
     item.children
         ? (item.hubRoute && route().current(item.hubRoute)) ||
-          item.children.some((child) => route().current(child.route))
+        item.children.some((child) => route().current(child.route))
         : route().current(item.route);
 
 /**
@@ -241,11 +241,10 @@ function SidebarNavItem({ item, open, onToggle, variant = "desktop" }) {
                                 <Link
                                     key={child.route}
                                     href={route(child.route)}
-                                    className={`block rounded-md px-3 py-1.5 text-[13px] transition-colors duration-150 ${
-                                        childActive
+                                    className={`block rounded-md px-3 py-1.5 text-[13px] transition-colors duration-150 ${childActive
                                             ? "bg-slate-800/80 font-semibold text-emerald-300"
                                             : "text-slate-400 hover:bg-slate-800/60 hover:text-white"
-                                    }`}
+                                        }`}
                                 >
                                     {child.name}
                                 </Link>
@@ -260,13 +259,11 @@ function SidebarNavItem({ item, open, onToggle, variant = "desktop" }) {
             <>
                 <div className="flex items-center gap-3">
                     <Icon
-                        className={`${
-                            isMobile ? "h-5 w-5" : "h-4 w-4"
-                        } transition-colors ${
-                            isActive
+                        className={`${isMobile ? "h-5 w-5" : "h-4 w-4"
+                            } transition-colors ${isActive
                                 ? "text-emerald-400"
                                 : "text-slate-400 group-hover:text-slate-200"
-                        }`}
+                            }`}
                     />
                     <span>{item.name}</span>
                 </div>
@@ -287,9 +284,8 @@ function SidebarNavItem({ item, open, onToggle, variant = "desktop" }) {
                     className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-700/60 hover:text-white"
                 >
                     <ChevronDown
-                        className={`h-4 w-4 transition-transform duration-200 ${
-                            open ? "rotate-180" : ""
-                        }`}
+                        className={`h-4 w-4 transition-transform duration-200 ${open ? "rotate-180" : ""
+                            }`}
                     />
                 </button>
             </>
@@ -300,11 +296,10 @@ function SidebarNavItem({ item, open, onToggle, variant = "desktop" }) {
                 <Link
                     href={headerHref}
                     aria-expanded={open}
-                    className={`group flex w-full items-center justify-between rounded-lg ${rowPadding} text-sm font-medium transition-all duration-150 active:scale-[0.98] ${
-                        isActive
-                            ? "bg-slate-800 text-white font-semibold border-l-4 border-emerald-500 shadow-sm"
+                    className={`group flex w-full items-center justify-between rounded-lg ${rowPadding} text-sm font-medium transition-all duration-150 active:scale-[0.98] ${isActive
+                            ? "bg-slate-800 text-white font-semibold border-l-4 border-bsm-accent shadow-sm"
                             : "text-slate-300 hover:bg-slate-800/60 hover:text-white border-l-4 border-transparent"
-                    }`}
+                        }`}
                 >
                     {headerContent}
                 </Link>
@@ -316,21 +311,18 @@ function SidebarNavItem({ item, open, onToggle, variant = "desktop" }) {
     return (
         <Link
             href={route(item.route)}
-            className={`group flex items-center justify-between rounded-lg ${rowPadding} text-sm font-medium transition-all duration-150 active:scale-[0.98] ${
-                isActive
-                    ? "bg-slate-800 text-white font-semibold border-l-4 border-emerald-500 shadow-sm"
+            className={`group flex items-center justify-between rounded-lg ${rowPadding} text-sm font-medium transition-all duration-150 active:scale-[0.98] ${isActive
+                    ? "bg-slate-800 text-white font-semibold border-l-4 border-bsm-accent shadow-sm"
                     : "text-slate-300 hover:bg-slate-800/60 hover:text-white border-l-4 border-transparent"
-            }`}
+                }`}
         >
             <div className="flex items-center gap-3">
                 <Icon
-                    className={`${
-                        isMobile ? "h-5 w-5" : "h-4 w-4"
-                    } transition-colors ${
-                        isActive
-                            ? "text-emerald-400"
+                    className={`${isMobile ? "h-5 w-5" : "h-4 w-4"
+                        } transition-colors ${isActive
+                            ? "text-orange-400"
                             : "text-slate-400 group-hover:text-slate-200"
-                    }`}
+                        }`}
                 />
                 <span>{item.name}</span>
             </div>
@@ -355,11 +347,11 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
         .map((item) =>
             item.children
                 ? {
-                      ...item,
-                      children: item.children.filter((child) =>
-                          hasPermission(child.permission),
-                      ),
-                  }
+                    ...item,
+                    children: item.children.filter((child) =>
+                        hasPermission(child.permission),
+                    ),
+                }
                 : item,
         )
         .filter((item) =>
@@ -435,17 +427,21 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
                 <div className="flex h-16 items-center px-6 border-b border-slate-800">
                     <Link
                         href={route("dashboard")}
-                        className="flex items-center gap-3 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded-lg p-1"
+                        className="flex items-center gap-3 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bsm-accent rounded-lg p-1"
                     >
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white font-bold shadow-sm transition-transform duration-100 active:scale-95">
-                            <Building2 className="h-5 w-5" />
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white p-1 shadow-sm transition-transform duration-100 active:scale-95">
+                            <img
+                                src="/images/logo.png"
+                                alt="BSM Logo"
+                                className="h-full w-full object-contain"
+                            />
                         </div>
                         <div className="flex flex-col">
                             <span className="text-sm font-semibold tracking-tight text-white group-hover:text-emerald-300 transition-colors">
-                                KSP Bima Sakti
+                                BSM Mikro
                             </span>
                             <span className="text-xs text-slate-400 font-medium">
-                                Mandiri
+                                KSP Bima Sakti Mandiri
                             </span>
                         </div>
                     </Link>
@@ -471,15 +467,19 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
                     <div className="fixed inset-y-0 left-0 w-full max-w-xs bg-slate-900 text-slate-100 shadow-xl flex flex-col transition-transform duration-200 ease-out">
                         <div className="flex h-16 items-center justify-between px-6 border-b border-slate-800">
                             <div className="flex items-center gap-3">
-                                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white font-bold">
-                                    <Building2 className="h-5 w-5" />
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white p-1">
+                                    <img
+                                        src="/images/logo.png"
+                                        alt="BSM Logo"
+                                        className="h-full w-full object-contain"
+                                    />
                                 </div>
                                 <div className="flex flex-col">
                                     <span className="text-sm font-semibold tracking-tight text-white">
-                                        KSP Bima Sakti
+                                        BSM Mikro
                                     </span>
                                     <span className="text-xs text-slate-400 font-medium">
-                                        Mandiri
+                                        KSP Bima Sakti Mandiri
                                     </span>
                                 </div>
                             </div>

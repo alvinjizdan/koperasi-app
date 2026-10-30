@@ -31,13 +31,13 @@ export default function Index({ accounts, categories, filters, importResult }) {
     };
 
     return (
-        <ShmLayout title="SHM Chart of Accounts" pageTitle="Daftar Perkiraan (COA) SHM">
+        <ShmLayout title="BSM Makro Chart of Accounts" pageTitle="Daftar Perkiraan (COA) BSM Makro">
             {/* Header & Actions */}
             <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                    <h2 className="text-xl font-bold text-slate-900">Daftar Perkiraan SHM</h2>
-                    <p className="mt-1 text-xs sm:text-sm text-slate-500">
-                        Chart of Accounts independen untuk entitas <strong>Akuntansi SHM</strong>. Terisolasi penuh dari Koperasi.
+                    <h1 className="text-xl font-semibold text-gray-800">Daftar Perkiraan BSM Makro</h1>
+                    <p className="mt-1 text-sm text-gray-500">
+                        Chart of Accounts independen untuk entitas <strong>Akuntansi BSM Makro</strong>. Terisolasi penuh dari BSM Mikro.
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -65,7 +65,7 @@ export default function Index({ accounts, categories, filters, importResult }) {
                     </button>
                     <Link
                         href={route('shm.coa.create')}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-indigo-700 transition-colors shadow-xs"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-bsm-primary px-3.5 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-bsm-primary-hover transition-colors shadow-xs"
                     >
                         <PlusCircle className="h-4 w-4" />
                         <span>Tambah Akun</span>
@@ -182,8 +182,8 @@ export default function Index({ accounts, categories, filters, importResult }) {
             {accounts.length === 0 ? (
                 <EmptyState
                     icon={BookOpen}
-                    title="Belum Ada Akun SHM"
-                    description="Daftar perkiraan Akuntansi SHM masih kosong. Silakan tambah akun manual atau gunakan fitur Impor XLSX."
+                    title="Belum Ada Akun BSM Makro"
+                    description="Daftar perkiraan Akuntansi BSM Makro masih kosong. Silakan tambah akun manual atau gunakan fitur Impor XLSX."
                 />
             ) : (
                 <ScrollArea className="rounded-xl border border-slate-200 bg-white shadow-xs">
@@ -296,7 +296,7 @@ export default function Index({ accounts, categories, filters, importResult }) {
                                 <button
                                     type="submit"
                                     disabled={processing || !data.file}
-                                    className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                                    className="rounded-lg bg-bsm-primary px-4 py-2 text-xs font-semibold text-white hover:bg-bsm-primary-hover disabled:opacity-50"
                                 >
                                     {processing ? 'Memproses...' : 'Unggah & Impor'}
                                 </button>

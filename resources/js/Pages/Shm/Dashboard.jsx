@@ -330,7 +330,7 @@ export default function Dashboard({ scope, metrics, flash }) {
     };
 
     return (
-        <ShmLayout title="Dashboard SHM">
+        <ShmLayout title="Dashboard BSM Makro">
             <div className="space-y-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
@@ -433,12 +433,12 @@ export default function Dashboard({ scope, metrics, flash }) {
                         scope={scopeNote}
                     />
                     <StatCard
-                        title="Nasabah SHM"
+                        title="Nasabah BSM Makro"
                         value={metrics.customers.total}
                         icon={UserRound}
                         tone="indigo"
                         statusNote={`${metrics.customers.active} nasabah aktif`}
-                        scope="Master data nasabah SHM, terpisah dari anggota koperasi."
+                        scope="Master data nasabah BSM Makro, terpisah dari anggota BSM Mikro."
                     />
                 </div>
 

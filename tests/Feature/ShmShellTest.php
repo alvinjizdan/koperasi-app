@@ -39,9 +39,9 @@ class ShmShellTest extends TestCase
 
     private User $marketing;
 
-    private User $pengawas;
+    private User $bm;
 
-    private User $kasir;
+    private User $pd;
 
     protected function setUp(): void
     {
@@ -53,8 +53,8 @@ class ShmShellTest extends TestCase
         $this->superadmin = $this->userWithRole('superadmin');
         $this->admin = $this->userWithRole('admin');
         $this->marketing = $this->userWithRole('marketing');
-        $this->pengawas = $this->userWithRole('pengawas');
-        $this->kasir = $this->userWithRole('kasir');
+        $this->bm = $this->userWithRole('branch_manager');
+        $this->pd = $this->userWithRole('direktur_utama');
     }
 
     private function userWithRole(string $roleName): User
@@ -121,23 +121,23 @@ class ShmShellTest extends TestCase
     public function test_user_without_shm_permission_is_forbidden(): void
     {
         // Mengetik URL tidak cukup: boundary diperiksa server.
-        $this->actingAs($this->pengawas)
+        $plain = User::factory()->create(['email_verified_at' => now()]);
+
+        $this->actingAs($plain)
             ->get(route('shm.entry'))
             ->assertForbidden();
 
-        $this->actingAs($this->pengawas)
+        $this->actingAs($plain)
             ->get(route('shm.dashboard'))
-            ->assertForbidden();
-
-        $this->actingAs($this->kasir)
-            ->get(route('shm.entry'))
             ->assertForbidden();
     }
 
     public function test_shm_module_pages_are_forbidden_without_permission(): void
     {
+        $plain = User::factory()->create(['email_verified_at' => now()]);
+
         foreach (['shm.applications.index', 'shm.customers.index', 'shm.credit-checks.index'] as $name) {
-            $this->actingAs($this->pengawas)
+            $this->actingAs($plain)
                 ->get(route($name))
                 ->assertForbidden();
         }
@@ -414,7 +414,7 @@ class ShmShellTest extends TestCase
 
     public function test_koperasi_dashboard_still_works_for_every_role(): void
     {
-        foreach ([$this->superadmin, $this->admin, $this->marketing, $this->pengawas, $this->kasir] as $user) {
+        foreach ([$this->superadmin, $this->admin, $this->marketing, $this->bm, $this->pd] as $user) {
             $this->actingAs($user)
                 ->get(route('dashboard'))
                 ->assertOk();
@@ -423,13 +423,14 @@ class ShmShellTest extends TestCase
 
     public function test_koperasi_module_routes_are_not_behind_shm_boundary(): void
     {
-        // Route koperasi tidak ikut terkena boundary SHM: pengawas dan kasir
-        // tidak punya permission SHM, tetapi modul koperasinya tetap terbuka.
-        $this->actingAs($this->pengawas)
+        // Route koperasi tidak ikut terkena boundary SHM: Branch Manager
+        // dapat membuka modul koperasi yang diizinkan.
+        $this->actingAs($this->bm)
             ->get(route('anggota.index'))
             ->assertOk();
 
-        $this->actingAs($this->kasir)
+        // Admin yang memegang kasir.view dapat mengakses kasir
+        $this->actingAs($this->admin)
             ->get(route('kasir.index'))
             ->assertOk();
     }
@@ -573,17 +574,17 @@ class ShmShellTest extends TestCase
     public function test_shm_permission_boundary_is_server_side(): void
     {
         // Menu boleh disembunyikan di klien, tetapi middleware tetap menolak
-        // permintaan langsung ke endpoint SHM.
+        // permintaan langsung ke endpoint SHM bagi yang tidak berwenang.
+        $plain = User::factory()->create(['email_verified_at' => now()]);
         $customer = ShmCustomer::factory()->create();
 
-        $this->actingAs($this->pengawas)
+        $this->actingAs($plain)
             ->get(route('shm.customers.show', $customer->id))
             ->assertForbidden();
 
         $this->assertTrue($this->marketing->hasPermission('shm.customer.view'));
         $this->assertFalse($this->marketing->hasPermission('shm.view_all'));
-        $this->assertFalse($this->kasir->hasPermission('shm.view'));
-        $this->assertFalse($this->pengawas->hasPermission('shm.view'));
+        $this->assertFalse($plain->hasPermission('shm.view'));
     }
 
     public function test_shm_dashboard_shares_only_permissions_the_user_holds(): void

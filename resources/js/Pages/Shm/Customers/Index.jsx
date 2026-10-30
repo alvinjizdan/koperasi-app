@@ -165,13 +165,13 @@ export default function Index({ customers, sort, filters, permissions, flash }) 
     ];
 
     return (
-        <ShmLayout title="Nasabah SHM">
+        <ShmLayout title="Nasabah BSM Makro">
             <div className="space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h1 className="text-xl font-semibold text-gray-800">Nasabah SHM</h1>
+                        <h1 className="text-xl font-semibold text-gray-800">Nasabah BSM Makro</h1>
                         <p className="text-sm text-gray-500">
-                            Master nasabah SHM/SHGB. Terpisah dari data anggota koperasi.
+                            Master nasabah BSM Makro (SHM/SHGB). Terpisah dari data anggota BSM Mikro.
                         </p>
                     </div>
                     {permissions?.can_create && (
@@ -231,15 +231,15 @@ export default function Index({ customers, sort, filters, permissions, flash }) 
                     sort={sort}
                     onSort={handleSort}
                     routeName="shm.customers.index"
-                    emptyTitle="Belum ada nasabah SHM"
-                    emptyDescription="Nasabah SHM yang ditambahkan akan tampil di sini."
+                    emptyTitle="Belum ada nasabah BSM Makro"
+                    emptyDescription="Nasabah BSM Makro yang ditambahkan akan tampil di sini."
                 />
 
                 <ConfirmModal
                     isOpen={!!deleteTarget}
                     onClose={() => setDeleteTarget(null)}
                     onConfirm={confirmDelete}
-                    title="Hapus Nasabah SHM"
+                    title="Hapus Nasabah BSM Makro"
                     message={
                         deleteTarget
                             ? `Nasabah ${deleteTarget.customer_number} - ${deleteTarget.name} akan dihapus permanen. Penghapusan hanya dilakukan bila nasabah belum memiliki pengajuan, pinjaman, atau riwayat aktivitas. Lanjutkan?`

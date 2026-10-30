@@ -20,7 +20,7 @@ export default function Navbar({ pageTitle, onMobileMenuToggle }) {
                 {/* Page Title & Breadcrumb */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
                     <div className="flex items-center text-xs font-medium text-slate-500">
-                        <span>Aplikasi KSP</span>
+                        <span className="font-semibold text-bsm-accent">BSM Mikro</span>
                         <ChevronRight className="h-3.5 w-3.5 mx-1 text-slate-400" />
                     </div>
                     <h1 className="text-base font-semibold tracking-tight text-slate-900 sm:text-lg">

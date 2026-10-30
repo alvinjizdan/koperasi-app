@@ -31,6 +31,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $binding_date
  * @property string|null $rights_value
  * @property string|null $photo_path
+ * @property string|null $document_path
+ * @property string|null $document_name
  */
 class ShmLoanApplicationCollateral extends Model
 {
@@ -45,6 +47,8 @@ class ShmLoanApplicationCollateral extends Model
         'binding_date',
         'rights_value',
         'photo_path',
+        'document_path',
+        'document_name',
     ];
 
     protected function casts(): array

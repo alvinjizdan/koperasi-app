@@ -806,6 +806,41 @@ class ShmLoanController extends Controller
     }
 
     /**
+     * Sajikan dokumen PDF jaminan secara terotorisasi (disk privat).
+     */
+    public function collateralDocument(
+        Request $request,
+        ShmLoanApplication $application,
+        ShmLoanApplicationCollateral $collateral,
+    ): SymfonyResponse {
+        $this->authorizeLoanOwnership($request, $application);
+
+        abort_unless(
+            $collateral->shm_loan_application_id === $application->id,
+            404,
+        );
+        abort_if($collateral->document_path === null, 404);
+
+        $disk = Storage::disk('local');
+
+        abort_unless($disk->exists($collateral->document_path), 404);
+
+        $contents = $disk->get($collateral->document_path);
+
+        if (! is_string($contents) || $contents === '') {
+            abort(404);
+        }
+
+        $filename = $collateral->document_name ?: ('dokumen-jaminan-'.$collateral->id.'.pdf');
+
+        return response($contents, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            'Cache-Control' => 'private, max-age=86400',
+        ]);
+    }
+
+    /**
      * Bentuk data pengajuan (11 section) untuk props Inertia.
      *
      * @return array<string, mixed>
@@ -931,6 +966,10 @@ class ShmLoanController extends Controller
                 'foto_url' => $collateral->photo_path !== null
                     ? route('shm.loans.pengajuan.jaminan.foto', [$application->id, $collateral->id])
                     : null,
+                'dokumen_url' => $collateral->document_path !== null
+                    ? route('shm.loans.pengajuan.jaminan.dokumen', [$application->id, $collateral->id])
+                    : null,
+                'dokumen_name' => $collateral->document_name,
             ])->all(),
             'catatan' => [
                 'date' => $application->kasir_note_date?->format('Y-m-d'),
@@ -1050,6 +1089,11 @@ class ShmLoanController extends Controller
                 'foto_url' => $collateral->photo_path !== null
                     ? route('shm.loans.pengajuan.jaminan.foto', [$application->id, $collateral->id])
                     : null,
+                'dokumen' => null,
+                'dokumen_url' => $collateral->document_path !== null
+                    ? route('shm.loans.pengajuan.jaminan.dokumen', [$application->id, $collateral->id])
+                    : null,
+                'dokumen_name' => $collateral->document_name,
                 'picked' => false,
             ])->values()->all(),
             'catatan' => [

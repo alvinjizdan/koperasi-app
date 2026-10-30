@@ -56,6 +56,8 @@ class ShmLoanApplicationService
 
     private const PHOTO_DIRECTORY = 'shm/collateral-photos';
 
+    private const DOCUMENT_DIRECTORY = 'shm/collateral-documents';
+
     public function __construct(private readonly ShmWorkflowService $workflow) {}
 
     /**
@@ -72,9 +74,10 @@ class ShmLoanApplicationService
         // Ticket 77 — jejak berkas baru agar dapat dibersihkan bila transaksi
         // gagal (operasi filesystem tidak ikut ter-rollback oleh database).
         $storedPhotos = [];
+        $storedDocuments = [];
 
         try {
-            return DB::transaction(function () use ($data, &$storedPhotos): ShmLoanApplication {
+            return DB::transaction(function () use ($data, &$storedPhotos, &$storedDocuments): ShmLoanApplication {
                 $application = ShmLoanApplication::create(array_merge(
                     $this->attributesFromPayload($data),
                     [
@@ -89,7 +92,7 @@ class ShmLoanApplicationService
                     ],
                 ));
 
-                $this->createChildren($application, $data, $storedPhotos);
+                $this->createChildren($application, $data, $storedPhotos, $storedDocuments);
 
                 // Tepat SATU baris audit per create (di dalam transaksi yang sama,
                 // sehingga audit tidak pernah tertulis bila create gagal).
@@ -115,9 +118,10 @@ class ShmLoanApplicationService
                 return $application;
             });
         } catch (Throwable $exception) {
-            // Bersihkan berkas foto yang sudah tersimpan sebelum kegagalan —
+            // Bersihkan berkas foto/dokumen yang sudah tersimpan sebelum kegagalan —
             // database di-rollback, jadi tidak boleh ada orphan file.
             $this->deletePhotoFiles($storedPhotos);
+            $this->deletePhotoFiles($storedDocuments);
 
             throw $exception;
         }
@@ -140,12 +144,14 @@ class ShmLoanApplicationService
         //   replace foto tidak pernah menghapus berkas lama lebih dulu.
         $storedPhotos = [];
         $retiredPhotos = [];
+        $storedDocuments = [];
+        $retiredDocuments = [];
 
         // Ticket 82 — resolusi rate produk+tenor berlaku untuk create & update.
         $this->assertProductTenorCompatible($data);
 
         try {
-            return DB::transaction(function () use ($application, $data, &$storedPhotos, &$retiredPhotos): ShmLoanApplication {
+            return DB::transaction(function () use ($application, $data, &$storedPhotos, &$retiredPhotos, &$storedDocuments, &$retiredDocuments): ShmLoanApplication {
                 $locked = ShmLoanApplication::query()->lockForUpdate()->findOrFail($application->id);
 
                 // APPROVAL LOCK (§12/§17): state dibaca dari baris terkunci di
@@ -160,7 +166,7 @@ class ShmLoanApplicationService
                 // identity/marketing/status/tanggal TIDAK pernah berubah di sini.
                 $locked->save();
 
-                $this->reconcileCollaterals($locked, $data['jaminan'] ?? [], $storedPhotos, $retiredPhotos);
+                $this->reconcileCollaterals($locked, $data['jaminan'] ?? [], $storedPhotos, $retiredPhotos, $storedDocuments, $retiredDocuments);
                 $this->reconcileAssets($locked, $data['agunan'] ?? []);
                 $this->reconcileRequirements($locked, $data['persyaratan'] ?? []);
 
@@ -187,6 +193,7 @@ class ShmLoanApplicationService
             });
         } catch (Throwable $exception) {
             $this->deletePhotoFiles($storedPhotos);
+            $this->deletePhotoFiles($storedDocuments);
 
             throw $exception;
         } finally {
@@ -194,6 +201,7 @@ class ShmLoanApplicationService
             // (atau tetap); penghapusan berkas lama yang digantikan/dihapus
             // baris dilakukan SETELAH commit (failure-safe).
             $this->deletePhotoFiles($retiredPhotos);
+            $this->deletePhotoFiles($retiredDocuments);
         }
     }
 
@@ -360,18 +368,26 @@ class ShmLoanApplicationService
     }
 
     /** Buat seluruh child section (dipakai store). */
-    private function createChildren(ShmLoanApplication $application, array $data, array &$storedPhotos): void
+    private function createChildren(ShmLoanApplication $application, array $data, array &$storedPhotos, array &$storedDocuments = []): void
     {
         foreach ($data['jaminan'] ?? [] as $item) {
             $collateral = $application->collaterals()->create($this->collateralAttributes($item));
 
-            // Ticket 77 — foto (bila ada) disimpan setelah baris jaminan
-            // memiliki id; path-nya ditulis balik ke baris yang sama.
+            // Foto jaminan (bila ada)
             $photoPath = $this->storeCollateralPhoto($application, $item['foto'] ?? null);
-
             if ($photoPath !== null) {
                 $storedPhotos[] = $photoPath;
                 $collateral->forceFill(['photo_path' => $photoPath])->save();
+            }
+
+            // Dokumen PDF jaminan (bila ada)
+            $docResult = $this->storeCollateralDocument($application, $item['dokumen'] ?? null);
+            if ($docResult !== null) {
+                $storedDocuments[] = $docResult['path'];
+                $collateral->forceFill([
+                    'document_path' => $docResult['path'],
+                    'document_name' => $docResult['name'],
+                ])->save();
             }
         }
 
@@ -401,6 +417,8 @@ class ShmLoanApplicationService
         array $items,
         array &$storedPhotos,
         array &$retiredPhotos,
+        array &$storedDocuments = [],
+        array &$retiredDocuments = [],
     ): void {
         $kept = [];
 
@@ -414,7 +432,6 @@ class ShmLoanApplicationService
                     $existing->fill($attributes)->save();
 
                     $photoPath = $this->storeCollateralPhoto($application, $item['foto'] ?? null);
-
                     if ($photoPath !== null) {
                         $storedPhotos[] = $photoPath;
 
@@ -423,6 +440,20 @@ class ShmLoanApplicationService
                         }
 
                         $existing->forceFill(['photo_path' => $photoPath])->save();
+                    }
+
+                    $docResult = $this->storeCollateralDocument($application, $item['dokumen'] ?? null);
+                    if ($docResult !== null) {
+                        $storedDocuments[] = $docResult['path'];
+
+                        if ($existing->document_path !== null) {
+                            $retiredDocuments[] = $existing->document_path;
+                        }
+
+                        $existing->forceFill([
+                            'document_path' => $docResult['path'],
+                            'document_name' => $docResult['name'],
+                        ])->save();
                     }
 
                     $kept[] = $existing->id;
@@ -434,10 +465,18 @@ class ShmLoanApplicationService
             $collateral = $application->collaterals()->create($attributes);
 
             $photoPath = $this->storeCollateralPhoto($application, $item['foto'] ?? null);
-
             if ($photoPath !== null) {
                 $storedPhotos[] = $photoPath;
                 $collateral->forceFill(['photo_path' => $photoPath])->save();
+            }
+
+            $docResult = $this->storeCollateralDocument($application, $item['dokumen'] ?? null);
+            if ($docResult !== null) {
+                $storedDocuments[] = $docResult['path'];
+                $collateral->forceFill([
+                    'document_path' => $docResult['path'],
+                    'document_name' => $docResult['name'],
+                ])->save();
             }
 
             $kept[] = $collateral->id;
@@ -448,6 +487,9 @@ class ShmLoanApplicationService
         foreach ($removed as $collateral) {
             if ($collateral->photo_path !== null) {
                 $retiredPhotos[] = $collateral->photo_path;
+            }
+            if ($collateral->document_path !== null) {
+                $retiredDocuments[] = $collateral->document_path;
             }
         }
 
@@ -481,9 +523,33 @@ class ShmLoanApplicationService
     }
 
     /**
-     * Ticket 77 — hapus berkas foto (best-effort, tanpa menggagalkan alur
-     * utama): kegagalan unlink tidak boleh merusak transaksi yang sudah
-     * sukses; berkas yatim pada disk privat bukan kebocoran data.
+     * Simpan satu berkas dokumen PDF jaminan ke disk privat.
+     *
+     * @return array{path: string, name: string}|null
+     */
+    private function storeCollateralDocument(ShmLoanApplication $application, mixed $file): ?array
+    {
+        if (! $file instanceof UploadedFile || ! $file->isValid()) {
+            return null;
+        }
+
+        $path = $file->store(
+            self::DOCUMENT_DIRECTORY.'/'.$application->id,
+            self::PHOTO_DISK,
+        );
+
+        if ($path === false) {
+            throw new RuntimeException('Dokumen jaminan gagal disimpan.');
+        }
+
+        return [
+            'path' => $path,
+            'name' => $file->getClientOriginalName(),
+        ];
+    }
+
+    /**
+     * Hapus berkas (foto/dokumen) secara failure-safe.
      *
      * @param  array<int, string>  $paths
      */

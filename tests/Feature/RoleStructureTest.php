@@ -30,7 +30,7 @@ class RoleStructureTest extends TestCase
     private const RETIRED_ROLES = ['petugas_simpanan', 'petugas_pinjaman'];
 
     /** Role yang harus tetap tersedia dan aktif. */
-    private const ACTIVE_ROLES = ['superadmin', 'admin', 'kasir', 'marketing', 'pengawas'];
+    private const ACTIVE_ROLES = ['superadmin', 'admin', 'direktur_utama', 'branch_manager', 'marketing'];
 
     private User $superadmin;
 

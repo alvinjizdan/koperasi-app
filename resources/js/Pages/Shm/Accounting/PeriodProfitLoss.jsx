@@ -38,12 +38,12 @@ export default function PeriodProfitLoss({ report, filters }) {
     const isLoss = summary.surplus_deficit < 0;
 
     return (
-        <ShmLayout title="Laba Rugi Periode SHM" pageTitle="Akuntansi SHM — Laba Rugi Periode">
+        <ShmLayout title="Laba Rugi Periode BSM Makro" pageTitle="Akuntansi BSM Makro — Laba Rugi Periode">
             <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                    <h2 className="text-xl font-bold text-slate-900">Laporan Laba Rugi Periode SHM</h2>
-                    <p className="mt-1 text-xs sm:text-sm text-slate-500">
-                        Periode {filters.start_date ? formatDate(filters.start_date) : 'awal'} s.d. {filters.end_date ? formatDate(filters.end_date) : 'sekarang'} — berdasarkan jurnal <strong>POSTED</strong> pada entitas <strong>Akuntansi SHM</strong>.
+                    <h1 className="text-xl font-semibold text-gray-800">Laporan Laba Rugi Periode BSM Makro</h1>
+                    <p className="mt-1 text-sm text-gray-500">
+                        Periode {filters.start_date ? formatDate(filters.start_date) : 'awal'} s.d. {filters.end_date ? formatDate(filters.end_date) : 'sekarang'} — berdasarkan jurnal <strong>POSTED</strong> pada entitas <strong>Akuntansi BSM Makro</strong>.
                     </p>
                 </div>
                 <div>

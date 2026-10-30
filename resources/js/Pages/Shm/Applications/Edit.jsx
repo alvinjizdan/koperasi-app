@@ -27,8 +27,8 @@ export default function Edit({ application, customers, flash }) {
     };
 
     return (
-        <ShmLayout title="Edit Pengajuan SHM">
-            <Head title="Edit Pengajuan SHM" />
+        <ShmLayout title="Edit Pengajuan BSM Makro">
+            <Head title="Edit Pengajuan BSM Makro" />
 
             <div className="mx-auto max-w-2xl space-y-6">
                 <div>

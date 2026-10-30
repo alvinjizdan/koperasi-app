@@ -270,10 +270,10 @@ class MarketingActivityTest extends TestCase
 
     public function test_user_without_marketing_permission_is_forbidden(): void
     {
-        $kasir = $this->userWithRole('kasir');
+        $bm = $this->userWithRole('branch_manager');
 
-        $this->actingAs($kasir)->get(route('shm.marketing.activities.index'))->assertForbidden();
-        $this->actingAs($kasir)
+        $this->actingAs($bm)->get(route('shm.marketing.activities.index'))->assertForbidden();
+        $this->actingAs($bm)
             ->post(route('shm.marketing.activities.store'), $this->checkInPayload())
             ->assertForbidden();
     }
@@ -317,9 +317,9 @@ class MarketingActivityTest extends TestCase
     {
         $this->member->forceFill(['latitude' => -6.7320, 'longitude' => 108.5520])->save();
 
-        $kasir = $this->userWithRole('kasir');
+        $bm = $this->userWithRole('branch_manager');
 
-        $this->actingAs($kasir)
+        $this->actingAs($bm)
             ->get(route('anggota.show', $this->member->id))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -340,9 +340,9 @@ class MarketingActivityTest extends TestCase
 
     public function test_only_authorized_user_can_update_member_location(): void
     {
-        $kasir = $this->userWithRole('kasir');
+        $bm = $this->userWithRole('branch_manager');
 
-        $this->actingAs($kasir)
+        $this->actingAs($bm)
             ->put(route('marketing.member-location.update', $this->member->id), [
                 'latitude' => -6.7320,
                 'longitude' => 108.5520,

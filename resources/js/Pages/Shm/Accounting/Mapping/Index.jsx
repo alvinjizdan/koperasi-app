@@ -30,26 +30,26 @@ export default function Index({ mappings = [] }) {
 
     return (
         <ShmLayout>
-            <Head title="Accounting Mapping — Akuntansi SHM" />
+            <Head title="Accounting Mapping — Akuntansi BSM Makro" />
 
             <div className="space-y-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
                         <div className="flex items-center gap-2">
-                            <BookOpen className="w-6 h-6 text-emerald-600" />
-                            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                            <BookOpen className="w-5 h-5 text-emerald-600" />
+                            <h1 className="text-xl font-semibold text-gray-800">
                                 Accounting Mapping
                             </h1>
                         </div>
-                        <p className="mt-1 text-sm text-slate-500">
-                            Pemetaan aturan event bisnis finansial SHM ke peran akun dan bagan akun (CoA).
+                        <p className="mt-1 text-sm text-gray-500">
+                            Pemetaan aturan event bisnis finansial BSM Makro ke peran akun dan bagan akun (CoA).
                         </p>
                     </div>
 
                     <div className="flex items-center gap-3">
                         <Link
                             href={route('shm.accounting-mapping.create')}
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-bsm-primary hover:bg-bsm-primary-hover text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
                         >
                             <Plus className="w-4 h-4" />
                             Tambah Mapping

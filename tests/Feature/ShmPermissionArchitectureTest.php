@@ -189,10 +189,10 @@ class ShmPermissionArchitectureTest extends TestCase
 
     public function test_koperasi_role_does_not_hold_collection_permission_unless_granted(): void
     {
-        $kasir = $this->userWithRole('kasir');
+        $pd = $this->userWithRole('direktur_utama');
 
-        $this->assertFalse($kasir->hasPermission('shm.collection.view'));
-        $this->actingAs($kasir)->get(route('shm.collection.index'))->assertForbidden();
+        $this->assertFalse($pd->hasPermission('shm.collection.view'));
+        $this->actingAs($pd)->get(route('shm.collection.index'))->assertForbidden();
     }
 
     public function test_marketing_default_role_keeps_collection_access(): void

@@ -176,25 +176,9 @@ export default function Simulation({ form: initial, result, rate, products, opti
                             Simulasi Pinjaman SHM
                         </h1>
                         <p className="text-sm text-gray-500">
-                            Kalkulasi pinjaman dengan rate default legacy{' '}
-                            <strong>{Number(rate)}%</strong> (rate resmi
-                            pinjaman = matriks produk — T82). Periode rate dan
-                            formula angsuran dipilih secara eksplisit.
+                            Kalkulasi simulasi pinjaman dengan pilihan metode angsuran dan tenor.
                         </p>
                     </div>
-                </div>
-
-                <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-                    <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                    <p>
-                        Untuk produk resmi, rate mengikuti matriks produk
-                        dengan metode flat dan periode bulanan (kontrak
-                        T79/T82 — CONFIRMED). Halaman simulasi ini tetap
-                        sandbox: metode &amp; periode dipilih sadar sebagai
-                        eksperimen; denda masih{' '}
-                        <strong>PENDING BUSINESS CONFIRMATION</strong> dan
-                        tidak dihitung sistem.
-                    </p>
                 </div>
 
                 <form onSubmit={submit} className="space-y-6 rounded-lg bg-white p-5 shadow">
@@ -449,7 +433,7 @@ export default function Simulation({ form: initial, result, rate, products, opti
                                 </h2>
                                 <a
                                     href={route('shm.loans.simulation.pdf', pdfParams)}
-                                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                                    className="inline-flex items-center gap-2 rounded-lg bg-bsm-primary px-4 py-2 text-sm font-semibold text-white hover:bg-bsm-primary-hover"
                                 >
                                     <Download className="h-4 w-4" />
                                     Export PDF
@@ -481,8 +465,8 @@ export default function Simulation({ form: initial, result, rate, products, opti
                                 </div>
                                 <div className="rounded-lg bg-slate-50 p-4">
                                     <p className="text-xs text-slate-500">Denda</p>
-                                    <p className="text-sm font-semibold text-amber-700">
-                                        PENDING BUSINESS CONFIRMATION
+                                    <p className="text-sm font-semibold text-slate-500">
+                                        —
                                     </p>
                                 </div>
                                 <div className="rounded-lg bg-slate-50 p-4">
@@ -518,9 +502,7 @@ export default function Simulation({ form: initial, result, rate, products, opti
                                     &middot; Tenor: <strong>{result.tenor_months} bulan</strong>
                                 </p>
                                 <p className="mt-1 text-xs text-slate-500">
-                                    Blokir dana tidak dipotong dari pencairan
-                                    (perlakukannya PENDING). Total biaya = jumlah biaya
-                                    yang diinput manual.
+                                    Blokir dana tidak dipotong dari pencairan. Total biaya = jumlah biaya yang diinput manual.
                                 </p>
                             </div>
                         </section>

@@ -65,8 +65,8 @@ export default function Create({ members = [], filters = {}, flash }) {
     };
 
     return (
-        <ShmLayout title="Tambah Nasabah SHM">
-            <Head title="Tambah Nasabah SHM" />
+        <ShmLayout title="Tambah Nasabah BSM Makro">
+            <Head title="Tambah Nasabah BSM Makro" />
 
             <div className="mx-auto max-w-4xl space-y-6">
                 <div>
@@ -77,9 +77,9 @@ export default function Create({ members = [], filters = {}, flash }) {
                         <ArrowLeft className="h-4 w-4" />
                         Kembali ke daftar nasabah
                     </Link>
-                    <h1 className="text-xl font-semibold text-gray-800">Tambah Nasabah SHM</h1>
+                    <h1 className="text-xl font-semibold text-gray-800">Tambah Nasabah BSM Makro</h1>
                     <p className="text-sm text-gray-500">
-                        Nasabah SHM harus bersumber dari Anggota Koperasi aktif. Pilih anggota sumber di bawah.
+                        Nasabah BSM Makro harus bersumber dari Anggota BSM Mikro aktif. Pilih anggota sumber di bawah.
                     </p>
                 </div>
 
@@ -94,9 +94,9 @@ export default function Create({ members = [], filters = {}, flash }) {
                     </div>
                 )}
 
-                {/* LANGKAH 1: CARI & PILIH ANGGOTA KOPERASI */}
+                {/* LANGKAH 1: CARI & PILIH ANGGOTA BSM MIKRO */}
                 <div className="rounded-lg bg-white p-6 shadow">
-                    <h2 className="text-base font-medium text-gray-900 mb-2">1. Pilih Anggota Koperasi</h2>
+                    <h2 className="text-base font-medium text-gray-900 mb-2">1. Pilih Anggota BSM Mikro</h2>
                     <p className="text-xs text-gray-500 mb-4">
                         Cari anggota berdasarkan nama, nomor anggota, NIK, atau nomor telepon.
                     </p>
@@ -187,7 +187,7 @@ export default function Create({ members = [], filters = {}, flash }) {
                             <div className="flex items-center gap-2">
                                 <UserCheck className="h-5 w-5 text-indigo-600" />
                                 <h2 className="text-base font-medium text-gray-900">
-                                    2. Data Nasabah SHM (Sumber: {selectedMember.full_name})
+                                    2. Data Nasabah BSM Makro (Sumber: {selectedMember.full_name})
                                 </h2>
                             </div>
                             <span className="text-xs text-slate-500">
@@ -196,13 +196,13 @@ export default function Create({ members = [], filters = {}, flash }) {
                         </div>
 
                         <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                            Kode Nasabah SHM dibuat otomatis oleh sistem dengan sequence sendiri
+                            Kode Nasabah BSM Makro dibuat otomatis oleh sistem dengan sequence sendiri
                             (format NNNNN-ANG, mis. 00001-ANG) — TERPISAH dari nomor anggota di atas.
                             Kode tidak diketik manual.
                         </div>
 
                         <div>
-                            <InputLabel htmlFor="name" value="Nama Nasabah SHM" />
+                            <InputLabel htmlFor="name" value="Nama Nasabah BSM Makro" />
                             <TextInput
                                 id="name"
                                 value={form.data.name}
@@ -269,7 +269,7 @@ export default function Create({ members = [], filters = {}, flash }) {
                                 Ganti Anggota
                             </SecondaryButton>
                             <PrimaryButton disabled={form.processing}>
-                                Simpan Nasabah SHM
+                                Simpan Nasabah BSM Makro
                             </PrimaryButton>
                         </div>
                     </form>

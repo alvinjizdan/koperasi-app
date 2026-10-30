@@ -195,7 +195,7 @@ function PolicyForm({ initial, onDone, canToggle }) {
                 <button
                     type="submit"
                     disabled={processing}
-                    className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                    className="rounded-lg bg-bsm-primary px-4 py-2 text-sm font-semibold text-white hover:bg-bsm-primary-hover disabled:opacity-50"
                 >
                     {initial?.id ? 'Simpan Perubahan' : 'Buat Policy'}
                 </button>
@@ -255,7 +255,7 @@ export default function SettlementPolicies({ policies, flash, errors }) {
                             setCreating((v) => !v);
                             setEditingId(null);
                         }}
-                        className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                        className="inline-flex items-center gap-2 rounded-lg bg-bsm-primary px-4 py-2 text-sm font-semibold text-white hover:bg-bsm-primary-hover"
                     >
                         <PlusCircle className="h-4 w-4" />
                         {creating ? 'Tutup Form' : 'Policy Baru'}

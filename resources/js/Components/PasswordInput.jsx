@@ -36,7 +36,7 @@ export default forwardRef(function PasswordInput(
                 {...props}
                 type={visible ? "text" : "password"}
                 className={
-                    "rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 pe-10 " +
+                    "rounded-lg border-slate-300 shadow-2xs focus:border-bsm-primary focus:ring-1 focus:ring-bsm-primary pe-10 " +
                     className
                 }
                 ref={localRef}

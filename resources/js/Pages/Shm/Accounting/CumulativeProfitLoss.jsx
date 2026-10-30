@@ -35,12 +35,12 @@ export default function CumulativeProfitLoss({ report, filters, meta }) {
     const isLoss = summary.surplus_deficit < 0;
 
     return (
-        <ShmLayout title="Laba Rugi Kumulatif SHM" pageTitle="Akuntansi SHM — Laba Rugi Kumulatif">
+        <ShmLayout title="Laba Rugi Kumulatif BSM Makro" pageTitle="Akuntansi BSM Makro — Laba Rugi Kumulatif">
             <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                    <h2 className="text-xl font-bold text-slate-900">Laporan Laba Rugi Kumulatif SHM</h2>
-                    <p className="mt-1 text-xs sm:text-sm text-slate-500">
-                        Akumulasi pendapatan dan beban dari <strong>{meta?.starting_point_label ?? 'awal pencatatan'}</strong> s.d. tanggal <strong>{filters.report_date ? formatDate(filters.report_date) : 'sekarang'}</strong> — berdasarkan seluruh jurnal <strong>POSTED</strong> pada entitas <strong>Akuntansi SHM</strong>.
+                    <h1 className="text-xl font-semibold text-gray-800">Laporan Laba Rugi Kumulatif BSM Makro</h1>
+                    <p className="mt-1 text-sm text-gray-500">
+                        Akumulasi pendapatan dan beban dari <strong>{meta?.starting_point_label ?? 'awal pencatatan'}</strong> s.d. tanggal <strong>{filters.report_date ? formatDate(filters.report_date) : 'sekarang'}</strong> — berdasarkan seluruh jurnal <strong>POSTED</strong> pada entitas <strong>Akuntansi BSM Makro</strong>.
                     </p>
                 </div>
                 <div>
@@ -88,11 +88,6 @@ export default function CumulativeProfitLoss({ report, filters, meta }) {
                     </button>
                 </div>
             </form>
-
-            {/* Limitations Notice */}
-            <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-800">
-                <strong>Prinsip Akuntansi:</strong> Laporan kumulatif menyajikan akumulasi operasional berjalan hingga tanggal laporan tanpa penutupan buku (closing journal) atau mutasi ekuitas retained earnings.
-            </div>
 
             {!hasData ? (
                 <EmptyState

@@ -133,25 +133,25 @@ export default function Products({ products, sort, filters, canManage, flash }) 
     ];
 
     return (
-        <ShmLayout title="Produk Pinjaman SHM">
+        <ShmLayout title="Produk Pinjaman BSM Makro">
             <div className="space-y-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                         <h1 className="flex items-center gap-2 text-xl font-semibold text-gray-800">
                             <Landmark className="h-5 w-5 text-slate-400" />
-                            Produk Pinjaman SHM
+                            Produk Pinjaman BSM Makro
                         </h1>
                         <p className="text-sm text-gray-500">
-                            Master pinjaman milik modul SHM — kategori, tier
+                            Master pinjaman milik modul BSM Makro — kategori, tier
                             rate (product + tenor eksak; bulanan flat), dan
                             syarat produk resmi. Terpisah dari produk pinjaman
-                            koperasi.
+                            BSM Mikro.
                         </p>
                     </div>
                     {canManage && (
                         <Link
                             href={route('shm.loans.products.create')}
-                            className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                            className="inline-flex items-center gap-2 rounded-lg bg-bsm-primary px-4 py-2 text-sm font-semibold text-white hover:bg-bsm-primary-hover"
                         >
                             <PlusCircle className="h-4 w-4" />
                             Tambah Produk
@@ -209,8 +209,8 @@ export default function Products({ products, sort, filters, canManage, flash }) 
                     sort={sort}
                     onSort={handleSort}
                     routeName="shm.loans.products.index"
-                    emptyTitle="Belum ada produk pinjaman SHM"
-                    emptyDescription="Produk pinjaman SHM yang didaftarkan akan tampil di sini."
+                    emptyTitle="Belum ada produk pinjaman BSM Makro"
+                    emptyDescription="Produk pinjaman BSM Makro yang didaftarkan akan tampil di sini."
                 />
             </div>
         </ShmLayout>

@@ -161,11 +161,11 @@ class ShmCollectionBusinessRuleContractTest extends TestCase
         $this->assertContains('finance_manager_pencairan', $sequence);
         $this->assertNotContains('kasir_pencairan', $sequence);
 
-        // Legacy role "Kasir" di registry permission TETAP (compatibility) —
-        // T91 tidak menghapus/mengganti role teknis existing.
+        // Modul Kasir di registry permission TETAP (compatibility) —
+        // modul kasir dan permission kasir tetap ada walau role kasir dihapus.
         $permissions = (string) file_get_contents(base_path('config/permissions.php'));
 
-        $this->assertStringContainsString("'display_name' => 'Kasir'", $permissions);
+        $this->assertStringContainsString("'label' => 'Kasir'", $permissions);
     }
 
     // ------------------------------------------------------------------

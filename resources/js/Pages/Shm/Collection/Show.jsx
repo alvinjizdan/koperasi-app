@@ -1076,19 +1076,6 @@ export default function Show({ collection, collection_case, timeline, today, fla
                     </div>
                 </div>
 
-                <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                    <Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                    <p>
-                        Halaman <strong>read-only</strong> kecuali dua aksi
-                        terbatas bagi pemilik case: pencatatan aktivitas
-                        Collection (Ticket 93) dan transisi status workflow
-                        Collection Case (Ticket 94). Pembayaran berjalan lewat
-                        modul Pembayaran SHM dan status pinjaman tidak berubah
-                        dari halaman ini; penalty serta escalation otomatis
-                        masih <strong>PENDING BUSINESS CONFIRMATION</strong>.
-                    </p>
-                </div>
-
                 {/* Overdue summary */}
                 <section className="rounded-lg bg-white p-5 shadow">
                     <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase text-slate-600">

@@ -65,13 +65,13 @@ export default function ProductForm({ product, categories }) {
 
     return (
         <ShmLayout
-            title={product?.id ? 'Edit Produk Pinjaman SHM' : 'Tambah Produk Pinjaman SHM'}
+            title={product?.id ? 'Edit Produk Pinjaman BSM Makro' : 'Tambah Produk Pinjaman BSM Makro'}
         >
             <Head
                 title={
                     product?.id
-                        ? 'Edit Produk Pinjaman SHM'
-                        : 'Tambah Produk Pinjaman SHM'
+                        ? 'Edit Produk Pinjaman BSM Makro'
+                        : 'Tambah Produk Pinjaman BSM Makro'
                 }
             />
 
@@ -87,8 +87,8 @@ export default function ProductForm({ product, categories }) {
                     <h1 className="flex items-center gap-2 text-xl font-semibold text-gray-800">
                         <Landmark className="h-5 w-5 text-slate-400" />
                         {product?.id
-                            ? 'Edit Produk Pinjaman SHM'
-                            : 'Tambah Produk Pinjaman SHM'}
+                            ? 'Edit Produk Pinjaman BSM Makro'
+                            : 'Tambah Produk Pinjaman BSM Makro'}
                     </h1>
                     <p className="text-sm text-gray-500">
                         Master ini hanya mengelola identitas &amp; syarat
@@ -209,7 +209,7 @@ export default function ProductForm({ product, categories }) {
                         <button
                             type="submit"
                             disabled={processing}
-                            className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                            className="inline-flex items-center gap-2 rounded-lg bg-bsm-primary px-4 py-2 text-sm font-semibold text-white hover:bg-bsm-primary-hover disabled:opacity-50"
                         >
                             <Save className="h-4 w-4" />
                             {product?.id

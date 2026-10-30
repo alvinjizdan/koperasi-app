@@ -122,6 +122,8 @@ class StoreShmLoanApplicationRequest extends FormRequest
             // executable/script, dan batas 2 MB sebagai batas teknis wajar
             // untuk satu berkas gambar dokumentasi jaminan.
             'jaminan.*.foto' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            // Dokumen jaminan pendukung (PDF, maks 5 MB).
+            'jaminan.*.dokumen' => ['nullable', 'file', 'mimes:pdf', 'max:5120'],
 
             // Section 6 — Catatan Kasir / SC.
             'catatan.date' => ['nullable', 'date'],

@@ -627,7 +627,7 @@ export default function Settlement({
                                         type="button"
                                         onClick={recordPayment}
                                         disabled={!selectedPaymentId}
-                                        className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                                        className="inline-flex items-center gap-2 rounded-lg bg-bsm-primary px-4 py-2 text-sm font-semibold text-white hover:bg-bsm-primary-hover disabled:opacity-50"
                                     >
                                         <Link2 className="h-4 w-4" />
                                         Tautkan Pembayaran
@@ -813,7 +813,7 @@ export default function Settlement({
                             <button
                                 type="submit"
                                 disabled={processing || previewDiscountBlocked}
-                                className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                                className="inline-flex items-center gap-2 rounded-lg bg-bsm-primary px-4 py-2 text-sm font-semibold text-white hover:bg-bsm-primary-hover disabled:opacity-50"
                             >
                                 Ajukan Pelunasan
                             </button>

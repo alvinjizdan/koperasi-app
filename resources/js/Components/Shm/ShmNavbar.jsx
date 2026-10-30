@@ -26,23 +26,23 @@ export default function ShmNavbar({ pageTitle, onMobileMenuToggle }) {
 
                 <div className="flex min-w-0 flex-col sm:flex-row sm:items-center sm:gap-2">
                     <div className="flex items-center text-xs font-medium text-slate-500">
-                        <span className="font-semibold text-indigo-600">SHM</span>
+                        <span className="font-semibold text-bsm-accent">BSM Makro</span>
                         <ChevronRight className="mx-1 h-3.5 w-3.5 text-slate-400" />
                     </div>
-                    <h1 className="truncate text-base font-semibold tracking-tight text-slate-900 sm:text-lg">
+                    <h2 className="truncate text-sm font-semibold tracking-tight text-slate-800 sm:text-base">
                         {pageTitle || "Dashboard"}
-                    </h1>
+                    </h2>
                 </div>
             </div>
 
             <Link
                 href={route("dashboard")}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                title="Pindah ke aplikasi koperasi tanpa keluar"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                title="Pindah ke BSM Mikro tanpa keluar"
             >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Kembali ke Koperasi</span>
-                <span className="sm:hidden">Koperasi</span>
+                <span className="hidden sm:inline">Kembali ke BSM Mikro</span>
+                <span className="sm:hidden">BSM Mikro</span>
             </Link>
         </header>
     );

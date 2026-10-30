@@ -648,6 +648,8 @@ Route::prefix('shm')->name('shm.')->group(function () {
             // privat; route ini satu-satunya jalan membacanya.
             Route::get('/pinjaman/pengajuan/{application}/jaminan/{collateral}/foto', [ShmLoanController::class, 'collateralPhoto'])
                 ->name('loans.pengajuan.jaminan.foto');
+            Route::get('/pinjaman/pengajuan/{application}/jaminan/{collateral}/dokumen', [ShmLoanController::class, 'collateralDocument'])
+                ->name('loans.pengajuan.jaminan.dokumen');
 
             // Daftar record pinjaman SHM + detail pinjaman.
             Route::get('/pinjaman', [ShmLoanController::class, 'index'])

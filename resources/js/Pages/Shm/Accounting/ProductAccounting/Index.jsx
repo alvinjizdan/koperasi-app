@@ -13,12 +13,12 @@ export default function Index({ products }) {
     };
 
     return (
-        <ShmLayout title="Konfigurasi Akuntansi Produk" pageTitle="Konfigurasi Akuntansi Produk SHM">
+        <ShmLayout title="Konfigurasi Akuntansi Produk" pageTitle="Konfigurasi Akuntansi Produk BSM Makro">
             <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                    <h2 className="text-xl font-bold text-slate-900">Akuntansi Produk Pinjaman SHM</h2>
+                    <h2 className="text-xl font-bold text-slate-900">Akuntansi Produk Pinjaman BSM Makro</h2>
                     <p className="mt-1 text-xs sm:text-sm text-slate-500">
-                        Penetapan akun perkiraan (COA SHM) resmi untuk setiap produk pinjaman: Kas/Bank, Piutang Pokok, Pendapatan Bunga, Pendapatan Denda, dan Diskon Pelunasan.
+                        Penetapan akun perkiraan (COA BSM Makro) resmi untuk setiap produk pinjaman: Kas/Bank, Piutang Pokok, Pendapatan Bunga, Pendapatan Denda, dan Diskon Pelunasan.
                     </p>
                 </div>
             </div>
@@ -26,8 +26,8 @@ export default function Index({ products }) {
             {products.length === 0 ? (
                 <EmptyState
                     icon={Layers}
-                    title="Belum Ada Produk Pinjaman SHM"
-                    description="Daftar produk pinjaman SHM masih kosong. Silakan tambahkan produk di Master Produk Pinjaman."
+                    title="Belum Ada Produk Pinjaman BSM Makro"
+                    description="Daftar produk pinjaman BSM Makro masih kosong. Silakan tambahkan produk di Master Produk Pinjaman."
                 />
             ) : (
                 <ScrollArea className="rounded-xl border border-slate-200 bg-white shadow-xs">

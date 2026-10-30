@@ -215,8 +215,8 @@ export default function Payments({ payments, loans, sort, filters, today, flash 
     ];
 
     return (
-        <ShmLayout title="Pembayaran Pinjaman SHM">
-            <Head title="Pembayaran Pinjaman SHM" />
+        <ShmLayout title="Pembayaran Pinjaman BSM Makro">
+            <Head title="Pembayaran Pinjaman BSM Makro" />
 
             <div className="space-y-6">
                 <div>
@@ -225,7 +225,7 @@ export default function Payments({ payments, loans, sort, filters, today, flash 
                         Pembayaran / Angsuran
                     </h1>
                     <p className="text-sm text-gray-500">
-                        Transaksi pembayaran atas pinjaman SHM yang sudah
+                        Transaksi pembayaran atas pinjaman BSM Makro yang sudah
                         dicairkan. Alokasi ke angsuran diproses terpisah, sehingga
                         pembayaran di bawah belum mengubah status angsuran.
                     </p>
@@ -464,7 +464,7 @@ export default function Payments({ payments, loans, sort, filters, today, flash 
                     onSort={handleSort}
                     routeName="shm.loans.payments.index"
                     emptyTitle="Belum ada pembayaran"
-                    emptyDescription="Transaksi pembayaran pinjaman SHM akan tampil di sini."
+                    emptyDescription="Transaksi pembayaran pinjaman BSM Makro akan tampil di sini."
                 />
             </div>
         </ShmLayout>

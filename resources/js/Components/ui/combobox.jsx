@@ -43,7 +43,7 @@ export function toLabeledCollection(options) {
 }
 
 const inputBase =
-    "w-full rounded-md border border-slate-300 bg-white py-2 text-sm text-slate-900 shadow-sm transition-colors focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 data-[invalid]:border-rose-400 disabled:cursor-not-allowed disabled:bg-slate-50";
+    "w-full rounded-md border border-slate-300 bg-white py-2 text-sm text-slate-900 shadow-sm transition-colors focus:border-bsm-primary focus:outline-none focus:ring-1 focus:ring-bsm-primary data-[invalid]:border-rose-400 disabled:cursor-not-allowed disabled:bg-slate-50";
 const inputPadding = "ps-3 pe-8";
 
 function Combobox({
@@ -242,7 +242,7 @@ function ComboboxChips({ className, ...props }) {
     return (
         <ComboboxPrimitive.Combobox.Chips
             className={cn(
-                "flex min-h-10 w-full flex-wrap items-center gap-1 rounded-md border border-slate-300 bg-white p-1 shadow-sm focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500",
+                "flex min-h-10 w-full flex-wrap items-center gap-1 rounded-md border border-slate-300 bg-white p-1 shadow-sm focus-within:border-bsm-primary focus-within:ring-1 focus-within:ring-bsm-primary",
                 className,
             )}
             {...props}

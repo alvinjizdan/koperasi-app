@@ -230,7 +230,7 @@ export default function Index({
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
                             placeholder="No. pengajuan, nama, nomor nasabah, atau NIK"
-                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
                         />
                     </div>
                     <div>
@@ -238,7 +238,7 @@ export default function Index({
                         <select
                             value={status}
                             onChange={(event) => setStatus(event.target.value)}
-                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
                         >
                             {statuses.map((item) => (
                                 <option key={item.value} value={item.value}>
@@ -252,7 +252,7 @@ export default function Index({
                         <select
                             value={outcome}
                             onChange={(event) => setOutcome(event.target.value)}
-                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
                         >
                             {outcomes.map((item) => (
                                 <option key={item.value} value={item.value}>
@@ -266,7 +266,7 @@ export default function Index({
                         <select
                             value={checkerId}
                             onChange={(event) => setCheckerId(event.target.value)}
-                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
                         >
                             <option value="all">Semua petugas</option>
                             {checkers.map((item) => (
@@ -284,7 +284,7 @@ export default function Index({
                             type="date"
                             value={dateFrom}
                             onChange={(event) => setDateFrom(event.target.value)}
-                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
                         />
                     </div>
                     <div>
@@ -293,14 +293,14 @@ export default function Index({
                             type="date"
                             value={dateTo}
                             onChange={(event) => setDateTo(event.target.value)}
-                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
                         />
                     </div>
 
                     <div className="flex flex-wrap items-end gap-2 sm:col-span-2 lg:col-span-6">
                         <button
                             type="submit"
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold text-white transition-all hover:bg-slate-900 active:scale-95"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-3.5 py-2 text-xs font-semibold text-white transition-all hover:bg-slate-900 active:scale-95 shadow-xs"
                         >
                             <Filter className="h-3.5 w-3.5" />
                             Terapkan
@@ -308,7 +308,7 @@ export default function Index({
                         <button
                             type="button"
                             onClick={resetFilters}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-95 shadow-xs"
                         >
                             <RotateCcw className="h-3.5 w-3.5" />
                             Reset

@@ -129,7 +129,7 @@ export default function Show({ customer, applications, permissions, flash }) {
                         </h2>
                         <dl className="space-y-3 text-sm">
                             <div>
-                                <dt className="text-xs text-gray-500">Kode Nasabah SHM</dt>
+                                <dt className="text-xs text-gray-500">Kode Nasabah BSM Makro</dt>
                                 <dd className="font-medium">{customer.customer_number}</dd>
                             </div>
                             <div>
@@ -203,7 +203,7 @@ export default function Show({ customer, applications, permissions, flash }) {
                             columns={columns}
                             rows={applications}
                             emptyTitle="Belum ada pengajuan"
-                            emptyDescription="Pengajuan SHM untuk nasabah ini akan tampil di sini."
+                            emptyDescription="Pengajuan BSM Makro untuk nasabah ini akan tampil di sini."
                         />
                     </section>
                 </div>
@@ -212,7 +212,7 @@ export default function Show({ customer, applications, permissions, flash }) {
                     isOpen={showDeleteConfirm}
                     onClose={() => setShowDeleteConfirm(false)}
                     onConfirm={confirmDelete}
-                    title="Hapus Nasabah SHM"
+                    title="Hapus Nasabah BSM Makro"
                     message={`Kode ${customer.customer_number} - ${customer.name} akan dihapus permanen. Penghapusan hanya dilakukan bila nasabah belum memiliki pengajuan, pinjaman, atau riwayat aktivitas. Lanjutkan?`}
                     confirmText="Ya, Hapus"
                     isProcessing={isDeleting}

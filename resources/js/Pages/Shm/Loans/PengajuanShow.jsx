@@ -3,7 +3,7 @@ import { Head, Link, router, usePage } from '@inertiajs/react';
 import ShmLayout from '@/Layouts/ShmLayout';
 import SecondaryButton from '@/Components/SecondaryButton';
 import { formatDateTime, formatRupiah } from '@/utils/format';
-import { Banknote, FileCheck, FileDown, Info, Pencil, Send } from 'lucide-react';
+import { Banknote, FileCheck, FileDown, FileText, Info, Pencil, Send } from 'lucide-react';
 
 /**
  * Detail Pengajuan Pinjaman SHM yang SUDAH TERSIMPAN (Ticket 67).
@@ -334,14 +334,14 @@ export default function PengajuanShow({ application, flash }) {
 
                 <DetailSection index={1} title="Data Pribadi">
                     <dl>
-                        <Row label="Nomor Nasabah (Nomor Anggota SHM)" value={customer.customer_number} />
+                        <Row label="Nomor Nasabah (Nomor Anggota BSM Makro)" value={customer.customer_number} />
                         <Row label="Tanggal Pengajuan" value={application.application_date} />
                         <Row label="Nama Lengkap" value={customer.name} />
                         <Row label="No. Identitas (NIK)" value={customer.nik} />
                         <Row label="No. Ponsel" value={customer.phone} />
                         <Row label="Alamat" value={customer.address} />
                         <Row label="Status" value={customer.is_active ? 'Aktif' : 'Nonaktif'} />
-                        <Row label="Tanggal Menjadi Nasabah SHM" value={customer.registered_at} />
+                        <Row label="Tanggal Menjadi Nasabah BSM Makro" value={customer.registered_at} />
                         {/* Data Pribadi — nilai milik pengajuan ini (`shm_loan_applications`), bukan master nasabah. */}
                         <Row label="Unit Kerja" value={pribadi.unit_kerja} />
                         <Row label="NIP" value={pribadi.nip} />
@@ -537,6 +537,30 @@ export default function PengajuanShow({ application, flash }) {
                                             Belum ada foto jaminan.
                                         </p>
                                     )}
+
+                                    {/* Dokumen Jaminan (PDF) */}
+                                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+                                        <div>
+                                            <span className="text-xs font-semibold text-slate-600 block">
+                                                Dokumen Jaminan (PDF)
+                                            </span>
+                                            {item.dokumen_url ? (
+                                                <a
+                                                    href={item.dokumen_url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800 underline"
+                                                >
+                                                    <FileText className="h-4 w-4 shrink-0" />
+                                                    <span>{item.dokumen_name || 'Buka / Unduh Dokumen PDF'}</span>
+                                                </a>
+                                            ) : (
+                                                <p className="mt-1 text-xs text-slate-400">
+                                                    Belum ada dokumen jaminan.
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -569,8 +593,7 @@ export default function PengajuanShow({ application, flash }) {
 
                 <DetailSection index={8} title="Data Tambahan Analisa Pinjaman">
                     <p className="text-sm text-slate-500">
-                        Belum tersedia — struktur field masih PENDING BUSINESS
-                        CONFIRMATION.
+                        Belum ada data tambahan.
                     </p>
                 </DetailSection>
 
@@ -578,10 +601,6 @@ export default function PengajuanShow({ application, flash }) {
                     <dl>
                         <Row label="Nama Kolektor Pinjaman" value={application.kolektor.name} />
                     </dl>
-                    <p className="mt-2 text-xs text-slate-500">
-                        Master kolektor belum tersedia (PENDING BUSINESS
-                        CONFIRMATION).
-                    </p>
                 </DetailSection>
 
                 <DetailSection index={10} title="Persetujuan Pinjaman">
@@ -615,7 +634,7 @@ export default function PengajuanShow({ application, flash }) {
                                 application.pengajuan.first_due_date || '—'
                             }
                         />
-                        <Row label="Metode perhitungan" value={application.persetujuan.method ?? 'Belum dipilih (PENDING)'} />
+                        <Row label="Metode perhitungan" value={application.persetujuan.method ?? '—'} />
                         <Row label="Status keputusan" value={status.text} />
                     </dl>
                     <p className="mt-2 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm text-slate-700">

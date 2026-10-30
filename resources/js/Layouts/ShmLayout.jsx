@@ -21,8 +21,8 @@ export default function ShmLayout({ title, pageTitle, children }) {
     const [mobileOpen, setMobileOpen] = useState(false);
 
     return (
-        <div className="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased selection:bg-indigo-500 selection:text-white">
-            <Head title={title || pageTitle || "SHM"} />
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased selection:bg-bsm-accent selection:text-white">
+            <Head title={title || pageTitle || "BSM Makro"} />
 
             <ShmSidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
 
@@ -36,17 +36,17 @@ export default function ShmLayout({ title, pageTitle, children }) {
                     {children}
                 </main>
 
-                <footer className="flex flex-col items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-4 text-xs text-slate-500 sm:flex-row sm:px-6 lg:pl-64 lg:pr-8">
+                <footer className="flex flex-col items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-4 text-xs text-slate-500 sm:flex-row sm:px-6 lg:px-8">
                     <div>
                         <span className="font-semibold text-slate-700">
-                            SHM — Sistem Manajemen SHM/SHGB
+                            BSM Makro — Sistem Manajemen SHM/SHGB
                         </span>{" "}
                         &copy; {new Date().getFullYear()} KSP Bima Sakti Mandiri.
                     </div>
                     <div className="flex items-center gap-3 text-slate-400">
-                        <span>Modul SHM</span>
+                        <span>BSM Makro</span>
                         <span>&bull;</span>
-                        <span>Satu aplikasi dengan Koperasi</span>
+                        <span>Satu aplikasi dengan BSM Mikro</span>
                     </div>
                 </footer>
             </div>

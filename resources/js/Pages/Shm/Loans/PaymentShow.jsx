@@ -300,7 +300,7 @@ export default function PaymentShow({ payment, timeline, flash }) {
                                 type="button"
                                 onClick={handleAllocate}
                                 disabled={router.processing}
-                                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                                className="inline-flex items-center gap-2 rounded-lg bg-bsm-primary px-4 py-2 text-sm font-semibold text-white hover:bg-bsm-primary-hover disabled:opacity-50"
                             >
                                 <PlayCircle className="h-4 w-4" />
                                 {router.processing

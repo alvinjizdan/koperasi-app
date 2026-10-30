@@ -362,6 +362,8 @@ class ShmLoanPengajuanTest extends TestCase
             'shm.loans.pengajuan.daftar',
             'shm.loans.pengajuan.disburse',
             'shm.loans.pengajuan.edit',
+            // Dokumen PDF jaminan (ticket upload-dokumen-jaminan).
+            'shm.loans.pengajuan.jaminan.dokumen',
             'shm.loans.pengajuan.jaminan.foto',
             'shm.loans.pengajuan.pdf',
             'shm.loans.pengajuan.show',

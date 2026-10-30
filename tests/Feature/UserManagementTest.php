@@ -71,12 +71,14 @@ class UserManagementTest extends TestCase
     /** 2. Pengguna berwenang dapat membuat dan mengubah akun */
     public function test_authorized_user_can_create_and_update_accounts(): void
     {
+        $branchManagerRole = Role::query()->where('name', 'branch_manager')->value('id');
+
         $createData = [
             'name' => 'Petugas Baru',
             'email' => 'petugas@ksp.test',
             'password' => 'rahasia123',
             'password_confirmation' => 'rahasia123',
-            'roles' => [Role::query()->where('name', 'kasir')->value('id')],
+            'roles' => [$branchManagerRole],
             'is_active' => true,
         ];
 
@@ -84,11 +86,13 @@ class UserManagementTest extends TestCase
 
         $user = User::query()->where('email', 'petugas@ksp.test')->firstOrFail();
         $response->assertRedirect(route('pengaturan.users.show', $user->id));
-        $this->assertTrue($user->hasRole('kasir'));
+        $this->assertTrue($user->hasRole('branch_manager'));
 
         $update = $this->actingAs($this->superadmin)->put(route('pengaturan.users.update', $user->id), [
             'name' => 'Petugas Diubah',
             'email' => 'petugas@ksp.test',
+            'roles' => [$branchManagerRole],
+            'is_active' => true,
         ]);
 
         $update->assertRedirect(route('pengaturan.users.show', $user->id));
@@ -225,33 +229,36 @@ class UserManagementTest extends TestCase
     public function test_role_and_permission_changes_persist(): void
     {
         $target = $this->plainUser();
-        $kasirRole = Role::query()->where('name', 'kasir')->value('id');
+        $bmRole = Role::query()->where('name', 'branch_manager')->value('id');
         $marketingRole = Role::query()->where('name', 'marketing')->value('id');
 
         $this->actingAs($this->superadmin)
             ->patch(route('pengaturan.users.update-roles', $target->id), [
-                'roles' => [$kasirRole, $marketingRole],
+                'roles' => [$bmRole, $marketingRole],
             ])
             ->assertSessionHas('success');
 
+        $expectedIds = [$bmRole, $marketingRole];
+        sort($expectedIds);
+
         $this->assertSame(
-            [$kasirRole, $marketingRole],
+            $expectedIds,
             $target->fresh()->roles()->pluck('roles.id')->sort()->values()->all()
         );
 
         // Perubahan permission role tersimpan.
-        $role = Role::query()->where('name', 'kasir')->first();
+        $role = Role::query()->where('name', 'branch_manager')->first();
         $oldPermissions = $role->permissions()->pluck('permissions.name')->all();
 
         $this->actingAs($this->superadmin)
             ->put(route('pengaturan.roles.update', $role->id), [
-                'display_name' => 'Kasir',
+                'display_name' => 'Branch Manager',
                 'description' => $role->description,
-                'permissions' => ['dashboard.view', 'kasir.view'],
+                'permissions' => ['dashboard.view', 'laporan.view'],
             ])
             ->assertSessionHas('success');
 
-        $this->assertSame(['dashboard.view', 'kasir.view'], $role->fresh()->permissions()->pluck('permissions.name')->all());
+        $this->assertSame(['dashboard.view', 'laporan.view'], $role->fresh()->permissions()->pluck('permissions.name')->all());
 
         // Kembalikan agar test lain tidak terpengaruh (meski RefreshDatabase menangani).
         $role->permissions()->sync(Permission::query()->whereIn('name', $oldPermissions)->pluck('id'));
@@ -261,15 +268,20 @@ class UserManagementTest extends TestCase
     public function test_role_in_use_cannot_be_deleted(): void
     {
         $target = $this->plainUser();
-        $kasirRole = Role::query()->where('name', 'kasir')->first();
+        $customRole = Role::query()->create([
+            'name' => 'custom_operasional',
+            'display_name' => 'Custom Operasional',
+            'is_system' => false,
+            'is_active' => true,
+        ]);
 
-        $target->roles()->attach($kasirRole->id);
+        $target->roles()->attach($customRole->id);
 
         $this->actingAs($this->superadmin)
-            ->delete(route('pengaturan.roles.destroy', $kasirRole->id))
+            ->delete(route('pengaturan.roles.destroy', $customRole->id))
             ->assertSessionHas('error');
 
-        $this->assertDatabaseHas('roles', ['id' => $kasirRole->id]);
+        $this->assertDatabaseHas('roles', ['id' => $customRole->id]);
     }
 
     /** 9b. Role sistem dan Superadmin tidak dapat dihapus */
@@ -394,7 +406,7 @@ class UserManagementTest extends TestCase
         $this->actingAs($this->superadmin)->patch(route('pengaturan.users.toggle-active', $created->id));
 
         $this->actingAs($this->superadmin)->patch(route('pengaturan.users.update-roles', $created->id), [
-            'roles' => [Role::query()->where('name', 'kasir')->value('id')],
+            'roles' => [Role::query()->where('name', 'branch_manager')->value('id')],
         ]);
 
         $this->actingAs($this->superadmin)->put(route('pengaturan.profile.update'), [
@@ -434,8 +446,8 @@ class UserManagementTest extends TestCase
     /** 14. Perubahan role tidak merusak akses modul yang sudah ada */
     public function test_role_change_preserves_module_access_for_other_users(): void
     {
-        $kasir = User::factory()->create();
-        $kasir->roles()->attach(Role::query()->where('name', 'kasir')->value('id'));
+        $bm = User::factory()->create();
+        $bm->roles()->attach(Role::query()->where('name', 'branch_manager')->value('id'));
 
         $other = User::factory()->create();
         // Role admin memegang seluruh permission (all_permissions), termasuk
@@ -443,24 +455,24 @@ class UserManagementTest extends TestCase
         // lain tidak ikut berubah.
         $other->roles()->attach(Role::query()->where('name', 'admin')->value('id'));
 
-        // Kasir dapat membuka sesi (kasir.open_session).
-        $this->assertTrue($kasir->fresh()->hasPermission('kasir.open_session'));
+        // Branch manager dapat melihat laporan (laporan.view).
+        $this->assertTrue($bm->fresh()->hasPermission('laporan.view'));
         $this->assertTrue($other->fresh()->hasPermission('pinjaman.approve'));
-        $this->assertFalse($kasir->fresh()->hasPermission('pinjaman.approve'));
+        $this->assertFalse($bm->fresh()->hasPermission('pinjaman.approve'));
 
-        // Perubahan role kasir (role lain ditambahkan) tidak menghapus akses kasir.
-        $this->actingAs($this->superadmin)->patch(route('pengaturan.users.update-roles', $kasir->id), [
+        // Perubahan role branch manager (role lain ditambahkan) tidak menghapus akses lama.
+        $this->actingAs($this->superadmin)->patch(route('pengaturan.users.update-roles', $bm->id), [
             'roles' => [
-                Role::query()->where('name', 'kasir')->value('id'),
+                Role::query()->where('name', 'branch_manager')->value('id'),
                 Role::query()->where('name', 'marketing')->value('id'),
             ],
         ]);
 
-        $this->assertTrue($kasir->fresh()->hasPermission('kasir.open_session'));
-        // Akses bawaan kasir tetap utuh.
-        $this->assertTrue($kasir->fresh()->hasPermission('simpanan.deposit'));
-        // Role marketing menambah hak baca tanpa menghapus hak lama.
-        $this->assertTrue($kasir->fresh()->hasPermission('pinjaman.view'));
+        $this->assertTrue($bm->fresh()->hasPermission('laporan.view'));
+        // Akses bawaan tetap utuh.
+        $this->assertTrue($bm->fresh()->hasPermission('dashboard.view'));
+        // Role marketing menambah hak baca/tulis marketing.
+        $this->assertTrue($bm->fresh()->hasPermission('marketing.view'));
     }
 
     /** 14b. Akses modul laporan tetap berfungsi setelah sistem permission diaktifkan */

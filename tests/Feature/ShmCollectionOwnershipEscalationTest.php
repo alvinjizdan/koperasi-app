@@ -575,10 +575,10 @@ class ShmCollectionOwnershipEscalationTest extends TestCase
             config('shm-business-rule-contract.collection_workflow.roles.president_director.technical_role_key'),
         );
 
-        // Tidak ada role teknis BM/PD di database (hanya role existing).
+        // President Director menggunakan identifier direktur_utama, bukan president_director.
         $this->assertSame(
             [],
-            Role::query()->whereIn('name', ['branch_manager', 'president_director'])->pluck('name')->all(),
+            Role::query()->whereIn('name', ['president_director'])->pluck('name')->all(),
         );
 
         // T96 tidak menambahkan permission eskalasi/assignment apa pun pada

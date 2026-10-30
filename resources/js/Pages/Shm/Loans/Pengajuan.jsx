@@ -5,10 +5,9 @@ import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import { formatRupiah } from '@/utils/format';
 import {
-    AlertTriangle,
     ChevronDown,
     FileSignature,
-    Info,
+    FileText,
     Plus,
     Trash2,
 } from 'lucide-react';
@@ -42,7 +41,7 @@ import {
  *   = total penghasilan − total pengeluaran. Saat ini sistem belum
  *   menerapkan ambang minimum penghasilan, DSCR, maupun aturan eligibility
  *   tambahan pada angka cashflow ini (CONFIRMED T100 — contract
- *   decision_domains.application_income_expense).
+ *   decision_domains.application_income_expense). Status fitur belum ditentukan: PENDING BUSINESS CONFIRMATION.
  */
 
 /** 11 section halaman ini, berurutan sesuai referensi. */
@@ -111,16 +110,6 @@ const toAmount = (value) => {
 const groupDigits = (digits) =>
     digits === '' ? '' : digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
-/** Catatan GAP — field referensi yang belum tersedia di domain existing. */
-function GapNote({ children }) {
-    return (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-800">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <p>{children}</p>
-        </div>
-    );
-}
-
 /**
  * Ticket 77 — sel foto jaminan: pratinjau berkas lokal (object URL) atau
  * foto tersimpan dari server, plus pemilih berkas untuk unggah/penggantian.
@@ -161,6 +150,50 @@ function FotoCell({ item, index, onPick }) {
                 }
                 className="w-28 text-xs text-slate-500"
                 aria-label={`Pilih foto jaminan ${item.nama}`}
+            />
+        </div>
+    );
+}
+
+/**
+ * Sel dokumen PDF jaminan: menampilkan link/indikator dokumen tersimpan
+ * atau file yang baru dipilih, plus pemilih berkas PDF untuk unggah/penggantian.
+ */
+function DokumenCell({ item, index, onPick }) {
+    const fileName =
+        item.dokumen instanceof File
+            ? item.dokumen.name
+            : item.dokumen_name;
+
+    return (
+        <div className="flex flex-col gap-1">
+            {item.dokumen_url && !(item.dokumen instanceof File) ? (
+                <a
+                    href={item.dokumen_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 underline truncate max-w-[180px]"
+                    title={fileName || 'Lihat Dokumen PDF'}
+                >
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{fileName || 'Lihat PDF'}</span>
+                </a>
+            ) : item.dokumen instanceof File ? (
+                <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium truncate max-w-[180px]" title={fileName}>
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{fileName}</span>
+                </span>
+            ) : (
+                <span className="text-xs text-slate-400">Belum ada dokumen</span>
+            )}
+            <input
+                type="file"
+                accept="application/pdf"
+                onChange={(event) =>
+                    onPick(index, event.target.files?.[0] ?? null)
+                }
+                className="w-28 text-xs text-slate-500"
+                aria-label={`Pilih dokumen PDF jaminan ${item.nama}`}
             />
         </div>
     );
@@ -372,6 +405,9 @@ export default function Pengajuan({ today, products, customers, options, applica
         // foto); `foto_url` diisi server untuk foto yang sudah tersimpan.
         foto: null,
         foto_url: null,
+        dokumen: null,
+        dokumen_url: null,
+        dokumen_name: null,
         picked: false,
     };
     const [showJaminanForm, setShowJaminanForm] = useState(false);
@@ -409,6 +445,15 @@ export default function Pengajuan({ today, products, customers, options, applica
             ),
         );
 
+    // Dokumen jaminan (PDF) — pilih/ganti dokumen pada baris jaminan yang sudah ada.
+    const setJaminanDokumen = (index, file) =>
+        setRoot(
+            'jaminan',
+            form.jaminan.map((item, i) =>
+                i === index ? { ...item, dokumen: file } : item,
+            ),
+        );
+
     // --- Persyaratan tambahan (lokal, daftar bebas ala dokumen existing) ---
     const [draftSyarat, setDraftSyarat] = useState('');
 
@@ -436,8 +481,8 @@ export default function Pengajuan({ today, products, customers, options, applica
         );
 
     const inputClass =
-        'mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500';
-    const readonlyClass = `${inputClass} bg-slate-50 text-slate-600`;
+        'mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors shadow-2xs';
+    const readonlyClass = `${inputClass} bg-slate-50 text-slate-600 shadow-none`;
     const moneyClass = `${inputClass} text-right tabular-nums`;
 
     // --- Submit ke backend (Ticket 67) ---------------------------------
@@ -451,12 +496,13 @@ export default function Pengajuan({ today, products, customers, options, applica
 
     const submitPayload = () => ({
         ...form,
-        // Ticket 77 — foto kini dikirim sebagai berkas (Inertia otomatis
-        // memakai multipart/form-data saat payload memuat File). `foto_url`
-        // hanya kunci tampilan dari server dan tidak pernah dikirim balik.
-        jaminan: form.jaminan.map(({ foto_url, ...rest }) => ({
+        // Ticket 77 & Dokumen Jaminan — berkas dikirim sebagai File (Inertia
+        // otomatis memakai multipart/form-data saat payload memuat File).
+        // URL dan nama lama server tidak dikirim ulang sebagai data simpan.
+        jaminan: form.jaminan.map(({ foto_url, dokumen_url, dokumen_name, ...rest }) => ({
             ...rest,
             foto: rest.foto instanceof File ? rest.foto : null,
+            dokumen: rest.dokumen instanceof File ? rest.dokumen : null,
         })),
     });
 
@@ -477,7 +523,7 @@ export default function Pengajuan({ today, products, customers, options, applica
         if (application) {
             const payload = submitPayload();
             const hasFiles = form.jaminan.some(
-                (item) => item.foto instanceof File,
+                (item) => item.foto instanceof File || item.dokumen instanceof File,
             );
 
             if (hasFiles) {
@@ -519,7 +565,7 @@ export default function Pengajuan({ today, products, customers, options, applica
     );
 
     return (
-        <ShmLayout title="Pengajuan Pinjaman SHM">
+        <ShmLayout title="Pengajuan Pinjaman BSM Makro">
             <div className="space-y-6">
                 {/* Header */}
                 <div className="flex flex-wrap items-start justify-between gap-4">
@@ -528,7 +574,7 @@ export default function Pengajuan({ today, products, customers, options, applica
                             <FileSignature className="h-5 w-5 text-slate-400" />
                             {application
                                 ? 'Edit Pengajuan Pinjaman'
-                                : 'Pengajuan Pinjaman SHM'}
+                                : 'Pengajuan Pinjaman BSM Makro'}
                         </h1>
                         <p className="text-sm text-gray-500">
                             {application && (
@@ -559,18 +605,6 @@ export default function Pengajuan({ today, products, customers, options, applica
                     </div>
                 </div>
 
-                <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-                    <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                    <p>
-                        Halaman ini menyimpan Pengajuan Pinjaman SHM ke
-                        server. Rate bunga mengikuti matriks produk resmi
-                        (flat, bulanan — resolved backend, bukan input halaman
-                        ini); keputusan approval tetap berjalan lewat modul
-                        Approval SHM yang sudah ada, dan tidak ada formula baru
-                        yang dibuat di sini.
-                    </p>
-                </div>
-
                 {Object.keys(errors).length > 0 && (
                     <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
                         <p className="mb-2 font-semibold">
@@ -595,18 +629,7 @@ export default function Pengajuan({ today, products, customers, options, applica
                         >
                             {section.key === 'pribadi' && (
                                 <div className="space-y-4">
-                                    <GapNote>
-                                        Nasabah SHM memakai master terpisah
-                                        (`shm_customers`) dan TIDAK otomatis
-                                        menjadi anggota koperasi — tidak ada
-                                        pembacaan tabel `members` di halaman
-                                        ini. Pemilihan nasabah hanya
-                                        menetapkan referensi pengajuan
-                                        (`shm_customer_id`); Data Pribadi di
-                                        bawah adalah milik pengajuan ini.
-                                    </GapNote>
-
-                                    <Field label="Pilih Nasabah SHM">
+                                    <Field label="Pilih Nasabah BSM Makro">
                                         <select
                                             value={form.pribadi.customer_id}
                                             onChange={(event) =>
@@ -619,7 +642,7 @@ export default function Pengajuan({ today, products, customers, options, applica
                                             className={inputClass}
                                         >
                                             <option value="">
-                                                — Pilih nasabah SHM —
+                                                — Pilih nasabah BSM Makro —
                                             </option>
                                             {customers.map((customer) => (
                                                 <option
@@ -711,7 +734,7 @@ export default function Pengajuan({ today, products, customers, options, applica
                                                     className={readonlyClass}
                                                 />
                                             </Field>
-                                            <Field label="Tanggal Menjadi Nasabah SHM">
+                                            <Field label="Tanggal Menjadi Nasabah BSM Makro">
                                                 <input
                                                     type="date"
                                                     readOnly
@@ -907,24 +930,6 @@ export default function Pengajuan({ today, products, customers, options, applica
                                             )}
                                         </Field>
                                     </div>
-
-                                    <GapNote>
-                                        Sembilan field Data Pribadi di atas
-                                        adalah DATA PENGAJUAN (tersimpan pada
-                                        `shm_loan_applications`, bukan pada
-                                        master nasabah) sehingga setiap
-                                        pengajuan dapat bernilai berbeda untuk
-                                        nasabah yang sama. Pemilihan nasabah
-                                        hanya menetapkan referensi
-                                        `shm_customer_id`; mengedit Data
-                                        Pribadi di sini TIDAK mengubah master
-                                        nasabah. Nilai dimasukkan manual:
-                                        Saldo Modal, Saldo Non Modal, dan Batas
-                                        Hutang adalah Data Pengajuan — dapat
-                                        berbeda antar pengajuan dan tidak
-                                        mengubah master nasabah; formula
-                                        otomatis (bila ada) belum ditentukan.
-                                    </GapNote>
                                 </div>
                             )}
 
@@ -1107,18 +1112,6 @@ export default function Pengajuan({ today, products, customers, options, applica
                                             </select>
                                         </Field>
                                     </div>
-
-                                    <GapNote>
-                                        Nilai pada contoh referensi (plafon,
-                                        tenor, tujuan) BUKAN default data
-                                        produksi. Rate mengikuti produk +
-                                        tenor yang dipilih (tier rate resmi)
-                                        — lihat bagian Persetujuan Pinjaman;
-                                        jadwal angsuran dibangkitkan lewat
-                                        aksi eksplisit pada detail pinjaman
-                                        (dengan metode & tanggal jatuh tempo
-                                        pertama yang dipilih pengguna).
-                                    </GapNote>
                                 </div>
                             )}
 
@@ -1194,16 +1187,6 @@ export default function Pengajuan({ today, products, customers, options, applica
                                             {formatRupiah(sisaPenghasilan)}
                                         </span>
                                     </div>
-
-                                    <GapNote>
-                                        Total penghasilan dan total pengeluaran
-                                        dihitung dari isian (bilangan bulat
-                                        rupiah); Sisa Penghasilan = total
-                                        penghasilan − total pengeluaran. Saat
-                                        ini sistem belum menerapkan ambang
-                                        minimum penghasilan, DSCR, maupun
-                                        aturan eligibility tambahan.
-                                    </GapNote>
                                 </div>
                             )}
 
@@ -1440,6 +1423,9 @@ export default function Pengajuan({ today, products, customers, options, applica
                                                         Foto
                                                     </th>
                                                     <th className="px-3 py-2">
+                                                        Dokumen (PDF)
+                                                    </th>
+                                                    <th className="px-3 py-2">
                                                         Keterangan
                                                     </th>
                                                     <th className="px-3 py-2">
@@ -1452,7 +1438,7 @@ export default function Pengajuan({ today, products, customers, options, applica
                                                 {form.jaminan.length === 0 && (
                                                     <tr>
                                                         <td
-                                                            colSpan="6"
+                                                            colSpan="7"
                                                             className="px-3 py-6 text-center text-slate-400"
                                                         >
                                                             Belum ada jaminan
@@ -1483,6 +1469,19 @@ export default function Pengajuan({ today, products, customers, options, applica
                                                                     }
                                                                     onPick={
                                                                         setJaminanFoto
+                                                                    }
+                                                                />
+                                                            </td>
+                                                            <td className="px-3 py-2">
+                                                                <DokumenCell
+                                                                    item={
+                                                                        item
+                                                                    }
+                                                                    index={
+                                                                        index
+                                                                    }
+                                                                    onPick={
+                                                                        setJaminanDokumen
                                                                     }
                                                                 />
                                                             </td>
@@ -1711,6 +1710,34 @@ export default function Pengajuan({ today, products, customers, options, applica
                                                     />
                                                 )}
                                             </Field>
+                                            <Field
+                                                label="Dokumen Jaminan (PDF)"
+                                                hint="Format: PDF — maksimal 5 MB. Dokumen legalitas/perjanjian tersimpan permanen bersama jaminan."
+                                            >
+                                                <input
+                                                    type="file"
+                                                    accept="application/pdf"
+                                                    onChange={(event) =>
+                                                        setDraftJaminan({
+                                                            ...draftJaminan,
+                                                            dokumen:
+                                                                event.target
+                                                                    .files?.[0] ??
+                                                                null,
+                                                        })
+                                                    }
+                                                    className="mt-1 block w-full text-xs text-slate-500"
+                                                />
+                                                {draftJaminan.dokumen instanceof
+                                                    File && (
+                                                    <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+                                                        <FileText className="h-4 w-4 shrink-0" />
+                                                        <span className="truncate">
+                                                            {draftJaminan.dokumen.name}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </Field>
                                             <div className="md:col-span-3">
                                                 <Field label="Keterangan">
                                                     <textarea
@@ -1756,17 +1783,6 @@ export default function Pengajuan({ today, products, customers, options, applica
                                             </div>
                                         </div>
                                     )}
-
-                                    <GapNote>
-                                        Master jenis jaminan dan status
-                                        pengikatan resmi belum tersedia
-                                        (PENDING BUSINESS CONFIRMATION),
-                                        sehingga kedua isian tetap teks bebas.
-                                        Foto jaminan kini diunggah permanen
-                                        (maksimal 2 MB, format gambar).
-                                        Modul jaminan global TIDAK dibuat —
-                                        daftar ini melekat pada form pengajuan.
-                                    </GapNote>
                                 </div>
                             )}
 
@@ -1916,24 +1932,11 @@ export default function Pengajuan({ today, products, customers, options, applica
                                             className={inputClass}
                                         />
                                     </Field>
-                                    <GapNote>
-                                        Tidak ada credit scoring, skor angka,
-                                        maupun ambang kelulusan yang dibuat di
-                                        sini — semuanya PENDING BUSINESS
-                                        CONFIRMATION.
-                                    </GapNote>
                                 </div>
                             )}
 
                             {section.key === 'analisa-tambahan' && (
                                 <div className="space-y-3">
-                                    <GapNote>
-                                        PENDING BUSINESS CONFIRMATION: struktur
-                                        field Data Tambahan Analisa Pinjaman
-                                        belum dikonfirmasi KSP. Section ini
-                                        disediakan sebagai wadah tanpa field
-                                        rekaan dan tanpa skema baru.
-                                    </GapNote>
                                     <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">
                                         Belum ada field yang dikonfirmasi untuk
                                         bagian ini.
@@ -1960,13 +1963,6 @@ export default function Pengajuan({ today, products, customers, options, applica
                                             className={inputClass}
                                         />
                                     </Field>
-                                    <GapNote>
-                                        Inspect: belum ada master/user/
-                                        relasi kolektor di aplikasi dan tidak
-                                        ada role kolektor (keputusan bisnis
-                                        yang berlaku); pemilik penagihan
-                                        collection adalah Marketing.
-                                    </GapNote>
                                 </div>
                             )}
 
@@ -2142,16 +2138,6 @@ export default function Pengajuan({ today, products, customers, options, applica
                                                 className={inputClass}
                                             />
                                         </Field>
-                                        <GapNote>
-                                            Keputusan sesungguhnya diambil
-                                            lewat modul Approval SHM existing
-                                            (ShmApproval: pending / approved /
-                                            rejected) — TIDAK ada workflow
-                                            duplikat di halaman ini. Status
-                                            DITANGGUHKAN belum ada pada
-                                            workflow existing dan menjadi
-                                            PENDING BUSINESS CONFIRMATION.
-                                        </GapNote>
                                     </div>
                                 </div>
                             )}
@@ -2237,15 +2223,6 @@ export default function Pengajuan({ today, products, customers, options, applica
                                             )}
                                         </ul>
                                     )}
-
-                                    <GapNote>
-                                        Daftar persyaratan bersifat bebas dan
-                                        dibuat pengguna — mengikuti pola
-                                        checklist dokumen SHM existing (belum
-                                        ada daftar dokumen wajib yang dikunci).
-                                        Kelengkapan dokumen resmi tetap dikelola
-                                        di modul Admin &gt; Kelengkapan Dokumen.
-                                    </GapNote>
                                 </div>
                             )}
                         </AccordionSection>

@@ -115,7 +115,7 @@ export default function TablePagination({
                         <select
                             value={perPage}
                             onChange={handlePerPageChange}
-                            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition-colors focus:border-emerald-500 focus:outline-none"
+                            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition-colors focus:border-bsm-primary focus:outline-none"
                         >
                             {(PER_PAGE_OPTIONS.includes(perPage)
                                 ? PER_PAGE_OPTIONS

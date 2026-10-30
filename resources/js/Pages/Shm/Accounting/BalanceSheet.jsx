@@ -23,12 +23,12 @@ export default function BalanceSheet({ report, filters }) {
     };
 
     return (
-        <ShmLayout title="Neraca SHM" pageTitle="Akuntansi SHM — Neraca (Balance Sheet)">
+        <ShmLayout title="Neraca BSM Makro" pageTitle="Akuntansi BSM Makro — Neraca (Balance Sheet)">
             <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                    <h2 className="text-xl font-bold text-slate-900">Neraca SHM</h2>
-                    <p className="mt-1 text-xs sm:text-sm text-slate-500">
-                        Posisi keuangan per <strong>{filters.as_of_date ? formatDate(filters.as_of_date) : 'sekarang'}</strong> — berdasarkan jurnal <strong>POSTED</strong> pada entitas <strong>Akuntansi SHM</strong>.
+                    <h1 className="text-xl font-semibold text-gray-800">Neraca BSM Makro</h1>
+                    <p className="mt-1 text-sm text-gray-500">
+                        Posisi keuangan per <strong>{filters.as_of_date ? formatDate(filters.as_of_date) : 'sekarang'}</strong> — berdasarkan jurnal <strong>POSTED</strong> pada entitas <strong>Akuntansi BSM Makro</strong>.
                     </p>
                 </div>
                 <div>

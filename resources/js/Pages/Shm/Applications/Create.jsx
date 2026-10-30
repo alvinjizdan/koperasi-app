@@ -49,12 +49,12 @@ export default function Create({ customers, can_create_customer, flash }) {
     };
 
     return (
-        <ShmLayout title="Buat Pengajuan SHM">
-            <Head title="Buat Pengajuan SHM" />
+        <ShmLayout title="Buat Pengajuan BSM Makro">
+            <Head title="Buat Pengajuan BSM Makro" />
 
             <div className="mx-auto max-w-2xl space-y-6">
                 <div>
-                    <h1 className="text-xl font-semibold text-gray-800">Buat Pengajuan SHM</h1>
+                    <h1 className="text-xl font-semibold text-gray-800">Buat Pengajuan BSM Makro</h1>
                     <p className="text-sm text-gray-500">
                         Pengajuan akan tersimpan sebagai draft dan dapat dikirim setelah dilengkapi.
                     </p>
@@ -126,8 +126,8 @@ export default function Create({ customers, can_create_customer, flash }) {
                     ) : (
                         <div className="space-y-4 rounded-lg border border-slate-200 p-4">
                             <p className="text-sm text-gray-600">
-                                Nasabah SHM baru wajib bersumber dari anggota koperasi aktif, sehingga
-                                dibuat melalui modul Nasabah SHM — bukan dari form pengajuan ini.
+                                Nasabah BSM Makro baru wajib bersumber dari anggota BSM Mikro aktif, sehingga
+                                dibuat melalui modul Nasabah BSM Makro — bukan dari form pengajuan ini.
                             </p>
                             <p className="text-xs text-gray-500">
                                 Setelah nasabah dibuat, kembali ke halaman ini dan pilih nasabah
@@ -135,7 +135,7 @@ export default function Create({ customers, can_create_customer, flash }) {
                             </p>
                             <div className="flex flex-wrap items-center gap-3">
                                 <Link href={route('shm.customers.create')}>
-                                    <PrimaryButton type="button">Buat Nasabah SHM</PrimaryButton>
+                                    <PrimaryButton type="button">Buat Nasabah BSM Makro</PrimaryButton>
                                 </Link>
                                 <SecondaryButton type="button" onClick={() => setMode('existing')}>
                                     Kembali memilih nasabah terdaftar

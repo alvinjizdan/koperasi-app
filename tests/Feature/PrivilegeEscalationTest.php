@@ -134,7 +134,7 @@ class PrivilegeEscalationTest extends TestCase
     public function test_non_superadmin_cannot_update_system_role(): void
     {
         $actor = $this->userWithPermissions(['role.update', 'dashboard.view']);
-        $role = Role::query()->where('name', 'kasir')->firstOrFail();
+        $role = Role::query()->where('name', 'branch_manager')->firstOrFail();
         $before = [
             'display_name' => $role->display_name,
             'permissions' => $role->permissions()->pluck('permissions.name')->sort()->values()->all(),
@@ -142,7 +142,7 @@ class PrivilegeEscalationTest extends TestCase
 
         $this->actingAs($actor)
             ->put(route('pengaturan.roles.update', $role->id), [
-                'display_name' => 'Kasir Diubah',
+                'display_name' => 'Branch Manager Diubah',
                 'permissions' => ['dashboard.view'],
             ])
             ->assertRedirect(route('pengaturan.roles.index'))
@@ -249,16 +249,16 @@ class PrivilegeEscalationTest extends TestCase
     /** R8. Superadmin tetap dapat mengubah role sistem (bypass utuh). */
     public function test_superadmin_can_update_system_role(): void
     {
-        $role = Role::query()->where('name', 'kasir')->firstOrFail();
+        $role = Role::query()->where('name', 'branch_manager')->firstOrFail();
 
         $this->actingAs($this->superadmin)
             ->put(route('pengaturan.roles.update', $role->id), [
-                'display_name' => 'Kasir Operasional',
-                'permissions' => ['dashboard.view', 'kasir.view'],
+                'display_name' => 'Branch Manager Utama',
+                'permissions' => ['dashboard.view', 'laporan.view'],
             ])
             ->assertSessionHas('success');
 
-        $this->assertSame('Kasir Operasional', $role->fresh()->display_name);
+        $this->assertSame('Branch Manager Utama', $role->fresh()->display_name);
     }
 
     // ================================================================
@@ -268,19 +268,19 @@ class PrivilegeEscalationTest extends TestCase
     /** U1. Superadmin dapat membuat user dengan role legitimate. */
     public function test_superadmin_can_create_user_with_legitimate_role(): void
     {
-        $kasirId = (int) Role::query()->where('name', 'kasir')->value('id');
+        $bmId = (int) Role::query()->where('name', 'branch_manager')->value('id');
 
         $this->actingAs($this->superadmin)
             ->post(route('pengaturan.users.store'), [
                 'name' => 'Petugas Baru',
                 'email' => 'petugas.baru@ksp.test',
                 'password' => 'rahasia123',
-                'roles' => [$kasirId],
+                'roles' => [$bmId],
             ])
             ->assertSessionHas('success');
 
         $created = User::query()->where('email', 'petugas.baru@ksp.test')->firstOrFail();
-        $this->assertTrue($created->hasRole('kasir'));
+        $this->assertTrue($created->hasRole('branch_manager'));
     }
 
     /** U2. Non-superadmin tidak dapat membuat user dengan role superadmin. */
@@ -328,12 +328,12 @@ class PrivilegeEscalationTest extends TestCase
     {
         $actor = $this->userWithPermissions(['pengguna.assign_role', 'dashboard.view']);
         $target = User::factory()->create();
-        $kasirId = (int) Role::query()->where('name', 'kasir')->value('id');
+        $bmId = (int) Role::query()->where('name', 'branch_manager')->value('id');
 
-        // Role kasir memuat permission (simpanan.*, kasir.*) yang tidak dipegang actor.
+        // Role branch_manager memuat permission (laporan.*, anggota.view, dll.) yang tidak dipegang actor.
         $this->actingAs($actor)
             ->patch(route('pengaturan.users.update-roles', $target->id), [
-                'roles' => [$kasirId],
+                'roles' => [$bmId],
             ])
             ->assertSessionHas('error');
 
@@ -377,11 +377,11 @@ class PrivilegeEscalationTest extends TestCase
 
         $target = User::factory()->create();
         $target->roles()->attach($this->superadminRoleId());
-        $kasirId = (int) Role::query()->where('name', 'kasir')->value('id');
+        $bmId = (int) Role::query()->where('name', 'branch_manager')->value('id');
 
         // Perubahan role ditolak.
         $this->actingAs($actor)
-            ->patch(route('pengaturan.users.update-roles', $target->id), ['roles' => [$kasirId]])
+            ->patch(route('pengaturan.users.update-roles', $target->id), ['roles' => [$bmId]])
             ->assertSessionHas('error');
         $this->assertTrue($target->fresh()->isSuperadmin());
 
@@ -426,7 +426,7 @@ class PrivilegeEscalationTest extends TestCase
             'role.update', 'role.create',
             'pengguna.create', 'pengguna.assign_role', 'pengguna.deactivate', 'pengguna.reset_password',
         ]);
-        $systemRole = Role::query()->where('name', 'kasir')->firstOrFail();
+        $systemRole = Role::query()->where('name', 'branch_manager')->firstOrFail();
         $superadminRole = Role::query()->where('name', Role::SYSTEM_SUPERADMIN)->firstOrFail();
         $victim = User::factory()->create();
 
@@ -436,7 +436,7 @@ class PrivilegeEscalationTest extends TestCase
             'role_user' => DB::table('role_user')->count(),
             'permission_role' => DB::table('permission_role')->count(),
             'users' => User::query()->count(),
-            'kasir_permissions' => $systemRole->permissions()->pluck('permissions.name')->sort()->values()->all(),
+            'bm_permissions' => $systemRole->permissions()->pluck('permissions.name')->sort()->values()->all(),
             'actor_permissions' => $actor->fresh()->effectivePermissions()->pluck('name')->sort()->values()->all(),
         ];
         $before = $snapshot();
