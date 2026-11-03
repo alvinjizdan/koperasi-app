@@ -2,37 +2,32 @@
 
 namespace App\Http\Requests\Shm;
 
-use App\Models\ShmLoan;
+use App\Models\ShmLoanProduct;
+use App\Services\Shm\ProductRateQuote;
 use App\Services\Shm\ShmLoanSimulationService;
+use App\Services\Shm\ShmProductRateService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Validator;
 
 /**
- * Ticket 64 — Validasi input Simulasi Pinjaman SHM.
+ * Validasi input Simulasi Pinjaman SHM.
  *
- * `method` dan `rate_period` WAJIB dipilih eksplisit: simulasi adalah sandbox
- * bebas sehingga sistem tidak boleh menebak metode/periode. Rate default = 2%
- * (nilai legacy form lama; rate resmi pinjaman = matriks produk — T82).
- *
- * Biaya bersifat opsional dan dimasukkan sebagai nominal (tanpa matriks biaya
- * resmi pencairan T85) — simulasi tetap input manual.
+ * Rate bunga diturunkan secara authoritative dari konfigurasi produk pinjaman
+ * dan tenor yang dipilih (ShmProductRateService), bukan fallback legacy 2%.
  */
 class LoanSimulationRequest extends FormRequest
 {
+    private ?ProductRateQuote $resolvedRateQuote = null;
+
     public function authorize(): bool
     {
-        // Otorisasi route dilakukan middleware `permission:shm.view`;
-        // tidak ada permission baru.
         return $this->user() !== null;
     }
 
     /**
      * Apakah ini submit formulir simulasi (bukan render halaman kosong)?
-     *
-     * Halaman Simulasi dimuat tanpa parameter apa pun saat pertama dibuka;
-     * form selalu menyertakan `run=1`. Dengan pembeda ini, validasi tetap
-     * berjalan penuh pada setiap submit — termasuk saat field wajib
-     * terlewat — tanpa menolak render halaman kosong.
      */
     public function isSubmitted(): bool
     {
@@ -53,7 +48,11 @@ class LoanSimulationRequest extends FormRequest
 
         return [
             'name' => ['nullable', 'string', 'max:150'],
-            'product_id' => ['nullable', 'integer', Rule::exists('shm_loan_products', 'id')->where('is_active', true)],
+            'product_id' => [
+                'required',
+                'integer',
+                Rule::exists('shm_loan_products', 'id')->where('is_active', true),
+            ],
             'principal' => ['required', 'numeric', 'min:1', 'max:1000000000000'],
             'tenor_months' => ['required', 'integer', 'min:1', 'max:600'],
             'rate_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -77,6 +76,7 @@ class LoanSimulationRequest extends FormRequest
     {
         return [
             'name.max' => 'Nama calon/nasabah tidak boleh melebihi 150 karakter.',
+            'product_id.required' => 'Produk pinjaman wajib dipilih.',
             'product_id.exists' => 'Produk pinjaman tidak ditemukan atau sudah nonaktif.',
             'principal.required' => 'Plafon pinjaman wajib diisi.',
             'principal.numeric' => 'Plafon pinjaman harus berupa angka.',
@@ -102,18 +102,62 @@ class LoanSimulationRequest extends FormRequest
     }
 
     /**
-     * Rate default simulasi = 2% (nilai legacy form lama; rate resmi
-     * pinjaman = matriks produk — T82).
+     * Validasi rate bunga terhadap konfigurasi produk & tenor.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $v): void {
+            if (! $this->isSubmitted()) {
+                return;
+            }
+
+            if ($v->errors()->has('product_id') || $v->errors()->has('tenor_months')) {
+                return;
+            }
+
+            $productId = $this->input('product_id');
+            $tenorMonths = (int) $this->input('tenor_months');
+
+            if (! $productId || $tenorMonths <= 0) {
+                return;
+            }
+
+            $product = ShmLoanProduct::query()->find($productId);
+            if (! $product) {
+                return;
+            }
+
+            try {
+                $rateService = app(ShmProductRateService::class);
+                $this->resolvedRateQuote = $rateService->resolve($product, $tenorMonths);
+            } catch (ValidationException $e) {
+                $messages = $e->errors();
+                $message = $messages['pengajuan.tenor_months'][0]
+                    ?? $messages['tenor_months'][0]
+                    ?? 'Rate bunga untuk produk dan tenor yang dipilih belum dikonfigurasi.';
+
+                $v->errors()->add('tenor_months', $message);
+            }
+        });
+    }
+
+    public function resolvedRateQuote(): ?ProductRateQuote
+    {
+        return $this->resolvedRateQuote;
+    }
+
+    /**
+     * Rate percent authoritative dari konfigurasi produk.
      */
     public function ratePercent(): float
     {
-        $rate = $this->input('rate_percent');
-
-        if ($rate === null || $rate === '') {
-            return ShmLoan::OFFICIAL_RATE_PERCENT;
+        if ($this->resolvedRateQuote) {
+            return $this->resolvedRateQuote->ratePercent;
         }
 
-        return (float) $rate;
+        $rate = $this->input('rate_percent');
+
+        return $rate !== null && $rate !== '' ? (float) $rate : 0.0;
     }
 
     /**

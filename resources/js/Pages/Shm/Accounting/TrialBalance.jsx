@@ -4,7 +4,8 @@ import ShmLayout from '@/Layouts/ShmLayout';
 import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
 import { formatRupiah } from '@/utils/format';
-import { CheckCircle2, AlertCircle, Scale, Download } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Scale } from 'lucide-react';
+import ShmReportActions from '@/Components/Shm/ShmReportActions';
 
 export default function TrialBalance({ report, filters }) {
     const { rows, totals, balanced, status, meta } = report;
@@ -17,11 +18,6 @@ export default function TrialBalance({ report, filters }) {
         router.get(route('shm.trial-balance.index'), { as_of_date: asOfDate }, { preserveState: true });
     };
 
-    const handleExport = () => {
-        const url = route('shm.trial-balance.export', { as_of_date: filters.as_of_date });
-        window.location.href = url;
-    };
-
     return (
         <ShmLayout title="Neraca Saldo BSM Makro" pageTitle="Akuntansi BSM Makro — Neraca Saldo (Trial Balance)">
             <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -32,14 +28,10 @@ export default function TrialBalance({ report, filters }) {
                     </p>
                 </div>
                 <div>
-                    <button
-                        type="button"
-                        onClick={handleExport}
-                        className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50"
-                    >
-                        <Download className="h-4 w-4" />
-                        <span>Ekspor XLSX</span>
-                    </button>
+                    <ShmReportActions
+                        exportRoute="shm.trial-balance.export"
+                        exportParams={{ as_of_date: filters.as_of_date }}
+                    />
                 </div>
             </div>
 
@@ -67,13 +59,6 @@ export default function TrialBalance({ report, filters }) {
                     </button>
                 </div>
             </form>
-
-            {/* Metadata / Limitation Warning */}
-            {meta?.limitations && meta.limitations.length > 0 && (
-                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                    <strong>Informasi:</strong> {meta.limitations.join(' ')}
-                </div>
-            )}
 
             {/* Status Balance Banner */}
             <div className={`mb-4 flex flex-wrap items-center justify-between gap-4 rounded-lg border px-4 py-3 text-xs font-semibold ${

@@ -412,11 +412,30 @@ class ShmLoanController extends Controller
         $payload = $submitted ? $request->payload() : $this->emptyForm();
         $result = $submitted ? $this->simulation->simulate($payload) : null;
 
+        $products = ShmLoanProduct::query()
+            ->active()
+            ->with('rateTiers')
+            ->orderBy('name')
+            ->get(['id', 'code', 'name', 'category'])
+            ->map(fn (ShmLoanProduct $product): array => [
+                'id' => $product->id,
+                'code' => $product->code,
+                'name' => $product->name,
+                'category' => $product->category,
+                'rate_tiers' => $product->rateTiers->map(fn ($tier): array => [
+                    'min_tenor_months' => $tier->min_tenor_months,
+                    'max_tenor_months' => $tier->max_tenor_months,
+                    'rate_percent' => (float) $tier->rate_percent,
+                    'rate_period' => $tier->rate_period,
+                    'calculation_method' => $tier->calculation_method,
+                ])->all(),
+            ]);
+
         return Inertia::render('Shm/Loans/Simulation', [
             'form' => $payload,
             'result' => $result,
-            'rate' => ShmLoan::OFFICIAL_RATE_PERCENT,
-            'products' => ShmLoanProduct::query()->active()->orderBy('name')->get(['id', 'code', 'name']),
+            'rate' => null,
+            'products' => $products,
             'options' => [
                 'methods' => ShmLoanSimulationService::supportedMethods(),
                 'periods' => ShmLoanSimulationService::supportedPeriods(),
@@ -1335,7 +1354,7 @@ class ShmLoanController extends Controller
             'product_id' => null,
             'principal' => null,
             'tenor_months' => null,
-            'rate_percent' => ShmLoan::OFFICIAL_RATE_PERCENT,
+            'rate_percent' => null,
             'method' => '',
             'rate_period' => '',
             'location' => null,

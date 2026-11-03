@@ -128,6 +128,54 @@ class ShmTrialBalanceController extends Controller
         ])->deleteFileAfterSend(true);
     }
 
+    /**
+     * Download XLSX template for Trial Balance.
+     */
+    public function template(): BinaryFileResponse
+    {
+        $rows = [
+            ['Template Neraca Saldo SHM'],
+            ['Catatan: Format kolom resmi sesuai struktur laporan Neraca Saldo'],
+            [''],
+            [
+                'Kode Akun',
+                'Nama Akun',
+                'Tipe Akun',
+                'Saldo Normal',
+                'Debit',
+                'Kredit',
+                'Saldo',
+            ],
+            [
+                '1-1100',
+                'Kas Operasional SHM',
+                'Aset',
+                'DEBIT',
+                '10000000.00',
+                '0.00',
+                '10000000.00',
+            ],
+            [
+                '4-1100',
+                'Pendapatan Bunga SHM',
+                'Pendapatan',
+                'KREDIT',
+                '0.00',
+                '10000000.00',
+                '10000000.00',
+            ],
+        ];
+
+        $filePath = sys_get_temp_dir().'/template_neraca_saldo_shm_'.uniqid().'.xlsx';
+        $this->xlsx->writeRows($filePath, $rows, 'Template_Neraca_Saldo');
+
+        $fileName = 'Template_Neraca_Saldo_SHM.xlsx';
+
+        return response()->download($filePath, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
     private function resolveAsOfDate(Request $request): string
     {
         $asOfDate = $request->query('as_of_date') ?? $request->query('end_date');

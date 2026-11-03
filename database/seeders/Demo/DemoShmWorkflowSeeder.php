@@ -9,6 +9,7 @@ use App\Models\ShmCollectionPtp;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
+use App\Models\ShmLoanApplicationCollateral;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
 use App\Services\CashierService;
@@ -184,6 +185,25 @@ class DemoShmWorkflowSeeder extends Seeder
         $disburseLoan = function (ShmCustomer $cust, float $principal, int $tenor, string $appCode, string $loanCode) use ($productPrioritas, $marketing, $disbursementService, $scheduleService): ShmLoan {
             $existingLoan = ShmLoan::query()->where('loan_number', $loanCode)->first();
             if ($existingLoan !== null) {
+                // Pastikan jaminan tetap ada untuk loan yang sudah terbentuk
+                if ($existingLoan->shm_loan_application_id) {
+                    ShmLoanApplicationCollateral::query()->firstOrCreate(
+                        [
+                            'shm_loan_application_id' => $existingLoan->shm_loan_application_id,
+                            'collateral_name' => 'Sertifikat Hak Milik No. '.(1000 + $existingLoan->shm_loan_application_id).'/Bogor',
+                        ],
+                        [
+                            'collateral_date' => now()->subMonths(3)->toDateString(),
+                            'collateral_type' => 'shm_shgb',
+                            'notes' => 'Agunan tanah & bangunan perumahan seluas 120m2.',
+                            'estimated_value' => round($principal * 1.5, 2),
+                            'binding_status' => 'HT',
+                            'binding_date' => now()->subMonths(3)->addDays(2)->toDateString(),
+                            'rights_value' => round($principal * 1.25, 2),
+                        ]
+                    );
+                }
+
                 return $existingLoan;
             }
 
@@ -220,6 +240,23 @@ class DemoShmWorkflowSeeder extends Seeder
                     'first_due_date' => now()->subMonths(2)->startOfMonth()->toDateString(),
                     'marketing_id' => $marketing->id,
                     'status' => 'approved',
+                ]
+            );
+
+            // Seed Agunan / Collateral realistis untuk pengajuan
+            ShmLoanApplicationCollateral::query()->firstOrCreate(
+                [
+                    'shm_loan_application_id' => $loanApp->id,
+                    'collateral_name' => 'Sertifikat Hak Milik No. '.(1000 + $loanApp->id).'/Bogor',
+                ],
+                [
+                    'collateral_date' => now()->subMonths(3)->toDateString(),
+                    'collateral_type' => 'shm_shgb',
+                    'notes' => 'Agunan tanah & bangunan perumahan seluas 120m2.',
+                    'estimated_value' => round($principal * 1.5, 2),
+                    'binding_status' => 'HT',
+                    'binding_date' => now()->subMonths(3)->addDays(2)->toDateString(),
+                    'rights_value' => round($principal * 1.25, 2),
                 ]
             );
 

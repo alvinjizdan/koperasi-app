@@ -3,7 +3,7 @@
 namespace App\Services\Shm;
 
 use App\Models\CashTransaction;
-use App\Models\SavingProduct;
+use App\Models\Shm\ShmSavingProduct;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Services\Accounting\ShmAutomaticJournalService;
@@ -185,22 +185,12 @@ class ShmLoanDisbursementService
                 ]);
             }
 
-            // 5f. T89C / T150 — Alokasi potongan Simpanan Pokok dan Simpanan
-            //     Wajib ke rekening anggota sumber. FAIL CLOSED: relasi anggota
-            //     sumber wajib ada dan aktif; tidak ada fallback yang boleh
-            //     melewatkan posting simpanan (T002C).
+            // 5f. Alokasi potongan Simpanan Pokok dan Simpanan Wajib ke rekening Simpanan SHM nasabah.
             $customer = $locked->customer;
-            $member = $customer?->member;
 
-            if (! $member) {
+            if (! $customer) {
                 throw ValidationException::withMessages([
-                    'application' => 'Nasabah SHM tidak memiliki relasi anggota sumber.',
-                ]);
-            }
-
-            if ($member->status !== 'active') {
-                throw ValidationException::withMessages([
-                    'application' => 'Anggota sumber tidak aktif.',
+                    'application' => 'Nasabah SHM tidak ditemukan.',
                 ]);
             }
 
@@ -224,8 +214,8 @@ class ShmLoanDisbursementService
                 // (bukan pendapatan kasir). Gagal → rollback seluruh event.
                 if ((float) $costBreakdown['principal_savings'] > 0) {
                     $this->savingsIntegration->deposit(
-                        $member,
-                        SavingProduct::CATEGORY_PRINCIPAL,
+                        $customer,
+                        ShmSavingProduct::CATEGORY_PRINCIPAL,
                         (float) $costBreakdown['principal_savings'],
                         // Idempotency key deterministik & sudah tersedia saat
                         // posting: application_id (bukan loan_id yang belum
@@ -240,8 +230,8 @@ class ShmLoanDisbursementService
                 // Simpanan Wajib: Rp25.000 × tenor - tanpa dampak kas.
                 if ((float) $costBreakdown['mandatory_savings'] > 0) {
                     $this->savingsIntegration->deposit(
-                        $member,
-                        SavingProduct::CATEGORY_MANDATORY,
+                        $customer,
+                        ShmSavingProduct::CATEGORY_MANDATORY,
                         (float) $costBreakdown['mandatory_savings'],
                         sprintf('shm-disbursement-mandatory:%d', $locked->id),
                         sprintf('Setoran Simpanan Wajib dari pencairan pinjaman SHM %s', $locked->application_number),

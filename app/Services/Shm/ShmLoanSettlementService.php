@@ -2,8 +2,8 @@
 
 namespace App\Services\Shm;
 
-use App\Models\Member;
-use App\Models\SavingProduct;
+use App\Models\Shm\ShmSavingProduct;
+use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanPayment;
@@ -493,15 +493,19 @@ class ShmLoanSettlementService
             }
 
             if ($overpayment > 0.005) {
-                // T89C/T89E — Lebih bayar BUKAN pengurangan pinjaman: posting ke
-                // Simpanan Pokok anggota sumber. Penerima diturunkan SERVER-SIDE
-                // dari relasi pemilik pinjaman (bukan input frontend), divalidasi
-                // dulu, lalu dicatat idempoten di DALAM transaksi completion.
-                $member = $this->resolveOverpaymentMember($lockedLoan, $settlement, $overpayment);
+                // Lebih bayar BUKAN pengurangan pinjaman: posting ke
+                // Simpanan Pokok SHM nasabah.
+                $customer = $lockedLoan->customer;
+
+                if (! $customer) {
+                    throw ValidationException::withMessages([
+                        'loan' => 'Nasabah SHM tidak ditemukan untuk posting overpayment.',
+                    ]);
+                }
 
                 $this->savingsIntegration->deposit(
-                    $member,
-                    SavingProduct::CATEGORY_PRINCIPAL,
+                    $customer,
+                    ShmSavingProduct::CATEGORY_PRINCIPAL,
                     $overpayment,
                     sprintf('shm-settlement-overpayment:%d', $settlement->id),
                     sprintf('Setoran Simpanan Pokok dari lebih bayar pelunasan pinjaman SHM %s', $lockedLoan->loan_number),

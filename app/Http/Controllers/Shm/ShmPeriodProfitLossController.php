@@ -129,6 +129,45 @@ class ShmPeriodProfitLossController extends Controller
     }
 
     /**
+     * Download XLSX template for Period Profit & Loss.
+     */
+    public function template(): BinaryFileResponse
+    {
+        $rows = [
+            ['Template Laporan Laba Rugi Periode SHM'],
+            ['Entitas: Akuntansi SHM'],
+            ['Catatan: Format kolom resmi sesuai struktur laporan Laba Rugi Periode'],
+            [''],
+            ['PENDAPATAN (REVENUE)', '', ''],
+            ['Kode Akun', 'Nama Akun', 'Jumlah (Rp)'],
+            ['4-1100', 'Pendapatan Bunga Pinjaman SHM', '10000000.00'],
+            ['4-1200', 'Pendapatan Provisi & Administrasi SHM', '2000000.00'],
+            ['TOTAL PENDAPATAN', '', '12000000.00'],
+            [''],
+            ['BEBAN (EXPENSE)', '', ''],
+            ['Kode Akun', 'Nama Akun', 'Jumlah (Rp)'],
+            ['5-1100', 'Beban Operasional SHM', '3000000.00'],
+            ['5-1200', 'Beban Gaji & Honor SHM', '4000000.00'],
+            ['TOTAL BEBAN', '', '7000000.00'],
+            [''],
+            ['RINGKASAN HASIL PERIODE', '', ''],
+            ['Total Pendapatan', '', '12000000.00'],
+            ['Total Beban', '', '7000000.00'],
+            ['Laba / Rugi Bersih (Net Profit/Loss)', '', '5000000.00'],
+            ['Status Hasil', '', 'SURPLUS (LABA)'],
+        ];
+
+        $filePath = sys_get_temp_dir().'/template_laba_rugi_periode_shm_'.uniqid().'.xlsx';
+        $this->xlsx->writeRows($filePath, $rows, 'Template_Laba_Rugi_Periode');
+
+        $fileName = 'Template_Laba_Rugi_Periode_SHM.xlsx';
+
+        return response()->download($filePath, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
+    /**
      * @return array{0: ?string, 1: ?string}
      */
     private function resolvePeriod(Request $request): array

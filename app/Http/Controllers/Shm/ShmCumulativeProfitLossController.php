@@ -141,6 +141,45 @@ class ShmCumulativeProfitLossController extends Controller
         ])->deleteFileAfterSend(true);
     }
 
+    /**
+     * Download XLSX template for Cumulative Profit & Loss.
+     */
+    public function template(): BinaryFileResponse
+    {
+        $rows = [
+            ['Template Laporan Laba Rugi Kumulatif SHM'],
+            ['Entitas: Akuntansi SHM'],
+            ['Catatan: Format kolom resmi sesuai struktur laporan Laba Rugi Kumulatif'],
+            [''],
+            ['PENDAPATAN KUMULATIF (CUMULATIVE REVENUE)', '', ''],
+            ['Kode Akun', 'Nama Akun', 'Jumlah Kumulatif (Rp)'],
+            ['4-1100', 'Pendapatan Bunga Pinjaman SHM', '15000000.00'],
+            ['4-1200', 'Pendapatan Provisi & Administrasi SHM', '2500000.00'],
+            ['TOTAL PENDAPATAN KUMULATIF', '', '17500000.00'],
+            [''],
+            ['BEBAN KUMULATIF (CUMULATIVE EXPENSE)', '', ''],
+            ['Kode Akun', 'Nama Akun', 'Jumlah Kumulatif (Rp)'],
+            ['5-1100', 'Beban Operasional SHM', '5000000.00'],
+            ['5-1200', 'Beban Gaji & Honor SHM', '7500000.00'],
+            ['TOTAL BEBAN KUMULATIF', '', '12500000.00'],
+            [''],
+            ['RINGKASAN HASIL KUMULATIF', '', ''],
+            ['Total Pendapatan Kumulatif', '', '17500000.00'],
+            ['Total Beban Kumulatif', '', '12500000.00'],
+            ['Laba / Rugi Kumulatif Bersih', '', '5000000.00'],
+            ['Status Hasil Kumulatif', '', 'SURPLUS (LABA)'],
+        ];
+
+        $filePath = sys_get_temp_dir().'/template_laba_rugi_kumulatif_shm_'.uniqid().'.xlsx';
+        $this->xlsx->writeRows($filePath, $rows, 'Template_Laba_Rugi_Kumulatif');
+
+        $fileName = 'Template_Laba_Rugi_Kumulatif_SHM.xlsx';
+
+        return response()->download($filePath, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
     private function resolveReportDate(Request $request): string
     {
         $reportDate = $request->query('report_date')

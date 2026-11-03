@@ -138,6 +138,52 @@ class ShmBalanceSheetController extends Controller
         ])->deleteFileAfterSend(true);
     }
 
+    /**
+     * Download XLSX template for Balance Sheet.
+     */
+    public function template(): BinaryFileResponse
+    {
+        $rows = [
+            ['Template Neraca SHM (Balance Sheet)'],
+            ['Entitas: Akuntansi SHM'],
+            ['Catatan: Format kolom resmi sesuai struktur laporan Neraca'],
+            [''],
+            ['ASET (ASSETS)', '', ''],
+            ['Kode Akun', 'Nama Akun', 'Saldo (Rp)'],
+            ['1-1100', 'Kas Operasional SHM', '50000000.00'],
+            ['1-1200', 'Piutang Pinjaman SHM', '50000000.00'],
+            ['TOTAL ASET', '', '100000000.00'],
+            [''],
+            ['LIABILITAS (LIABILITIES)', '', ''],
+            ['Kode Akun', 'Nama Akun', 'Saldo (Rp)'],
+            ['2-1100', 'Hutang Usaha SHM', '20000000.00'],
+            ['TOTAL LIABILITAS', '', '20000000.00'],
+            [''],
+            ['EKUITAS (EQUITY)', '', ''],
+            ['Kode Akun', 'Nama Akun', 'Saldo (Rp)'],
+            ['3-1100', 'Modal Disetor SHM', '80000000.00'],
+            ['TOTAL EKUITAS', '', '80000000.00'],
+            [''],
+            ['RINGKASAN PERSAMAAN AKUNTANSI (ASSETS = LIABILITIES + EQUITY)', '', ''],
+            ['Total Aset (A)', '', '100000000.00'],
+            ['Total Liabilitas (L)', '', '20000000.00'],
+            ['Total Ekuitas (E)', '', '80000000.00'],
+            ['Total Liabilitas + Ekuitas (L + E)', '', '100000000.00'],
+            ['Selisih A - (L + E)', '', '0.00'],
+            ['Status Keseimbangan', '', 'BALANCED'],
+            ['Hasil Operasional Kumulatif Berjalan', '', '0.00'],
+        ];
+
+        $filePath = sys_get_temp_dir().'/template_neraca_shm_'.uniqid().'.xlsx';
+        $this->xlsx->writeRows($filePath, $rows, 'Template_Neraca');
+
+        $fileName = 'Template_Neraca_SHM.xlsx';
+
+        return response()->download($filePath, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
     private function resolveAsOfDate(Request $request): string
     {
         $asOfDate = $request->query('as_of_date')

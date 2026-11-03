@@ -155,7 +155,7 @@ function UserFooter({ onNavigate }) {
                 type="button"
                 onClick={() => setOpen((prev) => !prev)}
                 aria-expanded={open}
-                className="relative z-20 flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-slate-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                className="relative z-20 flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-slate-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bsm-accent"
             >
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-white">
                     {initial}
@@ -242,7 +242,7 @@ function SidebarNavItem({ item, open, onToggle, variant = "desktop" }) {
                                     key={child.route}
                                     href={route(child.route)}
                                     className={`block rounded-md px-3 py-1.5 text-[13px] transition-colors duration-150 ${childActive
-                                            ? "bg-slate-800/80 font-semibold text-emerald-300"
+                                            ? "bg-slate-800/80 font-semibold text-orange-400"
                                             : "text-slate-400 hover:bg-slate-800/60 hover:text-white"
                                         }`}
                                 >
@@ -261,7 +261,7 @@ function SidebarNavItem({ item, open, onToggle, variant = "desktop" }) {
                     <Icon
                         className={`${isMobile ? "h-5 w-5" : "h-4 w-4"
                             } transition-colors ${isActive
-                                ? "text-emerald-400"
+                                ? "text-orange-400"
                                 : "text-slate-400 group-hover:text-slate-200"
                             }`}
                     />
@@ -396,8 +396,8 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
         });
 
     const renderNav = (variant) => (
-        <>
-            <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        <div className="p-3">
+            <div className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                 Menu Utama
             </div>
             <nav className="space-y-1">
@@ -416,7 +416,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
                     />
                 ))}
             </nav>
-        </>
+        </div>
     );
 
     return (
@@ -437,7 +437,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
                             />
                         </div>
                         <div className="flex flex-col">
-                            <span className="text-sm font-semibold tracking-tight text-white group-hover:text-emerald-300 transition-colors">
+                            <span className="text-sm font-semibold tracking-tight text-white group-hover:text-orange-300 transition-colors">
                                 BSM Mikro
                             </span>
                             <span className="text-xs text-slate-400 font-medium">

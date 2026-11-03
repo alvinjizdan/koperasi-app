@@ -5,7 +5,8 @@ namespace Tests\Feature;
 use App\Models\Member;
 use App\Models\Role;
 use App\Models\SavingProduct;
-use App\Models\SavingsAccount;
+use App\Models\Shm\ShmSavingProduct;
+use App\Models\Shm\ShmSavingsAccount;
 use App\Models\ShmApplication;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
@@ -17,6 +18,7 @@ use App\Services\Shm\ShmLoanPaymentService;
 use App\Services\Shm\ShmLoanSettlementService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
+use Database\Seeders\ShmSavingProductSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\Concerns\InteractsWithShmDisbursement;
@@ -53,6 +55,7 @@ class ShmCustomerMemberIntegrationTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(ShmSavingProductSeeder::class);
 
         $this->admin = User::factory()->create(['email_verified_at' => now()]);
         $this->admin->roles()->attach(Role::where('name', 'admin')->value('id'));
@@ -274,31 +277,35 @@ class ShmCustomerMemberIntegrationTest extends TestCase
 
         $this->assertNotNull($loan);
 
-        // Verifikasi Simpanan Pokok (Rp100.000) masuk ke rekening anggota
-        $principalAccount = SavingsAccount::where('member_id', $member->id)
-            ->where('saving_product_id', $this->principalProduct->id)
+        // Verifikasi Simpanan Pokok (Rp100.000) masuk ke rekening simpanan SHM nasabah (bukan koperasi)
+        $shmPrincipalProduct = ShmSavingProduct::where('category', ShmSavingProduct::CATEGORY_PRINCIPAL)->first();
+        $principalAccount = ShmSavingsAccount::where('shm_customer_id', $customer->id)
+            ->where('shm_saving_product_id', $shmPrincipalProduct->id)
             ->first();
         $this->assertNotNull($principalAccount);
         $this->assertEquals(100_000, (float) $principalAccount->balance);
 
-        // Verifikasi Simpanan Wajib (Rp25.000 x 10 bulan = Rp250.000) masuk ke rekening anggota
-        $mandatoryAccount = SavingsAccount::where('member_id', $member->id)
-            ->where('saving_product_id', $this->mandatoryProduct->id)
+        // Verifikasi Simpanan Wajib (Rp25.000 x 10 bulan = Rp250.000) masuk ke rekening simpanan SHM nasabah
+        $shmMandatoryProduct = ShmSavingProduct::where('category', ShmSavingProduct::CATEGORY_MANDATORY)->first();
+        $mandatoryAccount = ShmSavingsAccount::where('shm_customer_id', $customer->id)
+            ->where('shm_saving_product_id', $shmMandatoryProduct->id)
             ->first();
         $this->assertNotNull($mandatoryAccount);
         $this->assertEquals(250_000, (float) $mandatoryAccount->balance);
 
-        // Verifikasi mutasi transaksi tercatat
-        $this->assertDatabaseHas('savings_transactions', [
-            'savings_account_id' => $principalAccount->id,
+        // Verifikasi mutasi transaksi tercatat di shm_savings_transactions
+        $this->assertDatabaseHas('shm_savings_transactions', [
+            'shm_savings_account_id' => $principalAccount->id,
             'amount' => 100000,
             'type' => 'deposit',
         ]);
-        $this->assertDatabaseHas('savings_transactions', [
-            'savings_account_id' => $mandatoryAccount->id,
+        $this->assertDatabaseHas('shm_savings_transactions', [
+            'shm_savings_account_id' => $mandatoryAccount->id,
             'amount' => 250000,
             'type' => 'deposit',
         ]);
+        // Dan koperasi savings_transactions tetap kosong
+        $this->assertDatabaseCount('savings_transactions', 0);
     }
 
     // =========================================================================
@@ -385,23 +392,27 @@ class ShmCustomerMemberIntegrationTest extends TestCase
         $this->assertSame('closed', $loan->refresh()->status);
         $this->assertEquals(30_000_000, (float) $loan->principal);
 
-        // Verifikasi overpayment Rp1.000.000 masuk ke Simpanan Pokok anggota sumber
-        $principalAccount = SavingsAccount::where('member_id', $member->id)
-            ->where('saving_product_id', $this->principalProduct->id)
+        // Verifikasi overpayment Rp1.000.000 masuk ke Simpanan Pokok SHM nasabah
+        $shmPrincipalProduct = ShmSavingProduct::where('category', ShmSavingProduct::CATEGORY_PRINCIPAL)->first();
+        $principalAccount = ShmSavingsAccount::where('shm_customer_id', $customer->id)
+            ->where('shm_saving_product_id', $shmPrincipalProduct->id)
             ->first();
         $this->assertNotNull($principalAccount);
         $this->assertEquals(1_000_000, (float) $principalAccount->balance);
 
-        $this->assertDatabaseHas('savings_transactions', [
-            'savings_account_id' => $principalAccount->id,
+        $this->assertDatabaseHas('shm_savings_transactions', [
+            'shm_savings_account_id' => $principalAccount->id,
             'amount' => 1000000,
             'type' => 'deposit',
             'idempotency_key' => 'shm-settlement-overpayment:'.$settlement->id,
         ]);
 
+        // Koperasi savings transactions tetap 0
+        $this->assertDatabaseCount('savings_transactions', 0);
+
         // Retry idempotency: tidak membuat transaksi simpanan ganda
         $settlementService->complete($loan, $this->admin->id);
-        $this->assertDatabaseCount('savings_transactions', 1);
+        $this->assertDatabaseCount('shm_savings_transactions', 1);
         $this->assertEquals(1_000_000, (float) $principalAccount->refresh()->balance);
     }
 }

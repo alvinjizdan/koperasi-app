@@ -31,20 +31,68 @@ const EMPTY_FEES = {
  * ulang, dan tombol "Export PDF" memakai parameter yang sama sehingga PDF
  * selalu identik dengan hasil di layar.
  */
-export default function Simulation({ form: initial, result, rate, products, options }) {
+export default function Simulation({ form: initial, result, products, options }) {
     const { data, setData, errors: visitErrors, clearErrors } = useForm({
         run: initial.run ?? 1,
         name: initial.name ?? '',
         product_id: initial.product_id ?? '',
         principal: initial.principal ?? '',
         tenor_months: initial.tenor_months ?? '',
-        rate_percent: initial.rate_percent ?? rate,
+        rate_percent: initial.rate_percent ?? '',
         method: initial.method ?? '',
         rate_period: initial.rate_period ?? '',
         location: initial.location ?? '',
         purpose: initial.purpose ?? '',
         fees: { ...EMPTY_FEES, ...(initial.fees ?? {}) },
     });
+
+    const selectedProduct = products?.find((p) => String(p.id) === String(data.product_id));
+    const selectedTier = selectedProduct?.rate_tiers?.find(
+        (tier) =>
+            Number(data.tenor_months) >= tier.min_tenor_months &&
+            Number(data.tenor_months) <= tier.max_tenor_months,
+    );
+
+    const validTenorRanges = (selectedProduct?.rate_tiers || []).map((tier) =>
+        tier.min_tenor_months === tier.max_tenor_months
+            ? `${tier.min_tenor_months} bln`
+            : `${tier.min_tenor_months}–${tier.max_tenor_months} bln`,
+    );
+
+    const handleProductChange = (e) => {
+        const newProductId = e.target.value;
+        const prod = products?.find((p) => String(p.id) === String(newProductId));
+        const tier = prod?.rate_tiers?.find(
+            (t) =>
+                Number(data.tenor_months) >= t.min_tenor_months &&
+                Number(data.tenor_months) <= t.max_tenor_months,
+        );
+
+        setData((prev) => ({
+            ...prev,
+            product_id: newProductId,
+            rate_percent: tier ? tier.rate_percent : '',
+            rate_period: tier ? tier.rate_period : prev.rate_period,
+            method: tier ? tier.calculation_method : prev.method,
+        }));
+    };
+
+    const handleTenorChange = (e) => {
+        const newTenor = e.target.value;
+        const tier = selectedProduct?.rate_tiers?.find(
+            (t) =>
+                Number(newTenor) >= t.min_tenor_months &&
+                Number(newTenor) <= t.max_tenor_months,
+        );
+
+        setData((prev) => ({
+            ...prev,
+            tenor_months: newTenor,
+            rate_percent: tier ? tier.rate_percent : '',
+            rate_period: tier ? tier.rate_period : prev.rate_period,
+            method: tier ? tier.calculation_method : prev.method,
+        }));
+    };
 
     const [showFees, setShowFees] = useState(
         () => Object.values(initial.fees ?? {}).some((value) => Number(value) > 0),
@@ -92,7 +140,7 @@ export default function Simulation({ form: initial, result, rate, products, opti
             product_id: '',
             principal: '',
             tenor_months: '',
-            rate_percent: rate,
+            rate_percent: '',
             method: '',
             rate_period: '',
             location: '',
@@ -201,11 +249,11 @@ export default function Simulation({ form: initial, result, rate, products, opti
 
                         <div>
                             <label className="text-xs font-semibold text-slate-700">
-                                Produk pinjaman
+                                Produk pinjaman <span className="text-rose-600">*</span>
                             </label>
                             <select
                                 value={data.product_id}
-                                onChange={update('product_id')}
+                                onChange={handleProductChange}
                                 className={inputClass}
                             >
                                 <option value="">— Pilih produk —</option>
@@ -215,6 +263,11 @@ export default function Simulation({ form: initial, result, rate, products, opti
                                     </option>
                                 ))}
                             </select>
+                            {validTenorRanges.length > 0 && (
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Tenor tersedia: {validTenorRanges.join(', ')}
+                                </p>
+                            )}
                             {hasError('product_id') && (
                                 <p className="mt-1 text-xs text-rose-600">
                                     {error('product_id')}
@@ -224,7 +277,7 @@ export default function Simulation({ form: initial, result, rate, products, opti
 
                         <div>
                             <label className="text-xs font-semibold text-slate-700">
-                                Plafon pinjaman (Rp)
+                                Plafon pinjaman (Rp) <span className="text-rose-600">*</span>
                             </label>
                             <input
                                 type="number"
@@ -243,14 +296,14 @@ export default function Simulation({ form: initial, result, rate, products, opti
 
                         <div>
                             <label className="text-xs font-semibold text-slate-700">
-                                Tenor (bulan)
+                                Tenor (bulan) <span className="text-rose-600">*</span>
                             </label>
                             <input
                                 type="number"
                                 min="1"
                                 max="600"
                                 value={data.tenor_months}
-                                onChange={update('tenor_months')}
+                                onChange={handleTenorChange}
                                 placeholder="Contoh: 24"
                                 className={inputClass}
                             />
@@ -266,16 +319,17 @@ export default function Simulation({ form: initial, result, rate, products, opti
                                 Bunga / jasa (%)
                             </label>
                             <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="0.0001"
-                                value={data.rate_percent}
-                                onChange={update('rate_percent')}
-                                className={inputClass}
+                                type="text"
+                                readOnly
+                                value={
+                                    selectedTier
+                                        ? `${selectedTier.rate_percent}% / bulan (flat)`
+                                        : (data.rate_percent ? `${data.rate_percent}%` : '—')
+                                }
+                                className="mt-1 block w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 cursor-not-allowed"
                             />
                             <p className="mt-1 text-xs text-slate-500">
-                                Default legacy simulasi: {Number(rate)}% — rate resmi = matriks produk (T82)
+                                Bunga / jasa ditentukan otomatis berdasarkan produk dan tenor yang dipilih.
                             </p>
                             {hasError('rate_percent') && (
                                 <p className="mt-1 text-xs text-rose-600">

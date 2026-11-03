@@ -555,6 +555,7 @@ class ShmLoanApplicationTest extends TestCase
         // T89 menambah tiga route pelunasan (GET index, GET show, POST store).
         // T89B menambah workflow pelunasan + master policy diskon.
         $expected = [
+            'shm.loans.collaterals.index',
             'shm.loans.index',
             // T86 — transaksi pembayaran pinjaman SHM.
             // T87 — alokasi pembayaran ke angsuran (POST).
@@ -595,6 +596,8 @@ class ShmLoanApplicationTest extends TestCase
             'shm.loans.products.index',
             'shm.loans.products.store',
             'shm.loans.products.update',
+            'shm.loans.report.index',
+            'shm.loans.report.pdf',
             // T83 — action eksplisit pembangkitan jadwal angsuran.
             'shm.loans.schedule.generate',
             'shm.loans.show',

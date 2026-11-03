@@ -5,7 +5,8 @@ namespace Tests\Feature;
 use App\Models\CashTransaction;
 use App\Models\Member;
 use App\Models\SavingProduct;
-use App\Models\SavingsTransaction;
+use App\Models\Shm\ShmSavingProduct;
+use App\Models\Shm\ShmSavingsTransaction;
 use App\Models\ShmApplication;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
@@ -90,6 +91,22 @@ class ShmDisbursementConcurrencyTest extends TestCase
      */
     private function approvedApplicationForDisbursement(): ShmLoanApplication
     {
+        ShmSavingProduct::create([
+            'code' => 'SP-CONC-SHM',
+            'name' => 'Simpanan Pokok SHM',
+            'category' => ShmSavingProduct::CATEGORY_PRINCIPAL,
+            'description' => 'Simpanan Pokok (uji konkurensi T002C)',
+            'is_active' => true,
+        ]);
+
+        ShmSavingProduct::create([
+            'code' => 'SW-CONC-SHM',
+            'name' => 'Simpanan Wajib SHM',
+            'category' => ShmSavingProduct::CATEGORY_MANDATORY,
+            'description' => 'Simpanan Wajib (uji konkurensi T002C)',
+            'is_active' => true,
+        ]);
+
         SavingProduct::create([
             'code' => 'SP-CONC',
             'name' => 'Simpanan Pokok',
@@ -190,22 +207,22 @@ class ShmDisbursementConcurrencyTest extends TestCase
 
         $this->assertSame(
             1,
-            SavingsTransaction::query()->where('idempotency_key', $principalKey)->count(),
+            ShmSavingsTransaction::query()->where('idempotency_key', $principalKey)->count(),
             'Tepat SATU posting Simpanan Pokok.',
         );
         $this->assertSame(
             1,
-            SavingsTransaction::query()->where('idempotency_key', $mandatoryKey)->count(),
+            ShmSavingsTransaction::query()->where('idempotency_key', $mandatoryKey)->count(),
             'Tepat SATU posting Simpanan Wajib.',
         );
         $this->assertEqualsWithDelta(
             100_000,
-            (float) SavingsTransaction::query()->where('idempotency_key', $principalKey)->sum('amount'),
+            (float) ShmSavingsTransaction::query()->where('idempotency_key', $principalKey)->sum('amount'),
             0.001,
         );
         $this->assertEqualsWithDelta(
             300_000, // Rp25.000 × 12 tenor
-            (float) SavingsTransaction::query()->where('idempotency_key', $mandatoryKey)->sum('amount'),
+            (float) ShmSavingsTransaction::query()->where('idempotency_key', $mandatoryKey)->sum('amount'),
             0.001,
         );
 

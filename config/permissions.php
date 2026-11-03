@@ -185,6 +185,11 @@ return [
                 'collection.activity.create' => 'Mencatat aktivitas follow-up pada case Collection',
                 'collection.ptp.create' => 'Mencatat Promise to Pay pada case Collection',
                 'collection.ptp.transition' => 'Menandai status PTP (kept/broken) pada case Collection',
+                // Simpanan SHM permissions (CRUD Produk, Rekening & Transaksi)
+                'savings.view' => 'Melihat produk, rekening & transaksi simpanan SHM',
+                'savings.product.manage' => 'Mengelola master produk simpanan SHM',
+                'savings.account.create' => 'Membuka rekening simpanan SHM',
+                'savings.transaction.create' => 'Mencatat transaksi setoran/penarikan simpanan SHM',
             ],
         ],
 

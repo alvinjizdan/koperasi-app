@@ -4,7 +4,8 @@ import ShmLayout from '@/Layouts/ShmLayout';
 import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
 import { formatRupiah, formatDate } from '@/utils/format';
-import { TrendingUp, TrendingDown, Minus, Download } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import ShmReportActions from '@/Components/Shm/ShmReportActions';
 
 export default function PeriodProfitLoss({ report, filters }) {
     const { sections, summary, meta } = report;
@@ -26,14 +27,6 @@ export default function PeriodProfitLoss({ report, filters }) {
         }, { preserveState: true });
     };
 
-    const handleExport = () => {
-        const url = route('shm.period-profit-loss.export', {
-            start_date: filters.start_date,
-            end_date: filters.end_date,
-        });
-        window.location.href = url;
-    };
-
     const isProfit = summary.surplus_deficit > 0;
     const isLoss = summary.surplus_deficit < 0;
 
@@ -47,14 +40,10 @@ export default function PeriodProfitLoss({ report, filters }) {
                     </p>
                 </div>
                 <div>
-                    <button
-                        type="button"
-                        onClick={handleExport}
-                        className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50"
-                    >
-                        <Download className="h-4 w-4" />
-                        <span>Ekspor XLSX</span>
-                    </button>
+                    <ShmReportActions
+                        exportRoute="shm.period-profit-loss.export"
+                        exportParams={{ start_date: filters.start_date, end_date: filters.end_date }}
+                    />
                 </div>
             </div>
 
@@ -74,13 +63,6 @@ export default function PeriodProfitLoss({ report, filters }) {
                     </button>
                 </div>
             </form>
-
-            {/* Limitations Notice */}
-            {meta?.limitations && meta.limitations.length > 0 && (
-                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                    <strong>Batasan:</strong> {meta.limitations.join(' ')} Laba/Rugi adalah hasil operasional murni periode berjalan, tanpa penutupan buku atau pajak.
-                </div>
-            )}
 
             {!hasData ? (
                 <EmptyState

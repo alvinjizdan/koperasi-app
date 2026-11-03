@@ -6,6 +6,7 @@ use App\Models\CashierSession;
 use App\Models\ChartOfAccount;
 use App\Models\Member;
 use App\Models\SavingProduct;
+use App\Models\Shm\ShmSavingProduct;
 use App\Models\ShmAccountingMapping;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoanProduct;
@@ -44,6 +45,26 @@ trait InteractsWithShmDisbursement
      */
     protected function seedShmSavingsProducts(): void
     {
+        ShmSavingProduct::firstOrCreate(
+            ['code' => 'SP-SHM-FIXTURE'],
+            [
+                'name' => 'Simpanan Pokok SHM',
+                'category' => ShmSavingProduct::CATEGORY_PRINCIPAL,
+                'description' => 'Simpanan Pokok SHM (fixture uji)',
+                'is_active' => true,
+            ],
+        );
+
+        ShmSavingProduct::firstOrCreate(
+            ['code' => 'SW-SHM-FIXTURE'],
+            [
+                'name' => 'Simpanan Wajib SHM',
+                'category' => ShmSavingProduct::CATEGORY_MANDATORY,
+                'description' => 'Simpanan Wajib SHM (fixture uji)',
+                'is_active' => true,
+            ],
+        );
+
         SavingProduct::firstOrCreate(
             ['code' => 'SP-T002C'],
             [

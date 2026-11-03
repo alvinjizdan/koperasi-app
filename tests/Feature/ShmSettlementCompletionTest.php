@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SavingsTransaction;
+use App\Models\Shm\ShmSavingsTransaction;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
@@ -18,6 +19,7 @@ use App\Services\Shm\ShmLoanPaymentService;
 use App\Services\Shm\ShmSettlementDiscountPolicyService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
+use Database\Seeders\ShmSavingProductSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -51,6 +53,7 @@ class ShmSettlementCompletionTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(ShmSavingProductSeeder::class);
 
         $this->admin = $this->userWithRole('admin');
         $this->marketing = $this->userWithRole('marketing');
@@ -568,28 +571,29 @@ class ShmSettlementCompletionTest extends TestCase
             ->post(route('shm.loans.pelunasan.payment', $loan), ['payment_id' => $payment->id]);
         $this->actingAs($this->user)->post(route('shm.loans.pelunasan.payment.verify', $loan));
 
-        // Completion DITOLAK eksplisit: blocker hubungan member → Simpanan Pokok.
+        // Completion BERHASIL: overpayment diposting ke Simpanan SHM nasabah
         $this->actingAs($this->user)
             ->post(route('shm.loans.pelunasan.complete', $loan))
-            ->assertSessionHas('error', function (string $message): bool {
-                $this->assertStringContainsString('Simpanan Pokok', $message);
-                $this->assertStringContainsString('BLOCKER BUSINESS DATA', $message);
-                $this->assertStringContainsString('konversi/pembuatan member dilarang', $message);
+            ->assertSessionHas('success');
 
-                return true;
-            });
-
-        // Tidak ada tulisan finansial apa pun dari penolakan (retry aman).
-        $this->assertSame(ShmLoanSettlement::STATUS_PAYMENT_VERIFIED, $settlement->refresh()->status);
-        $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->refresh()->status);
+        $this->assertSame(ShmLoanSettlement::STATUS_COMPLETED, $settlement->refresh()->status);
+        $this->assertSame(ShmLoan::STATUS_CLOSED, $loan->refresh()->status);
         $this->assertSame('100000000.00', (string) $loan->refresh()->principal);
-        $this->assertSame(0, SavingsTransaction::query()->count());
-        $this->assertSame(0, AuditLog::query()->where('action', 'shm.loan.settled')->count());
-        $this->assertSame(0, AuditLog::query()->where('action', 'shm.loan.closed')->count());
+        $this->assertSame('500000.00', (string) $settlement->overpayment_amount);
 
-        // Retry dua kali lagi → deterministik, tetap nol posting/audit.
-        $this->actingAs($this->user)->post(route('shm.loans.pelunasan.complete', $loan))->assertSessionHas('error');
-        $this->actingAs($this->user)->post(route('shm.loans.pelunasan.complete', $loan))->assertSessionHas('error');
+        // Masuk ke Simpanan SHM, bukan Simpanan Koperasi
+        $this->assertDatabaseHas('shm_savings_transactions', [
+            'amount' => 500000,
+            'type' => 'deposit',
+            'idempotency_key' => 'shm-settlement-overpayment:'.$settlement->id,
+        ]);
+        $this->assertSame(0, SavingsTransaction::query()->count());
+        $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.settled')->count());
+        $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.closed')->count());
+
+        // Retry dua kali lagi → idempoten, tidak menduplikasi posting simpanan
+        $this->actingAs($this->user)->post(route('shm.loans.pelunasan.complete', $loan))->assertSessionHas('success');
+        $this->assertSame(1, ShmSavingsTransaction::query()->count());
         $this->assertSame(0, SavingsTransaction::query()->count());
         $this->assertSame(1, ShmLoanSettlement::query()->where('shm_loan_id', $loan->id)->count());
     }

@@ -2,48 +2,44 @@
 
 namespace App\Services\Shm;
 
-use App\Models\Member;
-use App\Models\SavingProduct;
-use App\Models\SavingsAccount;
-use App\Models\SavingsTransaction;
+use App\Models\Shm\ShmSavingProduct;
+use App\Models\Shm\ShmSavingsAccount;
+use App\Models\Shm\ShmSavingsTransaction;
+use App\Models\ShmCustomer;
 use App\Models\ShmLoanSettlement;
-use App\Services\SavingsTransactionService;
 use Illuminate\Validation\ValidationException;
 
 /**
- * T89C — Service penghubung domain SHM ke Modul Simpanan Koperasi Existing.
+ * Service penghubung domain Pinjaman SHM ke Modul Simpanan SHM.
  *
  * Mengalokasikan dana potongan pencairan (Simpanan Pokok & Wajib) serta
- * overpayment settlement ke rekening simpanan anggota koperasi yang menjadi
- * sumber data nasabah SHM.
+ * overpayment settlement / angsuran langsung ke rekening simpanan nasabah SHM (ShmCustomer).
  *
- * PRINSIP INTEGRASI:
- * 1. Tidak membuat modul/tabel SHM Savings baru.
- * 2. Menggunakan SavingsTransactionService::deposit() existing.
- * 3. Menggunakan SavingProduct::CATEGORY_PRINCIPAL dan CATEGORY_MANDATORY existing.
- * 4. Idempotent melalui deterministik idempotency_key.
- * 5. Jika rekening belum ada, dan produk simpanan aktif tersedia, sistem membuka
- *    rekening secara valid di domain Simpanan Koperasi (reuse SavingsAccount).
- * 6. Jika anggota tidak valid / tidak aktif / produk tidak tersedia, throw explicit exception.
+ * PRINSIP ISOLASI:
+ * 1. Tidak menggunakan model, rekening, maupun transaksi Simpanan Koperasi.
+ * 2. Menggunakan ShmSavingProduct, ShmSavingsAccount, dan ShmSavingsTransaction.
+ * 3. Idempotent melalui deterministik idempotency_key.
+ * 4. Jika rekening SHM belum ada, sistem membuka rekening secara valid di domain Simpanan SHM.
+ * 5. Tidak membutuhkan status atau relasi Member koperasi.
  */
 class ShmSavingsIntegrationService
 {
     public function __construct(
-        private readonly SavingsTransactionService $savingsService,
+        private readonly ShmSavingsTransactionService $savingsService,
     ) {}
 
     /**
-     * Dapatkan atau buat rekening simpanan anggota untuk kategori produk tertentu.
+     * Dapatkan atau buat rekening simpanan SHM nasabah untuk kategori produk tertentu.
      *
      * @param  'principal'|'mandatory'|'voluntary'  $category
      *
      * @throws ValidationException
      */
-    public function resolveAccount(Member $member, string $category): SavingsAccount
+    public function resolveAccount(ShmCustomer $customer, string $category): ShmSavingsAccount
     {
-        // 1. Cari rekening aktif existing milik anggota dengan kategori tersebut
-        $account = SavingsAccount::query()
-            ->where('member_id', $member->id)
+        // 1. Cari rekening aktif existing milik nasabah SHM dengan kategori tersebut
+        $account = ShmSavingsAccount::query()
+            ->where('shm_customer_id', $customer->id)
             ->where('status', 'active')
             ->whereHas('savingProduct', function ($q) use ($category) {
                 $q->where('category', $category)
@@ -55,8 +51,8 @@ class ShmSavingsIntegrationService
             return $account;
         }
 
-        // 2. Jika belum ada rekening, cari produk aktif untuk kategori tersebut
-        $product = SavingProduct::query()
+        // 2. Jika belum ada rekening, cari produk aktif untuk kategori tersebut di SHM
+        $product = ShmSavingProduct::query()
             ->where('category', $category)
             ->where('is_active', true)
             ->first();
@@ -64,17 +60,17 @@ class ShmSavingsIntegrationService
         if (! $product) {
             throw ValidationException::withMessages([
                 'savings' => [sprintf(
-                    'SAVINGS_PRODUCT_CONFIGURATION_BLOCKER: Produk simpanan aktif untuk kategori "%s" belum tersedia di Koperasi.',
+                    'SAVINGS_PRODUCT_CONFIGURATION_BLOCKER: Produk simpanan SHM aktif untuk kategori "%s" belum tersedia.',
                     $category
                 )],
             ]);
         }
 
-        // 3. Buka rekening baru untuk anggota tersebut secara resmi
-        return SavingsAccount::create([
-            'account_number' => SavingsAccount::generateAccountNumber(),
-            'member_id' => $member->id,
-            'saving_product_id' => $product->id,
+        // 3. Buka rekening baru untuk nasabah SHM tersebut
+        return ShmSavingsAccount::create([
+            'account_number' => ShmSavingsAccount::generateAccountNumber(),
+            'shm_customer_id' => $customer->id,
+            'shm_saving_product_id' => $product->id,
             'opened_at' => now()->toDateString(),
             'status' => 'active',
             'balance' => 0,
@@ -84,32 +80,22 @@ class ShmSavingsIntegrationService
     /**
      * Posting setoran simpanan dari transaksi SHM (Pencairan / Overpayment).
      *
-     * @param  'principal'|'mandatory'  $category
+     * @param  'principal'|'mandatory'|'voluntary'  $category
      */
     public function deposit(
-        Member $member,
+        ShmCustomer $customer,
         string $category,
         float $amount,
         string $idempotencyKey,
         string $description,
         int $actorId,
         bool $recordCashImpact = true,
-    ): SavingsTransaction {
+    ): ShmSavingsTransaction {
         if ($amount <= 0) {
             throw new \InvalidArgumentException('Nominal setoran simpanan harus > 0.');
         }
 
-        $account = $this->resolveAccount($member, $category);
-
-        if (! $recordCashImpact) {
-            return $this->savingsService->depositWithoutCashImpact($account, [
-                'amount' => $amount,
-                'transaction_date' => now()->toDateString(),
-                'description' => $description,
-                'idempotency_key' => $idempotencyKey,
-                'processed_by' => $actorId,
-            ]);
-        }
+        $account = $this->resolveAccount($customer, $category);
 
         return $this->savingsService->deposit($account, [
             'amount' => $amount,
@@ -121,17 +107,15 @@ class ShmSavingsIntegrationService
     }
 
     /**
-     * Kompensasi setoran overpayment settlement yang pernah diposting ke Simpanan Pokok.
-     * Tidak berdampak pada kas (non-cash impact) karena deposit overpayment juga tidak
-     * memiliki dampak kas fisik di kasir.
+     * Kompensasi setoran overpayment settlement yang pernah diposting ke Simpanan Pokok SHM.
      */
     public function reverseOverpayment(
         ShmLoanSettlement $settlement,
         int $actorId,
         string $reason,
-    ): ?SavingsTransaction {
+    ): ?ShmSavingsTransaction {
         $idempotencyKey = sprintf('shm-settlement-overpayment:%d', $settlement->id);
-        $tx = SavingsTransaction::where('idempotency_key', $idempotencyKey)->first();
+        $tx = ShmSavingsTransaction::where('idempotency_key', $idempotencyKey)->first();
 
         if ($tx === null) {
             return null;
@@ -142,7 +126,7 @@ class ShmSavingsIntegrationService
             return $existingReversal;
         }
 
-        return $this->savingsService->reverseWithoutCashImpact(
+        return $this->savingsService->reverse(
             $tx,
             $actorId,
             sprintf('Koreksi settlement %s: %s', $settlement->settlement_reference, $reason),

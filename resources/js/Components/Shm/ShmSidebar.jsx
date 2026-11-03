@@ -15,6 +15,7 @@ import {
     Receipt,
     ScrollText,
     UserRound,
+    Wallet,
     X,
 } from "lucide-react";
 
@@ -173,7 +174,11 @@ const shmNavigation = [
                 route: "shm.loans.products.index",
                 permission: "shm.view",
             },
-            { name: "Jaminan" },
+            {
+                name: "Jaminan",
+                route: "shm.loans.collaterals.index",
+                permission: "shm.view",
+            },
             // Ticket 86: halaman transaksi pembayaran pinjaman SHM sudah ada;
             // permission baca = shm.view (sama dengan halaman Pinjaman lain).
             // Pencatatan pembayaran sendiri memerlukan shm.payment.create.
@@ -200,7 +205,27 @@ const shmNavigation = [
                 route: "shm.loans.pelunasan.policies.index",
                 permission: "shm.view",
             },
-            { name: "Laporan" },
+            {
+                name: "Laporan",
+                route: "shm.loans.report.index",
+                permission: "shm.view",
+            },
+        ],
+    },
+    {
+        name: "Simpanan",
+        icon: Wallet,
+        children: [
+            {
+                name: "Produk Simpanan",
+                route: "shm.savings.products.index",
+                permission: "shm.savings.view",
+            },
+            {
+                name: "Rekening Simpanan",
+                route: "shm.savings.accounts.index",
+                permission: "shm.savings.view",
+            },
         ],
     },
     // Ticket 55: modul Export kini operasional sebagai pemantauan data
@@ -266,6 +291,11 @@ const shmNavigation = [
                 permission: "accounting.shm.view",
             },
             {
+                name: "Jurnal Harian",
+                route: "shm.daily-journal.index",
+                permission: "accounting.shm.reports.view",
+            },
+            {
                 name: "Neraca Saldo",
                 route: "shm.trial-balance.index",
                 permission: "accounting.shm.reports.view",
@@ -295,8 +325,45 @@ const shmNavigation = [
  * kedua kategori sebagai bagian dari modul yang sedang dibuka, sehingga
  * submenu tetap terlihat aktif meski pengguna mengganti filter di halaman.
  */
-const isChildActive = (child) =>
-    child.route && route().current(child.route);
+const isChildActive = (child) => {
+    if (!child.route || !route().current(child.route)) {
+        return false;
+    }
+
+    if (child.query && typeof child.query === "object") {
+        if (typeof window === "undefined") {
+            return true;
+        }
+
+        const currentSearchParams = new URLSearchParams(window.location.search);
+
+        return Object.entries(child.query).every(
+            ([key, value]) => currentSearchParams.get(key) === String(value)
+        );
+    }
+
+    return true;
+};
+
+const getChildHref = (child) => {
+    const baseUrl = route(child.route);
+
+    if (!child.query || typeof child.query !== "object") {
+        return baseUrl;
+    }
+
+    const params = new URLSearchParams();
+
+    Object.entries(child.query).forEach(([key, value]) => {
+        if (value !== null && value !== undefined) {
+            params.set(key, String(value));
+        }
+    });
+
+    const queryString = params.toString();
+
+    return queryString ? `${baseUrl}?${queryString}` : baseUrl;
+};
 
 /** Parent aktif bila salah satu child-nya sedang dibuka. */
 const isItemActive = (item) =>
@@ -376,11 +443,7 @@ function ShmNavItem({ item, open, onToggle, variant = "desktop", onNavigate, pen
                     child.route ? (
                         <Link
                             key={child.name}
-                            href={
-                                child.query
-                                    ? route(child.route, child.query)
-                                    : route(child.route)
-                            }
+                            href={getChildHref(child)}
                             onClick={onNavigate}
                             className={`flex items-center justify-between gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
                                 isChildActive(child)
@@ -430,33 +493,55 @@ function ShmNavItem({ item, open, onToggle, variant = "desktop", onNavigate, pen
     }
 
     if (item.children) {
+        const firstNavigableChild = item.children.find((child) => child.route);
+        const headerHref = firstNavigableChild ? route(firstNavigableChild.route) : null;
+
         return (
             <div>
-                <Link
-                    href={route(item.children[0].route)}
-                    onClick={onNavigate}
-                    aria-expanded={open}
-                    className={rowClass}
-                >
-                    {rowInner}
+                {headerHref ? (
+                    <Link
+                        href={headerHref}
+                        onClick={onNavigate}
+                        aria-expanded={open}
+                        className={rowClass}
+                    >
+                        {rowInner}
+                        <button
+                            type="button"
+                            tabIndex={-1}
+                            aria-label={`Buka submenu ${item.name}`}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                event.preventDefault();
+                                onToggle?.(event);
+                            }}
+                            className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-700/60 hover:text-white"
+                        >
+                            <ChevronDown
+                                className={`h-4 w-4 transition-transform duration-200 ${
+                                    open ? "rotate-180" : ""
+                                }`}
+                            />
+                        </button>
+                    </Link>
+                ) : (
                     <button
                         type="button"
-                        tabIndex={-1}
-                        aria-label={`Buka submenu ${item.name}`}
                         onClick={(event) => {
                             event.stopPropagation();
-                            event.preventDefault();
                             onToggle?.(event);
                         }}
-                        className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-700/60 hover:text-white"
+                        aria-expanded={open}
+                        className={rowClass}
                     >
+                        {rowInner}
                         <ChevronDown
-                            className={`h-4 w-4 transition-transform duration-200 ${
+                            className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${
                                 open ? "rotate-180" : ""
                             }`}
                         />
                     </button>
-                </Link>
+                )}
                 {submenu}
             </div>
         );

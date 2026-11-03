@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\Shm\ShmLoanPaymentService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
+use Database\Seeders\ShmSavingProductSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -54,6 +55,7 @@ class ShmSettlementContractEnforcementTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(ShmSavingProductSeeder::class);
 
         $this->user = $this->userWithPermissions([
             'shm.view',
@@ -504,10 +506,6 @@ class ShmSettlementContractEnforcementTest extends TestCase
 
     public function test_overpayment_completion_currently_blocked_if_no_member_relationship(): void
     {
-        // Catatan T89D: test ini tidak mencoba "memperbaiki" overpayment.
-        // Ia hanya membuktikan dan mendokumentasikan perilaku aktual saat ini
-        // jika service memang masih memblokir completion karena breaker
-        // hubungan member → Simpanan Pokok.
         $loan = $this->activeLoanOf($this->user);
         $this->scheduleWithDueAndFuture($loan);
         $this->policy(1, 3, '10.00');
@@ -525,17 +523,12 @@ class ShmSettlementContractEnforcementTest extends TestCase
         $response = $this->actingAs($this->user)
             ->post(route('shm.loans.pelunasan.complete', $loan));
 
-        // Jika masih diblokir, ini adalah kondisi aktual yang harus dilaporkan.
-        $response->assertSessionHas('error');
-        $response->assertSessionHas('error', function (string $message): bool {
-            return str_contains($message, 'Simpanan Pokok')
-                && str_contains($message, 'BLOCKER BUSINESS DATA')
-                && str_contains($message, 'konversi/pembuatan member dilarang');
-        });
+        // Sekarang overpayment berhasil diposting ke Simpanan SHM nasabah
+        $response->assertSessionHas('success');
 
-        $this->assertSame(ShmLoanSettlement::STATUS_PAYMENT_VERIFIED, $settlement->refresh()->status);
-        $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->refresh()->status);
-        $this->assertSame(0, AuditLog::query()->where('action', 'shm.loan.settled')->count());
-        $this->assertSame(0, AuditLog::query()->where('action', 'shm.loan.closed')->count());
+        $this->assertSame(ShmLoanSettlement::STATUS_COMPLETED, $settlement->refresh()->status);
+        $this->assertSame(ShmLoan::STATUS_CLOSED, $loan->refresh()->status);
+        $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.settled')->count());
+        $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.closed')->count());
     }
 }

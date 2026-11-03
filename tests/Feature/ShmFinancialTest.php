@@ -75,17 +75,27 @@ class ShmFinancialTest extends TestCase
         return $user;
     }
 
+    private ?ShmLoanProduct $defaultSimulationProduct = null;
+
     /** @return array<string, mixed> */
     private function validSimulation(): array
     {
+        if ($this->defaultSimulationProduct === null) {
+            $this->defaultSimulationProduct = ShmLoanProduct::factory()->create([
+                'name' => 'Produk Prioritas Test',
+                'is_active' => true,
+            ]);
+        }
+
         return [
             'run' => 1,
             'name' => 'Budi Simulasi',
+            'product_id' => $this->defaultSimulationProduct->id,
             'principal' => 24_000_000,
             'tenor_months' => 6,
             'rate_percent' => 2,
             'method' => 'flat',
-            'rate_period' => 'yearly',
+            'rate_period' => 'monthly',
             'location' => 'Cirebon',
             'purpose' => 'Modal usaha',
             'fees' => [
@@ -169,7 +179,7 @@ class ShmFinancialTest extends TestCase
         $this->assertSame(2.0, ShmLoanSimulationService::officialRate());
     }
 
-    public function test_simulation_uses_two_percent_when_rate_input_is_omitted(): void
+    public function test_simulation_resolves_product_rate_when_rate_input_is_omitted(): void
     {
         $params = $this->validSimulation();
         unset($params['rate_percent']);
@@ -179,7 +189,7 @@ class ShmFinancialTest extends TestCase
             ->assertOk()
             ->assertInertia(function (Assert $page): bool {
                 $page->component('Shm/Loans/Simulation')
-                    ->where('rate', fn (mixed $value): bool => (float) $value === 2.0)
+                    ->where('rate', null)
                     ->etc();
 
                 $this->assertSame(2.0, (float) $page->toArray()['props']['result']['rate_percent']);
@@ -337,7 +347,7 @@ class ShmFinancialTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Shm/Loans/Simulation')
                 ->where('result', null)
-                ->where('rate', fn (mixed $value): bool => (float) $value === 2.0)
+                ->where('rate', null)
                 ->etc());
     }
 
@@ -354,7 +364,7 @@ class ShmFinancialTest extends TestCase
                     ->where('result.rate_percent', fn (mixed $value): bool => (float) $value === 2.0)
                     ->where('result.tenor_months', 6)
                     ->where('result.method', 'flat')
-                    ->where('result.rate_period', 'yearly')
+                    ->where('result.rate_period', 'monthly')
                     ->has('result.rows', 6)
                     ->etc();
 
@@ -397,14 +407,14 @@ class ShmFinancialTest extends TestCase
 
     public function test_simulation_page_lists_shm_loan_products_and_explicit_options(): void
     {
-        $product = ShmLoanProduct::factory()->create(['name' => 'Produk Uji SHM']);
+        $this->validSimulation(); // ensures defaultSimulationProduct is created
 
         $this->simulationPage()
             ->assertOk()
             ->assertInertia(function (Assert $page): bool {
                 $page->component('Shm/Loans/Simulation')
                     ->has('products', 1)
-                    ->where('products.0.name', 'Produk Uji SHM')
+                    ->where('products.0.name', 'Produk Prioritas Test')
                     ->where('options.methods', ['flat' => 'Bunga flat (dihitung dari pokok awal)', 'effective' => 'Bunga efektif (saldo pokok menurun)', 'annuity' => 'Anuitas (angsuran tetap)'])
                     ->where('options.periods', ['yearly' => 'Per tahun', 'monthly' => 'Per bulan'])
                     ->etc();
@@ -481,22 +491,27 @@ class ShmFinancialTest extends TestCase
 
     public function test_pdf_grows_with_the_installment_schedule(): void
     {
+        $params = $this->validSimulation();
+        $product = $this->defaultSimulationProduct;
+
         $short = $this->actingAs($this->admin)->get(route('shm.loans.simulation.pdf', [
             'run' => 1,
+            'product_id' => $product->id,
             'principal' => 1_000_000,
             'tenor_months' => 3,
             'rate_percent' => 2,
             'method' => 'flat',
-            'rate_period' => 'yearly',
+            'rate_period' => 'monthly',
         ]));
 
         $long = $this->actingAs($this->admin)->get(route('shm.loans.simulation.pdf', [
             'run' => 1,
+            'product_id' => $product->id,
             'principal' => 1_000_000,
             'tenor_months' => 240,
             'rate_percent' => 2,
             'method' => 'flat',
-            'rate_period' => 'yearly',
+            'rate_period' => 'monthly',
         ]));
 
         $short->assertOk();

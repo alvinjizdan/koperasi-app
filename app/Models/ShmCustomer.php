@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Shm\ShmSavingsAccount;
 use Database\Factories\ShmCustomerFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -62,6 +63,16 @@ class ShmCustomer extends Model
             'latitude' => 'decimal:7',
             'longitude' => 'decimal:7',
         ];
+    }
+
+    /**
+     * Rekening simpanan SHM milik nasabah ini.
+     *
+     * @return HasMany<ShmSavingsAccount, $this>
+     */
+    public function savingsAccounts(): HasMany
+    {
+        return $this->hasMany(ShmSavingsAccount::class, 'shm_customer_id');
     }
 
     /**

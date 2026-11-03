@@ -2,10 +2,7 @@
 
 namespace App\Services\Shm;
 
-use App\Models\Member;
-use App\Models\SavingProduct;
-use App\Models\SavingsAccount;
-use App\Models\SavingsTransaction;
+use App\Models\Shm\ShmSavingProduct;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanPayment;
 use App\Services\Accounting\ShmAutomaticJournalService;
@@ -55,8 +52,8 @@ class ShmRegularPaymentService
      *     payment: ShmLoanPayment,
      *     allocated_amount: float,
      *     excess_amount: float,
-     *     savings_transaction: SavingsTransaction|null,
-     *     savings_account: SavingsAccount|null,
+     *     savings_transaction: ShmSavingsTransaction|null,
+     *     savings_account: ShmSavingsAccount|null,
      *     loan_closed: bool,
      *     remaining_total_owed: float,
      *     was_replayed: bool
@@ -174,44 +171,21 @@ class ShmRegularPaymentService
             $allocableAmount = min($amount, $totalOwedBefore);
             $expectedExcess = $amount - $allocableAmount;
 
-            $member = null;
+            $customer = $locked->customer;
             $savingsAccount = null;
 
             if ($expectedExcess > 0.005) {
-                $customer = $locked->customer;
-                if ($customer === null || $customer->member_id === null) {
+                if ($customer === null) {
                     throw ValidationException::withMessages([
                         'amount' => sprintf(
-                            'Lebih bayar Rp %s harus diposting ke Simpanan Pokok — BLOCKER BUSINESS DATA: nasabah SHM tidak memiliki relasi anggota koperasi sumber.',
+                            'Lebih bayar Rp %s harus diposting ke Simpanan Pokok SHM — nasabah SHM tidak ditemukan.',
                             number_format($expectedExcess, 2, ',', '.'),
                         ),
                     ]);
                 }
 
-                $member = Member::query()->lockForUpdate()->find($customer->member_id);
-                if ($member === null) {
-                    throw ValidationException::withMessages([
-                        'amount' => sprintf(
-                            'Lebih bayar Rp %s harus diposting ke Simpanan Pokok — BLOCKER BUSINESS DATA: anggota koperasi sumber #%d tidak ditemukan.',
-                            number_format($expectedExcess, 2, ',', '.'),
-                            $customer->member_id,
-                        ),
-                    ]);
-                }
-
-                if ($member->status !== 'active') {
-                    throw ValidationException::withMessages([
-                        'amount' => sprintf(
-                            'Lebih bayar Rp %s harus diposting ke Simpanan Pokok — BLOCKER BUSINESS DATA: anggota koperasi sumber %s tidak aktif (status: %s).',
-                            number_format($expectedExcess, 2, ',', '.'),
-                            $member->member_number,
-                            (string) $member->status,
-                        ),
-                    ]);
-                }
-
-                // Verifikasi ketersediaan rekening/produk Simpanan Pokok
-                $savingsAccount = $this->savingsIntegration->resolveAccount($member, SavingProduct::CATEGORY_PRINCIPAL);
+                // Verifikasi ketersediaan rekening/produk Simpanan Pokok SHM
+                $savingsAccount = $this->savingsIntegration->resolveAccount($customer, ShmSavingProduct::CATEGORY_PRINCIPAL);
             }
 
             // 11. Buat pembayaran (T86)
@@ -250,12 +224,12 @@ class ShmRegularPaymentService
                 );
             }
 
-            // 14. Setor kelebihan pembayaran ke Simpanan Pokok (T89C) tanpa dampak kasir
+            // 14. Setor kelebihan pembayaran ke Simpanan Pokok SHM tanpa dampak kasir
             $savingsTransaction = null;
-            if ($excessAmount > 0.005 && $member !== null) {
+            if ($excessAmount > 0.005 && $customer !== null) {
                 $savingsTransaction = $this->savingsIntegration->deposit(
-                    $member,
-                    SavingProduct::CATEGORY_PRINCIPAL,
+                    $customer,
+                    ShmSavingProduct::CATEGORY_PRINCIPAL,
                     $excessAmount,
                     sprintf('shm-regular-overpayment:%d', $payment->id),
                     sprintf('Setoran Simpanan Pokok dari lebih bayar angsuran pinjaman SHM %s', $locked->loan_number),
@@ -278,7 +252,7 @@ class ShmRegularPaymentService
                     $payment->payment_reference,
                     $locked->loan_number,
                     number_format($allocatedAmount, 0, ',', '.'),
-                    $excessAmount > 0.005 ? sprintf(', lebih bayar Rp %s disetor ke Simpanan Pokok', number_format($excessAmount, 0, ',', '.')) : '',
+                    $excessAmount > 0.005 ? sprintf(', lebih bayar Rp %s disetor ke Simpanan Pokok SHM', number_format($excessAmount, 0, ',', '.')) : '',
                     $loanClosed ? ', pinjaman ditutup otomatis' : '',
                 ),
                 [
@@ -290,8 +264,8 @@ class ShmRegularPaymentService
                     'allocated_amount' => number_format($allocatedAmount, 2, '.', ''),
                     'excess_amount' => number_format($excessAmount, 2, '.', ''),
                     'transferred_amount' => number_format($savingsTransaction !== null ? $excessAmount : 0.0, 2, '.', ''),
-                    'excess_destination' => $savingsTransaction !== null ? 'Simpanan Pokok' : null,
-                    'member_id' => $member?->id,
+                    'excess_destination' => $savingsTransaction !== null ? 'Simpanan Pokok SHM' : null,
+                    'shm_customer_id' => $customer?->id,
                     'savings_account_id' => $savingsAccount?->id,
                     'savings_account_number' => $savingsAccount?->account_number,
                     'savings_transaction_id' => $savingsTransaction?->id,

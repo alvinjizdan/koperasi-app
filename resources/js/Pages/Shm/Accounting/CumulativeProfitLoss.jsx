@@ -4,7 +4,8 @@ import ShmLayout from '@/Layouts/ShmLayout';
 import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
 import { formatRupiah, formatDate } from '@/utils/format';
-import { TrendingUp, TrendingDown, Minus, Download, Layers } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Layers } from 'lucide-react';
+import ShmReportActions from '@/Components/Shm/ShmReportActions';
 
 export default function CumulativeProfitLoss({ report, filters, meta }) {
     const { sections, summary, meta: reportMeta } = report;
@@ -24,13 +25,6 @@ export default function CumulativeProfitLoss({ report, filters, meta }) {
         }, { preserveState: true });
     };
 
-    const handleExport = () => {
-        const url = route('shm.cumulative-profit-loss.export', {
-            report_date: filters.report_date,
-        });
-        window.location.href = url;
-    };
-
     const isProfit = summary.surplus_deficit > 0;
     const isLoss = summary.surplus_deficit < 0;
 
@@ -44,14 +38,10 @@ export default function CumulativeProfitLoss({ report, filters, meta }) {
                     </p>
                 </div>
                 <div>
-                    <button
-                        type="button"
-                        onClick={handleExport}
-                        className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50"
-                    >
-                        <Download className="h-4 w-4" />
-                        <span>Ekspor XLSX</span>
-                    </button>
+                    <ShmReportActions
+                        exportRoute="shm.cumulative-profit-loss.export"
+                        exportParams={{ report_date: filters.report_date }}
+                    />
                 </div>
             </div>
 

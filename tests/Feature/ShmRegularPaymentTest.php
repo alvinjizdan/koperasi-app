@@ -7,8 +7,10 @@ use App\Models\Member;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SavingProduct;
-use App\Models\SavingsAccount;
 use App\Models\SavingsTransaction;
+use App\Models\Shm\ShmSavingProduct;
+use App\Models\Shm\ShmSavingsAccount;
+use App\Models\Shm\ShmSavingsTransaction;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
@@ -62,6 +64,16 @@ class ShmRegularPaymentTest extends TestCase
         $this->unauthorizedUser = User::factory()->create(['email_verified_at' => now()]);
 
         // Pastikan produk simpanan pokok aktif tersedia untuk overpayment
+        ShmSavingProduct::query()->firstOrCreate(
+            ['category' => ShmSavingProduct::CATEGORY_PRINCIPAL],
+            [
+                'code' => 'SHM-SP-001',
+                'name' => 'Simpanan Pokok SHM',
+                'description' => 'Simpanan Pokok SHM',
+                'is_active' => true,
+            ]
+        );
+
         SavingProduct::query()->firstOrCreate(
             ['category' => SavingProduct::CATEGORY_PRINCIPAL],
             [
@@ -344,15 +356,15 @@ class ShmRegularPaymentTest extends TestCase
         $this->assertSame(ShmLoan::STATUS_CLOSED, $loan->status);
         $this->assertEquals(0.0, $loan->totalOwed());
 
-        // Verifikasi transaksi simpanan pokok anggota sumber
-        $savingsTx = SavingsTransaction::query()->sole();
+        // Verifikasi transaksi simpanan pokok nasabah SHM
+        $savingsTx = ShmSavingsTransaction::query()->sole();
         $this->assertEquals(2_500_000, (float) $savingsTx->amount);
         $this->assertSame('deposit', $savingsTx->type);
 
-        // Rekening tujuan harus simpanan pokok milik member
-        $account = SavingsAccount::query()->findOrFail($savingsTx->savings_account_id);
-        $this->assertSame($member->id, $account->member_id);
-        $this->assertSame(SavingProduct::CATEGORY_PRINCIPAL, $account->savingProduct->category);
+        // Rekening tujuan harus simpanan pokok milik customer SHM
+        $account = ShmSavingsAccount::query()->findOrFail($savingsTx->shm_savings_account_id);
+        $this->assertSame($loan->shm_customer_id, $account->shm_customer_id);
+        $this->assertSame(ShmSavingProduct::CATEGORY_PRINCIPAL, $account->savingProduct->category);
 
         // Verifikasi audit applied mencatat transfer overpayment
         $payment = ShmLoanPayment::query()->sole();
@@ -364,8 +376,8 @@ class ShmRegularPaymentTest extends TestCase
 
         $this->assertSame('2500000.00', data_get($appliedLog->changes, 'excess_amount'));
         $this->assertSame('2500000.00', data_get($appliedLog->changes, 'transferred_amount'));
-        $this->assertSame('Simpanan Pokok', data_get($appliedLog->changes, 'excess_destination'));
-        $this->assertSame($member->id, data_get($appliedLog->changes, 'member_id'));
+        $this->assertSame('Simpanan Pokok SHM', data_get($appliedLog->changes, 'excess_destination'));
+        $this->assertSame($loan->shm_customer_id, data_get($appliedLog->changes, 'shm_customer_id'));
     }
 
     public function test_c2_overpayment_fails_closed_if_customer_has_no_source_member(): void
@@ -390,20 +402,17 @@ class ShmRegularPaymentTest extends TestCase
             'status' => ShmLoanInstallment::STATUS_SCHEDULED,
         ]);
 
-        // Bayar 10M (> total owed 6M) -> butuh overpayment deposit tetapi tidak ada member sumber
+        // Bayar 10M (> total owed 6M) -> overpayment deposit ke Simpanan Pokok SHM milik customer (tidak butuh member)
         $response = $this->actingAs($this->admin)->post(route('shm.loans.payments.store'), [
             'loan_id' => $loan->id,
             'payment_date' => now()->toDateString(),
             'amount' => '10000000',
         ]);
 
-        $response->assertSessionHasErrors(['amount']);
-
-        // Full rollback — tidak ada pembayaran, alokasi, simpanan, atau perubahan status
-        $this->assertSame(0, ShmLoanPayment::query()->count());
-        $this->assertSame(0, ShmLoanPaymentAllocation::query()->count());
+        $response->assertSessionHasNoErrors();
+        $this->assertSame(1, ShmLoanPayment::query()->count());
+        $this->assertSame(1, ShmSavingsTransaction::query()->count());
         $this->assertSame(0, SavingsTransaction::query()->count());
-        $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->refresh()->status);
     }
 
     public function test_c3_overpayment_fails_closed_if_source_member_is_inactive(): void
@@ -411,14 +420,16 @@ class ShmRegularPaymentTest extends TestCase
         $inactiveMember = $this->createMember('inactive');
         $loan = $this->createActiveLoanWithSchedule($inactiveMember);
 
+        // SHM Savings independen dari status member koperasi
         $response = $this->actingAs($this->officer)->post(route('shm.loans.payments.store'), [
             'loan_id' => $loan->id,
             'payment_date' => now()->toDateString(),
             'amount' => '25000000', // Melebihi 19.5M
         ]);
 
-        $response->assertSessionHasErrors(['amount']);
-        $this->assertSame(0, ShmLoanPayment::query()->count());
+        $response->assertSessionHasNoErrors();
+        $this->assertSame(1, ShmLoanPayment::query()->count());
+        $this->assertSame(1, ShmSavingsTransaction::query()->count());
         $this->assertSame(0, SavingsTransaction::query()->count());
     }
 

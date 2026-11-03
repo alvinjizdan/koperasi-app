@@ -10,6 +10,9 @@ use App\Models\Role;
 use App\Models\SavingProduct;
 use App\Models\SavingsAccount;
 use App\Models\SavingsTransaction;
+use App\Models\Shm\ShmSavingProduct;
+use App\Models\Shm\ShmSavingsAccount;
+use App\Models\Shm\ShmSavingsTransaction;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
@@ -25,6 +28,7 @@ use App\Services\Shm\ShmLoanSettlementService;
 use App\Services\Shm\ShmSettlementCorrectionService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
+use Database\Seeders\ShmSavingProductSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -64,6 +68,7 @@ class ShmSettlementCorrectionTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(ShmSavingProductSeeder::class);
 
         $this->user = $this->userWithPermissions([
             'shm.view',
@@ -422,8 +427,14 @@ class ShmSettlementCorrectionTest extends TestCase
         $overpaymentAmount = 1_500_000;
         $settlement = $this->completeSettlement($loan, $overpaymentAmount);
 
+        $shmAccount = ShmSavingsAccount::where('shm_customer_id', $loan->shm_customer_id)
+            ->whereHas('product', fn ($q) => $q->where('category', ShmSavingProduct::CATEGORY_PRINCIPAL))
+            ->first();
+        $this->assertNotNull($shmAccount);
+        $this->assertSame(1_500_000.0, (float) $shmAccount->balance);
+        // Rekening simpanan koperasi anggota tetap 0
         $savingsAccount->refresh();
-        $this->assertSame(1_500_000.0, (float) $savingsAccount->balance);
+        $this->assertSame(0.0, (float) $savingsAccount->balance);
 
         // Tidak boleh ada dampak kas kasir dari overpayment deposit
         $this->assertSame($cashCountBefore, CashTransaction::query()->count());
@@ -437,17 +448,21 @@ class ShmSettlementCorrectionTest extends TestCase
             (int) $this->user->id,
         );
 
-        // Saldo rekening simpanan anggota berkurang kembali menjadi 0
-        $savingsAccount->refresh();
-        $this->assertSame(0.0, (float) $savingsAccount->balance);
+        // Saldo rekening simpanan SHM nasabah berkurang kembali menjadi 0
+        $shmAccount = ShmSavingsAccount::where('shm_customer_id', $loan->shm_customer_id)
+            ->whereHas('product', fn ($q) => $q->where('category', ShmSavingProduct::CATEGORY_PRINCIPAL))
+            ->first();
+        $this->assertNotNull($shmAccount);
+        $this->assertSame(0.0, (float) $shmAccount->balance);
 
         // Case H: Nol dampak transaksi kas kasir selama kompensasi
         $this->assertSame($cashCountBefore, CashTransaction::query()->count());
 
-        // Verifikasi reversal transaksi simpanan tercatat
-        $origTx = SavingsTransaction::where('idempotency_key', sprintf('shm-settlement-overpayment:%d', $settlement->id))->first();
+        // Verifikasi reversal transaksi simpanan SHM tercatat
+        $origTx = ShmSavingsTransaction::where('idempotency_key', sprintf('shm-settlement-overpayment:%d', $settlement->id))->first();
         $this->assertNotNull($origTx);
         $this->assertTrue($origTx->reversals()->where('status', 'completed')->exists());
+        $this->assertSame(0, SavingsTransaction::query()->count());
     }
 
     // ==================================================================

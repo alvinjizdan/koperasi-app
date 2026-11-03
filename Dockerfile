@@ -24,13 +24,13 @@ RUN npm run build
 # PHP 8.4 memenuhi composer requirement aktual proyek: "php": "^8.3"
 FROM php:8.4-fpm-alpine AS app
 
-# Dependency sistem: icu (intl), libpng/jpeg/freetype (gd), libpq (pgsql)
-RUN apk add --no-cache icu-dev libpng-dev libjpeg-turbo-dev freetype-dev postgresql-dev
+# Dependency sistem: icu (intl), libpng/jpeg/freetype (gd), libpq (pgsql), libzip (zip)
+RUN apk add --no-cache icu-dev libpng-dev libjpeg-turbo-dev freetype-dev postgresql-dev libzip-dev
 
 # Ekstensi PHP sesuai kebutuhan aktual: pdo_pgsql (PostgreSQL),
-# intl + bcmath (paket Laravel/bisnis), gd (spare), opcache (production)
+# intl + bcmath (paket Laravel/bisnis), gd (spare), opcache (production), zip (XLSX export/import)
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j"$(nproc)" pdo pdo_pgsql pgsql intl bcmath gd opcache
+    && docker-php-ext-install -j"$(nproc)" pdo pdo_pgsql pgsql intl bcmath gd opcache zip
 
 # Composer dari image resmi
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer

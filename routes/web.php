@@ -35,17 +35,23 @@ use App\Http\Controllers\Shm\ShmCollectionPtpController;
 use App\Http\Controllers\Shm\ShmCreditCheckController;
 use App\Http\Controllers\Shm\ShmCumulativeProfitLossController;
 use App\Http\Controllers\Shm\ShmCustomerController;
+use App\Http\Controllers\Shm\ShmDailyJournalController;
 use App\Http\Controllers\Shm\ShmDashboardController;
 use App\Http\Controllers\Shm\ShmDocumentsController;
 use App\Http\Controllers\Shm\ShmEntryController;
 use App\Http\Controllers\Shm\ShmExportController;
+use App\Http\Controllers\Shm\ShmLoanCollateralController;
 use App\Http\Controllers\Shm\ShmLoanController;
 use App\Http\Controllers\Shm\ShmLoanPaymentController;
+use App\Http\Controllers\Shm\ShmLoanReportController;
 use App\Http\Controllers\Shm\ShmLoanSettlementController;
 use App\Http\Controllers\Shm\ShmLoginController;
 use App\Http\Controllers\Shm\ShmMemorandumController;
 use App\Http\Controllers\Shm\ShmPeriodProfitLossController;
 use App\Http\Controllers\Shm\ShmProductAccountingController;
+use App\Http\Controllers\Shm\ShmSavingProductController;
+use App\Http\Controllers\Shm\ShmSavingsAccountController;
+use App\Http\Controllers\Shm\ShmSavingsTransactionController;
 use App\Http\Controllers\Shm\ShmSettlementDiscountPolicyController;
 use App\Http\Controllers\Shm\ShmTrialBalanceController;
 use App\Http\Controllers\UserController;
@@ -691,6 +697,18 @@ Route::prefix('shm')->name('shm.')->group(function () {
             Route::get('/pinjaman/pelunasan/{loan}', [ShmLoanSettlementController::class, 'show'])
                 ->name('loans.pelunasan.show');
 
+            // -----------------------------------------------------------------
+            // Jaminan Pinjaman BSM Makro (Nasabah -> Pinjaman -> Jaminan).
+            // Laporan Per Pinjaman BSM Makro + Export PDF.
+            // Route literal didaftarkan SEBELUM /pinjaman/{loan}.
+            // -----------------------------------------------------------------
+            Route::get('/pinjaman/jaminan', [ShmLoanCollateralController::class, 'index'])
+                ->name('loans.collaterals.index');
+            Route::get('/pinjaman/laporan', [ShmLoanReportController::class, 'index'])
+                ->name('loans.report.index');
+            Route::get('/pinjaman/laporan/{loan}/pdf', [ShmLoanReportController::class, 'exportPdf'])
+                ->name('loans.report.pdf');
+
             Route::get('/pinjaman/{loan}', [ShmLoanController::class, 'show'])
                 ->name('loans.show');
 
@@ -870,7 +888,58 @@ Route::prefix('shm')->name('shm.')->group(function () {
             ->name('loans.pelunasan.correct');
 
         // -----------------------------------------------------------------
-        // Modul Export — pemantauan data operasional (Ticket 55).
+        // Modul Simpanan SHM — Produk, Rekening & Transaksi
+        // -----------------------------------------------------------------
+        Route::prefix('simpanan')->name('savings.')->group(function () {
+            // Produk Simpanan SHM
+            Route::get('/produk/create', [ShmSavingProductController::class, 'create'])
+                ->middleware('permission:shm.savings.product.manage')
+                ->name('products.create');
+            Route::post('/produk', [ShmSavingProductController::class, 'store'])
+                ->middleware('permission:shm.savings.product.manage')
+                ->name('products.store');
+            Route::get('/produk/{product}/edit', [ShmSavingProductController::class, 'edit'])
+                ->middleware('permission:shm.savings.product.manage')
+                ->name('products.edit');
+            Route::put('/produk/{product}', [ShmSavingProductController::class, 'update'])
+                ->middleware('permission:shm.savings.product.manage')
+                ->name('products.update');
+            Route::patch('/produk/{product}/deactivate', [ShmSavingProductController::class, 'deactivate'])
+                ->middleware('permission:shm.savings.product.manage')
+                ->name('products.deactivate');
+
+            // Rekening Simpanan SHM
+            Route::get('/rekening/create', [ShmSavingsAccountController::class, 'create'])
+                ->middleware('permission:shm.savings.account.create')
+                ->name('accounts.create');
+            Route::post('/rekening', [ShmSavingsAccountController::class, 'store'])
+                ->middleware('permission:shm.savings.account.create')
+                ->name('accounts.store');
+
+            // Transaksi Setoran & Penarikan
+            Route::get('/rekening/{account}/setor', [ShmSavingsTransactionController::class, 'createDeposit'])
+                ->middleware('permission:shm.savings.transaction.create')
+                ->name('transactions.deposit.create');
+            Route::post('/rekening/{account}/setor', [ShmSavingsTransactionController::class, 'storeDeposit'])
+                ->middleware('permission:shm.savings.transaction.create')
+                ->name('transactions.deposit.store');
+            Route::get('/rekening/{account}/tarik', [ShmSavingsTransactionController::class, 'createWithdraw'])
+                ->middleware('permission:shm.savings.transaction.create')
+                ->name('transactions.withdraw.create');
+            Route::post('/rekening/{account}/tarik', [ShmSavingsTransactionController::class, 'storeWithdraw'])
+                ->middleware('permission:shm.savings.transaction.create')
+                ->name('transactions.withdraw.store');
+
+            // View Routes (Produk, Rekening, Detail Transaksi)
+            Route::middleware('permission:shm.savings.view')->group(function () {
+                Route::get('/produk', [ShmSavingProductController::class, 'index'])->name('products.index');
+                Route::get('/rekening', [ShmSavingsAccountController::class, 'index'])->name('accounts.index');
+                Route::get('/rekening/{account}', [ShmSavingsAccountController::class, 'show'])->name('accounts.show');
+                Route::get('/transaksi/{transaction}', [ShmSavingsTransactionController::class, 'show'])->name('transactions.show');
+            });
+        });
+
+        // -----------------------------------------------------------------
         //
         // Empat halaman READ-ONLY yang memetakan pengajuan ke tahap existing
         // ShmApplicationStatus (masuk = submitted_at terisi, approve = status
@@ -950,12 +1019,23 @@ Route::prefix('shm')->name('shm.')->group(function () {
         });
 
         // -----------------------------------------------------------------
+        // Modul Akuntansi SHM — Jurnal Harian (Daily Journal)
+        // -----------------------------------------------------------------
+        Route::prefix('akuntansi/jurnal-harian')->name('daily-journal.')->group(function () {
+            Route::middleware('permission:accounting.shm.reports.view')->group(function () {
+                Route::get('/', [ShmDailyJournalController::class, 'index'])->name('index');
+                Route::get('/export', [ShmDailyJournalController::class, 'export'])->name('export');
+            });
+        });
+
+        // -----------------------------------------------------------------
         // T006F: Modul Akuntansi SHM — Neraca Saldo (Trial Balance)
         // -----------------------------------------------------------------
         Route::prefix('akuntansi/neraca-saldo')->name('trial-balance.')->group(function () {
             Route::middleware('permission:accounting.shm.reports.view')->group(function () {
                 Route::get('/', [ShmTrialBalanceController::class, 'index'])->name('index');
                 Route::get('/export', [ShmTrialBalanceController::class, 'export'])->name('export');
+                Route::get('/template', [ShmTrialBalanceController::class, 'template'])->name('template');
             });
         });
 
@@ -966,6 +1046,7 @@ Route::prefix('shm')->name('shm.')->group(function () {
             Route::middleware('permission:accounting.shm.reports.view')->group(function () {
                 Route::get('/', [ShmPeriodProfitLossController::class, 'index'])->name('index');
                 Route::get('/export', [ShmPeriodProfitLossController::class, 'export'])->name('export');
+                Route::get('/template', [ShmPeriodProfitLossController::class, 'template'])->name('template');
             });
         });
 
@@ -976,6 +1057,7 @@ Route::prefix('shm')->name('shm.')->group(function () {
             Route::middleware('permission:accounting.shm.reports.view')->group(function () {
                 Route::get('/', [ShmCumulativeProfitLossController::class, 'index'])->name('index');
                 Route::get('/export', [ShmCumulativeProfitLossController::class, 'export'])->name('export');
+                Route::get('/template', [ShmCumulativeProfitLossController::class, 'template'])->name('template');
             });
         });
 
@@ -986,6 +1068,7 @@ Route::prefix('shm')->name('shm.')->group(function () {
             Route::middleware('permission:accounting.shm.reports.view')->group(function () {
                 Route::get('/', [ShmBalanceSheetController::class, 'index'])->name('index');
                 Route::get('/export', [ShmBalanceSheetController::class, 'export'])->name('export');
+                Route::get('/template', [ShmBalanceSheetController::class, 'template'])->name('template');
             });
         });
     });
