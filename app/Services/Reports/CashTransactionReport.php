@@ -148,6 +148,7 @@ class CashTransactionReport
         $search = trim((string) ($filters['search'] ?? ''));
 
         return CashTransaction::query()
+            ->koperasi()
             ->whereBetween('transaction_date', $this->period->dateRange())
             ->when(
                 ($filters['type'] ?? 'all') !== 'all',

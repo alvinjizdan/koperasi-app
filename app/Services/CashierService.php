@@ -219,6 +219,13 @@ class CashierService
      *
      * @throws ValidationException bila saldo kas tidak mencukupi untuk pengeluaran
      */
+    /**
+     * Catat dampak kas yang dipicu oleh transaksi modul lain.
+     *
+     * @param  string  $domain  Domain transaksi ('KOPERASI' atau 'SHM')
+     *
+     * @throws ValidationException bila saldo kas tidak mencukupi untuk pengeluaran
+     */
     public function recordSourceImpact(
         string $type,
         string $category,
@@ -227,6 +234,7 @@ class CashierService
         ?string $description,
         Model $source,
         int $userId,
+        string $domain = CashTransaction::DOMAIN_KOPERASI,
     ): ?CashTransaction {
         // Idempotensi lintas modul: satu transaksi bisnis hanya menghasilkan satu dampak kas.
         $existing = $this->findBySource($source);
@@ -250,13 +258,14 @@ class CashierService
                     'source_type' => $source::class,
                     'source_id' => $source->getKey(),
                     'operator_id' => $userId,
+                    'domain' => $domain,
                 ],
             );
 
             return null;
         }
 
-        return DbTransaction::run(function () use ($type, $category, $amount, $transactionDate, $description, $source, $userId, $session) {
+        return DbTransaction::run(function () use ($type, $category, $amount, $transactionDate, $description, $source, $userId, $session, $domain) {
             $lockedSession = CashierSession::lockForUpdate()->findOrFail($session->id);
 
             if (! $lockedSession->isOpen()) {
@@ -286,6 +295,7 @@ class CashierService
                 'description' => $description,
                 'processed_by' => $userId,
                 'status' => CashTransaction::STATUS_POSTED,
+                'domain' => $domain,
                 'source_type' => $source::class,
                 'source_id' => $source->getKey(),
             ]);
@@ -414,6 +424,7 @@ class CashierService
                 'document_reference' => $data['document_reference'] ?? null,
                 'processed_by' => $userId,
                 'status' => CashTransaction::STATUS_POSTED,
+                'domain' => $data['domain'] ?? CashTransaction::DOMAIN_KOPERASI,
                 'idempotency_key' => $data['idempotency_key'] ?? null,
             ]);
 

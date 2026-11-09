@@ -72,6 +72,7 @@ class CashDailyReport
         $sessionIds = $base->select('id');
 
         $posted = CashTransaction::query()
+            ->koperasi()
             ->whereIn('cashier_session_id', $sessionIds)
             ->where('status', CashTransaction::STATUS_POSTED)
             ->selectRaw('type, COALESCE(SUM(amount), 0) AS total')
@@ -89,6 +90,7 @@ class CashDailyReport
             ->get(['id', 'opening_balance']);
 
         $openPosted = CashTransaction::query()
+            ->koperasi()
             ->whereIn('cashier_session_id', $openSessions->pluck('id'))
             ->where('status', CashTransaction::STATUS_POSTED)
             ->selectRaw('type, COALESCE(SUM(amount), 0) AS total')

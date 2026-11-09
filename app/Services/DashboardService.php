@@ -165,6 +165,7 @@ class DashboardService
         $sessionIds = $sessions->pluck('id');
 
         $posted = CashTransaction::query()
+            ->koperasi()
             ->whereIn('cashier_session_id', $sessionIds)
             ->where('status', CashTransaction::STATUS_POSTED)
             ->selectRaw('type, COALESCE(SUM(amount), 0) AS total')
@@ -240,6 +241,7 @@ class DashboardService
             ]);
 
         $cash = CashTransaction::query()
+            ->koperasi()
             ->with('session:id,session_number')
             ->orderByDesc('transacted_at')
             ->orderByDesc('id')

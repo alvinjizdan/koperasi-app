@@ -24,6 +24,15 @@ class CashTransaction extends Model
 
     public const STATUS_REVERSED = 'REVERSED';
 
+    public const DOMAIN_KOPERASI = 'KOPERASI';
+
+    public const DOMAIN_SHM = 'SHM';
+
+    public const DOMAINS = [
+        self::DOMAIN_KOPERASI,
+        self::DOMAIN_SHM,
+    ];
+
     protected $fillable = [
         'transaction_number',
         'cashier_session_id',
@@ -36,6 +45,7 @@ class CashTransaction extends Model
         'document_reference',
         'processed_by',
         'status',
+        'domain',
         'source_type',
         'source_id',
         'reversed_at',
@@ -95,6 +105,25 @@ class CashTransaction extends Model
     /**
      * Transaksi yang belum dikoreksi dan masih memengaruhi saldo kas.
      */
+    /**
+     * Scope: transaksi domain Koperasi.
+     */
+    public function scopeKoperasi(Builder $query): void
+    {
+        $query->where('domain', self::DOMAIN_KOPERASI);
+    }
+
+    /**
+     * Scope: transaksi domain SHM.
+     */
+    public function scopeShm(Builder $query): void
+    {
+        $query->where('domain', self::DOMAIN_SHM);
+    }
+
+    /**
+     * Scope: transaksi berstatus POSTED.
+     */
     public function scopePosted(Builder $query): void
     {
         $query->where('status', self::STATUS_POSTED);
@@ -124,6 +153,7 @@ class CashTransaction extends Model
             SavingsTransaction::class => 'Transaksi Simpanan',
             LoanDisbursement::class => 'Pencairan Pinjaman',
             InstallmentPayment::class => 'Pembayaran Angsuran',
+            ShmLoan::class => 'Pencairan Pinjaman SHM',
             default => null,
         };
     }
@@ -159,6 +189,7 @@ class CashTransaction extends Model
             'description' => $this->description,
             'document_reference' => $this->document_reference,
             'status' => $this->status,
+            'domain' => $this->domain ?? self::DOMAIN_KOPERASI,
             'increases_cash' => $this->increases_cash,
             'operator' => $this->relationLoaded('operator') && $this->operator !== null
                 ? ['id' => $this->operator->id, 'name' => $this->operator->name]

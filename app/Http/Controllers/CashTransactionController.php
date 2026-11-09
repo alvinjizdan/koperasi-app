@@ -38,6 +38,7 @@ class CashTransactionController extends Controller
         ];
 
         $transactionsQuery = CashTransaction::query()
+            ->koperasi()
             ->with(['operator', 'source', 'session'])
             ->when($filters['date_from'], fn ($q, $date) => $q->whereDate('transaction_date', '>=', $date))
             ->when($filters['date_to'], fn ($q, $date) => $q->whereDate('transaction_date', '<=', $date))

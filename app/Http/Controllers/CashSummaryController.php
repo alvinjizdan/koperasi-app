@@ -48,6 +48,7 @@ class CashSummaryController extends Controller
         $sessionIds = $baseQuery()->pluck('id');
 
         $postedSums = CashTransaction::query()
+            ->koperasi()
             ->whereIn('cashier_session_id', $sessionIds)
             ->where('status', CashTransaction::STATUS_POSTED)
             ->selectRaw('type, COALESCE(SUM(amount), 0) AS total')

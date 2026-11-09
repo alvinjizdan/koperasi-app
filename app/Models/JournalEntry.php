@@ -34,7 +34,13 @@ class JournalEntry extends Model
         'created_by',
         'posted_by',
         'posted_at',
+        'import_batch_id',
     ];
+
+    public function importBatch(): BelongsTo
+    {
+        return $this->belongsTo(AccountingImportBatch::class, 'import_batch_id');
+    }
 
     protected $casts = [
         'transaction_date' => 'date',

@@ -45,6 +45,7 @@ class CashierController extends Controller
                 : null,
             'recent_transactions' => $activeSession !== null
                 ? CashTransaction::query()
+                    ->koperasi()
                     ->with(['operator', 'source', 'session'])
                     ->where('cashier_session_id', $activeSession->id)
                     ->orderByDesc('transacted_at')
@@ -129,6 +130,7 @@ class CashierController extends Controller
         $session->load('operator', 'closer');
 
         $transactionsQuery = CashTransaction::query()
+            ->koperasi()
             ->with(['operator', 'source', 'session'])
             ->where('cashier_session_id', $session->id);
 
