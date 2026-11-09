@@ -271,7 +271,13 @@ class ShmAutomaticJournalService
                 ]);
             }
 
-            $cashAmount = round((float) $settlement->settlement_amount, 2);
+            $settlementAmount = round((float) $settlement->settlement_amount, 2);
+            $overpaymentAmount = round((float) ($settlement->overpayment_amount ?? 0), 2);
+            $paymentAmount = $settlement->payment
+                ? round((float) $settlement->payment->amount, 2)
+                : round($settlementAmount + $overpaymentAmount, 2);
+
+            $cashAmount = max($paymentAmount, round($settlementAmount + $overpaymentAmount, 2));
 
             $cashAccount = ChartOfAccount::find($productConfig->cash_account_id);
             $receivableAccount = ChartOfAccount::find($productConfig->receivable_account_id);
@@ -282,7 +288,7 @@ class ShmAutomaticJournalService
             $this->assertAccountUsable($interestAccount, 'Pendapatan Bunga');
 
             $lines = [];
-            // Debit Kas sebesar nilai pembayaran pelunasan
+            // Debit Kas sebesar nilai pembayaran pelunasan aktual (full payment termasuk overpayment)
             $lines[] = [
                 'account_id' => $cashAccount->id,
                 'description' => "Penerimaan pelunasan SHM {$settlement->settlement_reference}",
@@ -300,13 +306,23 @@ class ShmAutomaticJournalService
                 ];
             }
 
-            // Credit Pendapatan Bunga (bunga bersih yang diakui)
+            // Credit Pendapatan Bunga (bunga bersih yang diakui dari jadwal)
             if ($interestAmount > 0) {
                 $lines[] = [
                     'account_id' => $interestAccount->id,
                     'description' => "Pendapatan bunga pelunasan {$loan->loan_number}",
                     'debit' => 0,
                     'credit' => $interestAmount,
+                ];
+            }
+
+            // Credit Pendapatan Bunga SHM dari lebih bayar pelunasan (Overpayment)
+            if ($overpaymentAmount > 0) {
+                $lines[] = [
+                    'account_id' => $interestAccount->id,
+                    'description' => "Bunga pendapatan dari lebih bayar pelunasan SHM {$loan->loan_number}",
+                    'debit' => 0,
+                    'credit' => $overpaymentAmount,
                 ];
             }
 

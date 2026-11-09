@@ -316,7 +316,9 @@ class FinancialReportService
      */
     public function cashFlowReadiness(?string $startDate, ?string $endDate): array
     {
-        $query = CashTransaction::query()->where('status', CashTransaction::STATUS_POSTED);
+        $query = CashTransaction::query()
+            ->koperasi()
+            ->where('status', CashTransaction::STATUS_POSTED);
 
         $period = clone $query;
         if ($startDate !== null) {
