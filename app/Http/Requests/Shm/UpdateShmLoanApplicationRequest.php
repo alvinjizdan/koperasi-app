@@ -2,6 +2,9 @@
 
 namespace App\Http\Requests\Shm;
 
+use App\Models\ShmLoanApplication;
+use Illuminate\Validation\Rule;
+
 /**
  * Ticket 68 — validasi server-side perubahan Pengajuan Pinjaman SHM.
  *
@@ -25,7 +28,25 @@ class UpdateShmLoanApplicationRequest extends StoreShmLoanApplicationRequest
      */
     public function rules(): array
     {
+        $application = $this->route('application');
+        $currentAgentId = $application instanceof ShmLoanApplication
+            ? $application->agent_id
+            : null;
+
         return array_merge(parent::rules(), [
+            // Agen yang sudah terpasang tetap boleh dipertahankan meskipun
+            // kemudian dinonaktifkan. Assignment BARU tetap wajib agen aktif.
+            'pengajuan.agent_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('shm_agents', 'id')->where(function ($query) use ($currentAgentId): void {
+                    $query->where('is_active', true);
+
+                    if ($currentAgentId !== null) {
+                        $query->orWhere('id', $currentAgentId);
+                    }
+                }),
+            ],
             // Kunci rekonsiliasi child (opsional; tanpa id = baris baru).
             'jaminan.*.id' => ['nullable', 'integer'],
             'agunan.*.id' => ['nullable', 'integer'],

@@ -5,11 +5,14 @@ import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import { formatRupiah } from '@/utils/format';
 import {
+    Camera,
     ChevronDown,
     FileSignature,
     FileText,
     Plus,
     Trash2,
+    Upload,
+    X,
 } from 'lucide-react';
 
 /**
@@ -59,6 +62,10 @@ const SECTIONS = [
     {
         key: 'persyaratan',
         title: 'Persyaratan Tambahan Jika Pinjaman Disetujui',
+    },
+    {
+        key: 'lampiran',
+        title: 'Lampiran',
     },
 ];
 
@@ -199,6 +206,136 @@ function DokumenCell({ item, index, onPick }) {
     );
 }
 
+/**
+ * Komponen upload foto dokumen identitas (KTP / KK) dengan preview,
+ * validasi ukuran (<= 2MB) dan format (JPG, JPEG, PNG), serta tombol ganti/hapus.
+ */
+function IdentityPhotoUploader({
+    label,
+    file,
+    existingUrl,
+    error,
+    onFileSelect,
+    onFileRemove,
+}) {
+    const [previewUrl, setPreviewUrl] = useState(null);
+    const [clientError, setClientError] = useState(null);
+
+    React.useEffect(() => {
+        if (!file) {
+            setPreviewUrl(null);
+            return;
+        }
+
+        const objectUrl = URL.createObjectURL(file);
+        setPreviewUrl(objectUrl);
+
+        return () => URL.revokeObjectURL(objectUrl);
+    }, [file]);
+
+    const handleFileChange = (e) => {
+        setClientError(null);
+        const selected = e.target.files?.[0];
+        if (!selected) return;
+
+        // Validasi format
+        const validTypes = ['image/jpeg', 'image/png', 'image/jpg'];
+        if (!validTypes.includes(selected.type.toLowerCase())) {
+            setClientError('Format file harus berupa JPG, JPEG, atau PNG.');
+            e.target.value = '';
+            return;
+        }
+
+        // Validasi ukuran <= 2 MB (2 * 1024 * 1024 bytes)
+        if (selected.size > 2 * 1024 * 1024) {
+            setClientError('Ukuran file maksimal 2 MB.');
+            e.target.value = '';
+            return;
+        }
+
+        onFileSelect(selected);
+        e.target.value = '';
+    };
+
+    const displayUrl = previewUrl || existingUrl;
+    const isNewFile = file instanceof File;
+
+    return (
+        <div className="space-y-2">
+            <label className="block text-xs font-semibold text-slate-700">
+                {label}
+            </label>
+
+            {displayUrl ? (
+                <div className="relative flex flex-col items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="relative group max-h-48 overflow-hidden rounded-md border border-slate-200 bg-white">
+                        <img
+                            src={displayUrl}
+                            alt={label}
+                            className="max-h-48 w-auto object-contain"
+                        />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                        {isNewFile ? (
+                            <span className="font-medium text-emerald-700 truncate max-w-xs">
+                                {file.name} ({(file.size / 1024).toFixed(0)} KB)
+                            </span>
+                        ) : (
+                            <span className="text-slate-600">Dokumen tersimpan</span>
+                        )}
+
+                        <div className="flex items-center gap-1.5 ml-auto">
+                            <label className="cursor-pointer rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors">
+                                Ganti
+                                <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/jpg"
+                                    onChange={handleFileChange}
+                                    className="hidden"
+                                />
+                            </label>
+                            {isNewFile && (
+                                <button
+                                    type="button"
+                                    onClick={onFileRemove}
+                                    className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 transition-colors"
+                                >
+                                    <X className="h-3 w-3" />
+                                    Hapus
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                <label className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-white p-4 text-center cursor-pointer hover:bg-slate-50 transition-colors">
+                    <Camera className="h-5 w-5 text-slate-400" />
+                    <span className="text-xs font-medium text-indigo-600 hover:underline">
+                        Pilih {label}
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                        JPG, JPEG, PNG (Maksimal 2 MB)
+                    </span>
+                    <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/jpg"
+                        onChange={handleFileChange}
+                        className="hidden"
+                    />
+                </label>
+            )}
+
+            {clientError && (
+                <p className="text-xs text-rose-600 font-medium">{clientError}</p>
+            )}
+            {error && (
+                <p className="text-xs text-rose-600 font-medium">{error}</p>
+            )}
+        </div>
+    );
+}
+
 function Field({ label, children, hint }) {
     return (
         <div>
@@ -249,7 +386,7 @@ function AccordionSection({ index, section, isOpen, onToggle, children }) {
     );
 }
 
-export default function Pengajuan({ today, products, customers, options, application = null, formData = null }) {
+export default function Pengajuan({ today, products, customers, options, agents = [], application = null, formData = null }) {
     // Accordion: murni state lokal. Tidak ada request backend saat toggle.
     const [openSections, setOpenSections] = useState(
         () => new Set([SECTIONS[0].key]),
@@ -287,9 +424,18 @@ export default function Pengajuan({ today, products, customers, options, applica
             saldo_modal: '',
             saldo_non_modal: '',
             batas_hutang: '',
+            marital_status: '',
+            spouse_name: '',
+            spouse_nik: '',
+            spouse_phone: '',
+            ktp_photo: null,
+            ktp_photo_url: null,
+            kk_photo: null,
+            kk_photo_url: null,
         },
         pengajuan: {
             product_id: '',
+            agent_id: '',
             principal: '',
             tenor_months: '',
             // T82 — jatuh tempo pertama dipilih Marketing (input date).
@@ -327,6 +473,9 @@ export default function Pengajuan({ today, products, customers, options, applica
             notes: '',
         },
         persyaratan: [],
+        lampiran: [],
+        existing_attachments: [],
+        deleted_attachment_ids: [],
     });
 
     const [form, setForm] = useState(() =>
@@ -494,17 +643,29 @@ export default function Pengajuan({ today, products, customers, options, applica
 
     const err = (key) => errors[key] ?? null;
 
-    const submitPayload = () => ({
-        ...form,
-        // Ticket 77 & Dokumen Jaminan — berkas dikirim sebagai File (Inertia
-        // otomatis memakai multipart/form-data saat payload memuat File).
-        // URL dan nama lama server tidak dikirim ulang sebagai data simpan.
-        jaminan: form.jaminan.map(({ foto_url, dokumen_url, dokumen_name, ...rest }) => ({
-            ...rest,
-            foto: rest.foto instanceof File ? rest.foto : null,
-            dokumen: rest.dokumen instanceof File ? rest.dokumen : null,
-        })),
-    });
+    const submitPayload = () => {
+        const isMarried = form.pribadi.marital_status === 'married';
+
+        return {
+            ...form,
+            pribadi: {
+                ...form.pribadi,
+                spouse_name: isMarried ? form.pribadi.spouse_name : '',
+                spouse_nik: isMarried ? form.pribadi.spouse_nik : '',
+                spouse_phone: isMarried ? form.pribadi.spouse_phone : '',
+                ktp_photo: form.pribadi.ktp_photo instanceof File ? form.pribadi.ktp_photo : null,
+                kk_photo: form.pribadi.kk_photo instanceof File ? form.pribadi.kk_photo : null,
+            },
+            // Ticket 77 & Dokumen Jaminan — berkas dikirim sebagai File (Inertia
+            // otomatis memakai multipart/form-data saat payload memuat File).
+            // URL dan nama lama server tidak dikirim ulang sebagai data simpan.
+            jaminan: form.jaminan.map(({ foto_url, dokumen_url, dokumen_name, ...rest }) => ({
+                ...rest,
+                foto: rest.foto instanceof File ? rest.foto : null,
+                dokumen: rest.dokumen instanceof File ? rest.dokumen : null,
+            })),
+        };
+    };
 
     const submit = (event) => {
         event.preventDefault();
@@ -522,9 +683,13 @@ export default function Pengajuan({ today, products, customers, options, applica
 
         if (application) {
             const payload = submitPayload();
-            const hasFiles = form.jaminan.some(
-                (item) => item.foto instanceof File || item.dokumen instanceof File,
-            );
+            const hasFiles =
+                form.pribadi.ktp_photo instanceof File ||
+                form.pribadi.kk_photo instanceof File ||
+                (Array.isArray(form.lampiran) && form.lampiran.some((item) => item instanceof File)) ||
+                form.jaminan.some(
+                    (item) => item.foto instanceof File || item.dokumen instanceof File,
+                );
 
             if (hasFiles) {
                 // PHP hanya mem-parsing berkas multipart pada POST; unggah
@@ -929,6 +1094,143 @@ export default function Pengajuan({ today, products, customers, options, applica
                                                 </p>
                                             )}
                                         </Field>
+                                        <Field label="Status Pernikahan">
+                                            <select
+                                                value={form.pribadi.marital_status ?? ''}
+                                                onChange={(event) => {
+                                                    const val = event.target.value;
+                                                    setForm((prev) => ({
+                                                        ...prev,
+                                                        pribadi: {
+                                                            ...prev.pribadi,
+                                                            marital_status: val,
+                                                            ...(val !== 'married'
+                                                                ? {
+                                                                      spouse_name: '',
+                                                                      spouse_nik: '',
+                                                                      spouse_phone: '',
+                                                                  }
+                                                                : {}),
+                                                        },
+                                                    }));
+                                                }}
+                                                className={inputClass}
+                                            >
+                                                <option value="">— Pilih Status Pernikahan —</option>
+                                                <option value="single">Belum Menikah</option>
+                                                <option value="married">Sudah Menikah</option>
+                                            </select>
+                                            {err('pribadi.marital_status') && (
+                                                <p className="mt-1 text-xs text-rose-600">
+                                                    {err('pribadi.marital_status')}
+                                                </p>
+                                            )}
+                                        </Field>
+                                    </div>
+
+                                    {/* Informasi Pasangan jika Sudah Menikah */}
+                                    {form.pribadi.marital_status === 'married' && (
+                                        <div className="pt-4 border-t border-slate-100 space-y-4">
+                                            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                                Informasi Pasangan
+                                            </h3>
+                                            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                                <Field label="Nama Pasangan">
+                                                    <input
+                                                        type="text"
+                                                        value={form.pribadi.spouse_name ?? ''}
+                                                        onChange={(event) =>
+                                                            setGroup(
+                                                                'pribadi',
+                                                                'spouse_name',
+                                                                event.target.value,
+                                                            )
+                                                        }
+                                                        placeholder="Nama lengkap pasangan"
+                                                        className={inputClass}
+                                                    />
+                                                    {err('pribadi.spouse_name') && (
+                                                        <p className="mt-1 text-xs text-rose-600">
+                                                            {err('pribadi.spouse_name')}
+                                                        </p>
+                                                    )}
+                                                </Field>
+                                                <Field label="NIK Pasangan">
+                                                    <input
+                                                        type="text"
+                                                        maxLength={16}
+                                                        value={form.pribadi.spouse_nik ?? ''}
+                                                        onChange={(event) =>
+                                                            setGroup(
+                                                                'pribadi',
+                                                                'spouse_nik',
+                                                                event.target.value.replace(/\D/g, '').slice(0, 16),
+                                                            )
+                                                        }
+                                                        placeholder="16 digit NIK"
+                                                        className={inputClass}
+                                                    />
+                                                    {err('pribadi.spouse_nik') && (
+                                                        <p className="mt-1 text-xs text-rose-600">
+                                                            {err('pribadi.spouse_nik')}
+                                                        </p>
+                                                    )}
+                                                </Field>
+                                                <Field label="Nomor Telepon Pasangan">
+                                                    <input
+                                                        type="text"
+                                                        value={form.pribadi.spouse_phone ?? ''}
+                                                        onChange={(event) =>
+                                                            setGroup(
+                                                                'pribadi',
+                                                                'spouse_phone',
+                                                                event.target.value,
+                                                            )
+                                                        }
+                                                        placeholder="mis. 08123456789"
+                                                        className={inputClass}
+                                                    />
+                                                    {err('pribadi.spouse_phone') && (
+                                                        <p className="mt-1 text-xs text-rose-600">
+                                                            {err('pribadi.spouse_phone')}
+                                                        </p>
+                                                    )}
+                                                </Field>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Upload Dokumen Identitas: Foto KTP & Foto Kartu Keluarga */}
+                                    <div className="pt-4 border-t border-slate-100">
+                                        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
+                                            Dokumen Identitas Pemohon
+                                        </h3>
+                                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                            <IdentityPhotoUploader
+                                                label="Foto KTP"
+                                                file={form.pribadi.ktp_photo}
+                                                existingUrl={form.pribadi.ktp_photo_url}
+                                                error={err('pribadi.ktp_photo')}
+                                                onFileSelect={(file) =>
+                                                    setGroup('pribadi', 'ktp_photo', file)
+                                                }
+                                                onFileRemove={() =>
+                                                    setGroup('pribadi', 'ktp_photo', null)
+                                                }
+                                            />
+                                            <IdentityPhotoUploader
+                                                label="Foto Kartu Keluarga (KK)"
+                                                file={form.pribadi.kk_photo}
+                                                existingUrl={form.pribadi.kk_photo_url}
+                                                error={err('pribadi.kk_photo')}
+                                                onFileSelect={(file) =>
+                                                    setGroup('pribadi', 'kk_photo', file)
+                                                }
+                                                onFileRemove={() =>
+                                                    setGroup('pribadi', 'kk_photo', null)
+                                                }
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -936,6 +1238,36 @@ export default function Pengajuan({ today, products, customers, options, applica
                             {section.key === 'pengajuan' && (
                                 <div className="space-y-4">
                                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                        <Field label="Nama Agen">
+                                            <select
+                                                value={form.pengajuan.agent_id}
+                                                onChange={(event) =>
+                                                    setGroup(
+                                                        'pengajuan',
+                                                        'agent_id',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className={inputClass}
+                                            >
+                                                <option value="">
+                                                    — Pilih Agen —
+                                                </option>
+                                                {agents.map((agent) => (
+                                                    <option
+                                                        key={agent.id}
+                                                        value={agent.id}
+                                                    >
+                                                        {agent.code} — {agent.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {err('pengajuan.agent_id') && (
+                                                <p className="mt-1 text-xs text-rose-600">
+                                                    {err('pengajuan.agent_id')}
+                                                </p>
+                                            )}
+                                        </Field>
                                         <Field label="Produk Pinjaman">
                                             <select
                                                 value={form.pengajuan.product_id}
@@ -1712,7 +2044,7 @@ export default function Pengajuan({ today, products, customers, options, applica
                                             </Field>
                                             <Field
                                                 label="Dokumen Jaminan (PDF)"
-                                                hint="Format: PDF — maksimal 5 MB. Dokumen legalitas/perjanjian tersimpan permanen bersama jaminan."
+                                                hint="Format: PDF — maksimal 10 MB. Dokumen legalitas/perjanjian tersimpan permanen bersama jaminan."
                                             >
                                                 <input
                                                     type="file"
@@ -2223,6 +2555,167 @@ export default function Pengajuan({ today, products, customers, options, applica
                                             )}
                                         </ul>
                                     )}
+                                </div>
+                            )}
+
+                            {section.key === 'lampiran' && (
+                                <div className="space-y-4">
+                                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                            <div>
+                                                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                                                    Unggah Lampiran Dokumen (PDF)
+                                                </h3>
+                                                <p className="mt-1 text-xs text-slate-500">
+                                                    Format file PDF, maksimal 10 MB per file. Anda dapat menambahkan lebih dari satu lampiran.
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <label className="inline-flex items-center gap-1.5 cursor-pointer rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 shadow-sm transition-colors">
+                                                    <Plus className="h-4 w-4" />
+                                                    <span>Pilih Dokumen PDF</span>
+                                                    <input
+                                                        type="file"
+                                                        accept="application/pdf"
+                                                        multiple
+                                                        onChange={(e) => {
+                                                            const files = Array.from(e.target.files || []);
+                                                            if (files.length === 0) return;
+
+                                                            const invalidFiles = files.filter(
+                                                                (f) =>
+                                                                    f.type !== 'application/pdf' &&
+                                                                    !f.name.toLowerCase().endsWith('.pdf')
+                                                            );
+                                                            if (invalidFiles.length > 0) {
+                                                                alert('Hanya format file PDF yang diperbolehkan.');
+                                                                e.target.value = '';
+                                                                return;
+                                                            }
+
+                                                            const oversized = files.filter(
+                                                                (f) => f.size > 10 * 1024 * 1024
+                                                            );
+                                                            if (oversized.length > 0) {
+                                                                alert('Ukuran file maksimal 10 MB per file.');
+                                                                e.target.value = '';
+                                                                return;
+                                                            }
+
+                                                            setRoot('lampiran', [
+                                                                ...(form.lampiran || []),
+                                                                ...files,
+                                                            ]);
+                                                            e.target.value = '';
+                                                        }}
+                                                        className="hidden"
+                                                    />
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {err('lampiran') && (
+                                        <p className="text-xs text-rose-600">{err('lampiran')}</p>
+                                    )}
+
+                                    {/* Existing Attachments (Mode Edit) */}
+                                    {form.existing_attachments && form.existing_attachments.length > 0 && (
+                                        <div className="space-y-2">
+                                            <h4 className="text-xs font-semibold text-slate-600">
+                                                Dokumen Tersimpan:
+                                            </h4>
+                                            <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+                                                {form.existing_attachments.map((att) => (
+                                                    <li
+                                                        key={`existing-${att.id}`}
+                                                        className="flex items-center justify-between p-3 text-xs"
+                                                    >
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <FileText className="h-4 w-4 text-rose-500 shrink-0" />
+                                                            <a
+                                                                href={att.url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="font-medium text-indigo-600 hover:underline truncate"
+                                                            >
+                                                                {att.file_name}
+                                                            </a>
+                                                            <span className="text-slate-400 shrink-0">
+                                                                ({(att.file_size / (1024 * 1024)).toFixed(2)} MB)
+                                                            </span>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setRoot('deleted_attachment_ids', [
+                                                                    ...(form.deleted_attachment_ids || []),
+                                                                    att.id,
+                                                                ]);
+                                                                setRoot(
+                                                                    'existing_attachments',
+                                                                    form.existing_attachments.filter(
+                                                                        (item) => item.id !== att.id
+                                                                    )
+                                                                );
+                                                            }}
+                                                            className="text-rose-500 hover:text-rose-700 p-1"
+                                                            title="Hapus lampiran ini"
+                                                        >
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </button>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+
+                                    {/* Newly Picked Attachments */}
+                                    {form.lampiran && form.lampiran.length > 0 && (
+                                        <div className="space-y-2">
+                                            <h4 className="text-xs font-semibold text-slate-600">
+                                                Dokumen Baru Ditambahkan (Belum Disimpan):
+                                            </h4>
+                                            <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+                                                {form.lampiran.map((file, idx) => (
+                                                    <li
+                                                        key={`new-${file.name}-${idx}`}
+                                                        className="flex items-center justify-between p-3 text-xs"
+                                                    >
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <FileText className="h-4 w-4 text-emerald-500 shrink-0" />
+                                                            <span className="font-medium text-slate-700 truncate">
+                                                                {file.name}
+                                                            </span>
+                                                            <span className="text-slate-400 shrink-0">
+                                                                ({(file.size / (1024 * 1024)).toFixed(2)} MB)
+                                                            </span>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setRoot(
+                                                                    'lampiran',
+                                                                    form.lampiran.filter((_, i) => i !== idx)
+                                                                );
+                                                            }}
+                                                            className="text-rose-500 hover:text-rose-700 p-1"
+                                                            title="Batalkan file ini"
+                                                        >
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </button>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+
+                                    {(!form.existing_attachments || form.existing_attachments.length === 0) &&
+                                        (!form.lampiran || form.lampiran.length === 0) && (
+                                            <p className="text-xs text-slate-400 italic">
+                                                Belum ada lampiran dokumen yang dipilih.
+                                            </p>
+                                        )}
                                 </div>
                             )}
                         </AccordionSection>

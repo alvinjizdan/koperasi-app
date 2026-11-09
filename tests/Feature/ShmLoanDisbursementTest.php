@@ -6,9 +6,10 @@ use App\Models\AuditLog;
 use App\Models\CashTransaction;
 use App\Models\Permission;
 use App\Models\Role;
-use App\Models\SavingProduct;
-use App\Models\SavingsAccount;
 use App\Models\SavingsTransaction;
+use App\Models\Shm\ShmSavingProduct;
+use App\Models\Shm\ShmSavingsAccount;
+use App\Models\ShmAgent;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanInstallment;
@@ -149,9 +150,15 @@ class ShmLoanDisbursementTest extends TestCase
      */
     private function validPayload(int $customerId): array
     {
+        $agent = ShmAgent::firstOrCreate(
+            ['code' => 'AGEN-FIXTURE'],
+            ['name' => 'Agen Fixture', 'nik' => '3201000000009999', 'is_active' => true],
+        );
+
         return [
             'pribadi' => ['customer_id' => $customerId],
             'pengajuan' => [
+                'agent_id' => $agent->id,
                 'product_id' => $this->productWithOfficialTiers()->id,
                 'principal' => '460000000',
                 'tenor_months' => 48,
@@ -857,10 +864,10 @@ class ShmLoanDisbursementTest extends TestCase
 
         $loan = ShmLoan::query()->sole();
 
-        // Invariant finansial: gross 460jt, potongan 28,9jt, net 431,1jt.
+        // Invariant finansial: gross 460jt
         $this->assertSame('460000000.00', (string) $loan->principal);
         $this->assertEqualsWithDelta(460_000_000 * 0.02, (float) $loan->admin_fee, 0.001);
-        $this->assertEqualsWithDelta(460_000_000 * 0.03, (float) $loan->provision_fee, 0.001);
+        $this->assertEqualsWithDelta(460_000_000 * 0.02, (float) $loan->provision_fee, 0.001);
         $this->assertEqualsWithDelta(460_000_000 * 0.01, (float) $loan->insurance_fee, 0.001);
         $this->assertEqualsWithDelta(100_000, (float) $loan->principal_savings, 0.001);
         $this->assertEqualsWithDelta(25_000 * 48, (float) $loan->mandatory_savings, 0.001);
@@ -870,15 +877,15 @@ class ShmLoanDisbursementTest extends TestCase
             0.001,
         );
 
-        // Simpanan Pokok & Wajib → rekening anggota sumber (bukan kasir).
-        $memberId = $application->customer->member_id;
-        $principalAccount = SavingsAccount::query()
-            ->where('member_id', $memberId)
-            ->whereHas('savingProduct', fn ($q) => $q->where('category', SavingProduct::CATEGORY_PRINCIPAL))
+        // Simpanan Pokok & Wajib → rekening simpanan SHM nasabah (bukan kasir).
+        $customerId = $application->shm_customer_id;
+        $principalAccount = ShmSavingsAccount::query()
+            ->where('shm_customer_id', $customerId)
+            ->whereHas('savingProduct', fn ($q) => $q->where('category', ShmSavingProduct::CATEGORY_PRINCIPAL))
             ->sole();
-        $mandatoryAccount = SavingsAccount::query()
-            ->where('member_id', $memberId)
-            ->whereHas('savingProduct', fn ($q) => $q->where('category', SavingProduct::CATEGORY_MANDATORY))
+        $mandatoryAccount = ShmSavingsAccount::query()
+            ->where('shm_customer_id', $customerId)
+            ->whereHas('savingProduct', fn ($q) => $q->where('category', ShmSavingProduct::CATEGORY_MANDATORY))
             ->sole();
 
         $this->assertEqualsWithDelta(100_000, (float) $principalAccount->balance, 0.001);
@@ -886,14 +893,14 @@ class ShmLoanDisbursementTest extends TestCase
 
         // Idempotency key deterministik berbasis application_id (tersedia
         // sebelum posting — bukan loan_id yang belum ada).
-        $this->assertDatabaseHas('savings_transactions', [
-            'savings_account_id' => $principalAccount->id,
+        $this->assertDatabaseHas('shm_savings_transactions', [
+            'shm_savings_account_id' => $principalAccount->id,
             'idempotency_key' => sprintf('shm-disbursement-principal:%d', $application->id),
             'type' => 'deposit',
             'amount' => 100000,
         ]);
-        $this->assertDatabaseHas('savings_transactions', [
-            'savings_account_id' => $mandatoryAccount->id,
+        $this->assertDatabaseHas('shm_savings_transactions', [
+            'shm_savings_account_id' => $mandatoryAccount->id,
             'idempotency_key' => sprintf('shm-disbursement-mandatory:%d', $application->id),
             'type' => 'deposit',
             'amount' => 1200000,
@@ -987,7 +994,7 @@ class ShmLoanDisbursementTest extends TestCase
 
         // Biaya potongan dihitung dari approved_amount (Rp450jt)
         $this->assertEqualsWithDelta(450_000_000 * 0.02, (float) $loan->admin_fee, 0.001);
-        $this->assertEqualsWithDelta(450_000_000 * 0.03, (float) $loan->provision_fee, 0.001);
+        $this->assertEqualsWithDelta(450_000_000 * 0.02, (float) $loan->provision_fee, 0.001);
         $this->assertEqualsWithDelta(450_000_000 * 0.01, (float) $loan->insurance_fee, 0.001);
 
         // Kas keluar kasir mengikuti net disbursement dari approved_amount
@@ -1001,7 +1008,7 @@ class ShmLoanDisbursementTest extends TestCase
     /**
      * BR-02 / AC-06 / AC-07 (PBC-02): net_disbursement = 0 DITOLAK (fail-closed).
      * Fixture deterministik: approved_amount Rp1.000.000, tenor 12 bulan (SW 300rb),
-     * SP 100rb, fee 6% (60rb), notaris Rp540.000 -> total potongan = Rp1.000.000,
+     * SP 100rb, fee 5% (50rb: admin 2% + provisi 2% + asuransi 1%), notaris Rp550.000 -> total potongan = Rp1.000.000,
      * net = Rp0. Seluruh efek finansial harus rollback penuh.
      */
     public function test_disbursement_rejected_when_net_disbursement_equals_zero(): void
@@ -1013,7 +1020,7 @@ class ShmLoanDisbursementTest extends TestCase
             ]),
             'persetujuan' => [
                 'approved_amount' => '1000000',
-                'notary_fee' => '540000',
+                'notary_fee' => '550000',
                 'provision_fee' => '',
                 'administration_fee' => '',
                 'method' => 'flat',

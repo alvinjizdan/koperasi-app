@@ -6,7 +6,7 @@ use App\Models\CashTransaction;
 use App\Models\ChartOfAccount;
 use App\Models\JournalEntry;
 use App\Models\Role;
-use App\Models\SavingsAccount;
+use App\Models\Shm\ShmSavingsAccount;
 use App\Models\ShmAccountingMapping;
 use App\Models\ShmApplication;
 use App\Models\ShmApproval;
@@ -273,11 +273,10 @@ class ShmFinancialIntegrationQaTest extends TestCase
         $this->assertSame(12_000_000.0, (float) $disbJournal->totalCredit());
 
         // Invariant C: Savings integrity (Simpanan Pokok 100k + Simpanan Wajib 25k * 12 = 300k)
-        $member = $this->customer->member;
-        $simpananPokokAcc = SavingsAccount::where('member_id', $member->id)
+        $simpananPokokAcc = ShmSavingsAccount::where('shm_customer_id', $this->customer->id)
             ->whereHas('savingProduct', fn ($q) => $q->where('category', 'principal'))
             ->first();
-        $simpananWajibAcc = SavingsAccount::where('member_id', $member->id)
+        $simpananWajibAcc = ShmSavingsAccount::where('shm_customer_id', $this->customer->id)
             ->whereHas('savingProduct', fn ($q) => $q->where('category', 'mandatory'))
             ->first();
 
@@ -479,8 +478,7 @@ class ShmFinancialIntegrationQaTest extends TestCase
 
         $totalOwedBefore = $loan->totalOwed();
 
-        $member = $this->customer->member;
-        $simpananPokokAcc = SavingsAccount::where('member_id', $member->id)
+        $simpananPokokAcc = ShmSavingsAccount::where('shm_customer_id', $this->customer->id)
             ->whereHas('savingProduct', fn ($q) => $q->where('category', 'principal'))
             ->first();
         $initialSavingsBalance = (float) $simpananPokokAcc->balance;

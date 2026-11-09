@@ -6,8 +6,8 @@ use App\Models\AuditLog;
 use App\Models\Member;
 use App\Models\Permission;
 use App\Models\Role;
-use App\Models\SavingProduct;
-use App\Models\SavingsTransaction;
+use App\Models\Shm\ShmSavingProduct;
+use App\Models\Shm\ShmSavingsTransaction;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
@@ -356,7 +356,15 @@ class ShmLoanPaymentTest extends TestCase
     public function test_overpayment_is_persisted_without_truncation(): void
     {
         $member = Member::factory()->create();
-        SavingProduct::factory()->category(SavingProduct::CATEGORY_PRINCIPAL)->create();
+        ShmSavingProduct::firstOrCreate(
+            ['category' => ShmSavingProduct::CATEGORY_PRINCIPAL],
+            [
+                'code' => 'SHM-SP-001',
+                'name' => 'Simpanan Pokok SHM',
+                'description' => 'Simpanan Pokok SHM',
+                'is_active' => true,
+            ]
+        );
 
         $loan = $this->activeLoanOf($this->marketing, $member);
 
@@ -368,11 +376,11 @@ class ShmLoanPaymentTest extends TestCase
         $this->assertSame('150000000.00', (string) $payment->amount, 'Kelebihan nominal tidak boleh ditrunk.');
 
         // T151 — kelebihan TIDAK dibuang: sisanya dipindahkan ke Simpanan
-        // Pokok anggota sumber (bukan dibiarkan unallocated).
-        $this->assertSame(1, SavingsTransaction::query()->count());
+        // Pokok SHM nasabah (bukan dibiarkan unallocated).
+        $this->assertSame(1, ShmSavingsTransaction::query()->count());
         $this->assertEquals(
             150000000 - 30000000,
-            (float) SavingsTransaction::query()->sole()->amount,
+            (float) ShmSavingsTransaction::query()->sole()->amount,
         );
     }
 

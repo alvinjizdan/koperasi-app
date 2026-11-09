@@ -422,6 +422,12 @@ export default function Show({
                                 <Field label="Plafond Pinjaman">
                                     {formatRupiah(loan.disbursement?.principal)}
                                 </Field>
+                                <Field label="Nama Agen">
+                                    {loan.disbursement?.agent?.name ?? '-'}
+                                </Field>
+                                <Field label="Kode Agen">
+                                    {loan.disbursement?.agent?.code ?? '-'}
+                                </Field>
                                 {/* T83 — jatuh tempo pertama (dipilih
                                     Marketing; anchor jadwal angsuran). */}
                                 <Field label="Jatuh Tempo Pertama">
@@ -444,9 +450,24 @@ export default function Show({
                                         <Field label="Biaya Admin (2%)">
                                             {formatRupiah(loan.disbursement.costs.admin_fee)}
                                         </Field>
-                                        <Field label="Biaya Provisi (3%)">
+                                        <Field label="Biaya Provisi (2%)">
                                             {formatRupiah(loan.disbursement.costs.provision_fee)}
                                         </Field>
+                                        {loan.disbursement?.costs?.office_provision_fee != null && (
+                                            <Field label="• Porsi Kantor (1%)">
+                                                {formatRupiah(loan.disbursement.costs.office_provision_fee)}
+                                            </Field>
+                                        )}
+                                        {loan.disbursement?.costs?.agent_commission_fee != null && (
+                                            <Field label="• Komisi Agen (1%)">
+                                                {formatRupiah(loan.disbursement.costs.agent_commission_fee)}
+                                                {loan.disbursement.agent && (
+                                                    <span className="ml-1 text-xs text-slate-500">
+                                                        ({loan.disbursement.agent.name})
+                                                    </span>
+                                                )}
+                                            </Field>
+                                        )}
                                         <Field label="Asuransi (1%)">
                                             {formatRupiah(loan.disbursement.costs.insurance_fee)}
                                         </Field>

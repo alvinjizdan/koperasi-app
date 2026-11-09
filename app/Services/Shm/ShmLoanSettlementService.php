@@ -2,7 +2,6 @@
 
 namespace App\Services\Shm;
 
-use App\Models\Shm\ShmSavingProduct;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanInstallment;
@@ -88,7 +87,6 @@ class ShmLoanSettlementService
 
     public function __construct(
         private readonly ShmSettlementDiscountPolicyService $policies,
-        private readonly ShmSavingsIntegrationService $savingsIntegration,
         // T006E — Layanan integrasi jurnal akuntansi otomatis SHM
         private readonly ShmAutomaticJournalService $autoJournalService,
     ) {}
@@ -126,7 +124,7 @@ class ShmLoanSettlementService
             'blocked_items' => $this->blockedItems(),
             'pending_notes' => [
                 'PENDING BUSINESS CONFIRMATION — settlement tolerance (tidak dipakai: pembayaran harus tepat memenuhi kewajiban).',
-                'Overpayment (pembayaran > kewajiban) diposting ke Simpanan Pokok anggota sumber melalui relasi ShmCustomer → Member; completion diblokir bila hubungan tersebut tidak tersedia, tidak ditemukan, atau anggota nonaktif — tanpa membuat/mengonversi member dan tanpa membuat SHM Savings.',
+                'Overpayment (pembayaran > kewajiban) diakui sebagai Bunga Pendapatan pada akuntansi SHM (COA 4-1101 Pendapatan Bunga SHM).',
                 'PENDING BUSINESS CONFIRMATION — approval authority (role) final.',
                 'PENDING BUSINESS CONFIRMATION — kanal & field wajib pembayaran pelunasan.',
             ],
@@ -465,7 +463,7 @@ class ShmLoanSettlementService
      */
     public function complete(ShmLoan $loan, int $actorId): ShmLoanSettlement
     {
-        return DB::transaction(function () use ($loan, $actorId): ShmLoanSettlement {
+        return DB::transaction(function () use ($loan): ShmLoanSettlement {
             $lockedLoan = ShmLoan::query()->lockForUpdate()->findOrFail($loan->id);
             $settlement = $this->lockedSettlementOf($lockedLoan->id);
 
@@ -492,28 +490,6 @@ class ShmLoanSettlementService
                 ]);
             }
 
-            if ($overpayment > 0.005) {
-                // Lebih bayar BUKAN pengurangan pinjaman: posting ke
-                // Simpanan Pokok SHM nasabah.
-                $customer = $lockedLoan->customer;
-
-                if (! $customer) {
-                    throw ValidationException::withMessages([
-                        'loan' => 'Nasabah SHM tidak ditemukan untuk posting overpayment.',
-                    ]);
-                }
-
-                $this->savingsIntegration->deposit(
-                    $customer,
-                    ShmSavingProduct::CATEGORY_PRINCIPAL,
-                    $overpayment,
-                    sprintf('shm-settlement-overpayment:%d', $settlement->id),
-                    sprintf('Setoran Simpanan Pokok dari lebih bayar pelunasan pinjaman SHM %s', $lockedLoan->loan_number),
-                    $actorId,
-                    false,
-                );
-            }
-
             // 1. Settlementkan seluruh sisa angsuran (kewajiban dianggap
             //    selesai: sebagian tunai + sebagian potongan discount yang
             //    terekam pada settlement). Komponen jadwal TIDAK diubah.
@@ -538,8 +514,9 @@ class ShmLoanSettlementService
             $settlement->status = ShmLoanSettlement::STATUS_COMPLETED;
             $settlement->save();
 
-            // T006E — Jurnal Otomatis Pelunasan Pinjaman SHM (atomik di dalam transaksi yang sama)
-            $this->autoJournalService->createSettlementJournal($settlement, $actorId);
+            // Automatic journal posting dinonaktifkan sesuai ticket refactor SHM Accounting.
+            // Pencatatan akuntansi kini dilakukan via import XLSX berstatus DRAFT dan diposting manual.
+            // $this->autoJournalService->createSettlementJournal($settlement, $actorId);
 
             AuditLogger::log(
                 'shm.loan.settled',
@@ -734,65 +711,6 @@ class ShmLoanSettlementService
     // ==================================================================
     // GUARD & HELPERS
     // ==================================================================
-
-    /**
-     * Resolusi penerima overpayment: nasabah SHM → anggota koperasi sumber.
-     *
-     * Penerima HANYA berasal dari `shm_customers.member_id` milik pemilik
-     * pinjaman — tidak pernah dari input frontend, tidak pernah dari
-     * nama/NIK nasabah, tidak pernah anggota lain.
-     *
-     * Ditolak eksplisit (dan rollback) bila:
-     * - nasabah SHM tidak memiliki `member_id` (data legacy);
-     * - baris anggota tidak ditemukan;
-     * - anggota tidak berstatus `active` (hanya anggota aktif yang boleh
-     *   menerima posting — kontrak T89E #4).
-     *
-     * TIDAK pernah membuat anggota, mengonversi nasabah SHM, atau memilih
-     * penerima pengganti.
-     *
-     * @throws SettlementContractIncomplete
-     * @throws ValidationException
-     */
-    private function resolveOverpaymentMember(ShmLoan $loan, ShmLoanSettlement $settlement, float $overpayment): Member
-    {
-        $customer = $loan->customer;
-
-        if ($customer === null || $customer->member_id === null) {
-            throw new SettlementContractIncomplete($loan, [
-                sprintf(
-                    'overpayment Rp %s harus diposting ke Simpanan Pokok — BLOCKER BUSINESS DATA: nasabah SHM tidak memiliki hubungan member koperasi (konversi/pembuatan member dilarang). Catat pembayaran dengan nominal tepat Rp %s.',
-                    number_format($overpayment, 2, ',', '.'),
-                    number_format((float) $settlement->settlement_amount, 2, ',', '.'),
-                ),
-            ]);
-        }
-
-        $member = Member::query()->lockForUpdate()->find($customer->member_id);
-
-        if ($member === null) {
-            throw new SettlementContractIncomplete($loan, [
-                sprintf(
-                    'overpayment Rp %s harus diposting ke Simpanan Pokok — BLOCKER BUSINESS DATA: anggota koperasi sumber #%d milik nasabah SHM tidak ditemukan (konversi/pembuatan member dilarang).',
-                    number_format($overpayment, 2, ',', '.'),
-                    $customer->member_id,
-                ),
-            ]);
-        }
-
-        if ($member->status !== 'active') {
-            throw ValidationException::withMessages([
-                'member' => sprintf(
-                    'Anggota koperasi sumber %s berstatus "%s" — overpayment Rp %s hanya dapat diposting ke Simpanan Pokok anggota aktif, sehingga pelunasan tidak diselesaikan.',
-                    $member->member_number,
-                    (string) $member->status,
-                    number_format($overpayment, 2, ',', '.'),
-                ),
-            ]);
-        }
-
-        return $member;
-    }
 
     /**
      * Guard kelayakan pinjaman untuk seluruh operasi settlement.

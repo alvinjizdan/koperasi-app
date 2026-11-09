@@ -8,6 +8,7 @@ use App\Models\Member;
 use App\Models\SavingProduct;
 use App\Models\Shm\ShmSavingProduct;
 use App\Models\ShmAccountingMapping;
+use App\Models\ShmAgent;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoanProduct;
 use App\Models\ShmProductAccounting;
@@ -45,6 +46,15 @@ trait InteractsWithShmDisbursement
      */
     protected function seedShmSavingsProducts(): void
     {
+        ShmAgent::firstOrCreate(
+            ['code' => 'AGEN-FIXTURE'],
+            [
+                'name' => 'Agen Fixture Uji',
+                'nik' => '3201000000009999',
+                'is_active' => true,
+            ]
+        );
+
         ShmSavingProduct::firstOrCreate(
             ['code' => 'SP-SHM-FIXTURE'],
             [

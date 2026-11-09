@@ -163,13 +163,14 @@ class ShmLoanPengajuanTest extends TestCase
         }
 
         // Definisi section berada di SATU daftar (bukan 11 halaman terpisah).
+        // Section 12 ditambahkan untuk Lampiran PDF.
         $this->assertStringContainsString('const SECTIONS = [', $source);
         $this->assertSame(
-            11,
+            12,
             preg_match('/const SECTIONS = \[(.*?)\];/s', $source, $matches)
                 ? substr_count($matches[1], 'key:')
                 : 0,
-            'Daftar SECTIONS harus berisi tepat 11 entri.',
+            'Daftar SECTIONS harus berisi tepat 12 entri.',
         );
     }
 
@@ -336,6 +337,7 @@ class ShmLoanPengajuanTest extends TestCase
         // payment.verify/complete) +master policy diskon (index/store/
         // toggle).
         $expected = [
+            'shm.loans.collaterals.index',
             'shm.loans.index',
             // T86 — transaksi pembayaran pinjaman SHM.
             // T87 — alokasi pembayaran ke angsuran (POST).
@@ -362,9 +364,11 @@ class ShmLoanPengajuanTest extends TestCase
             'shm.loans.pengajuan.daftar',
             'shm.loans.pengajuan.disburse',
             'shm.loans.pengajuan.edit',
+            'shm.loans.pengajuan.identitas.foto',
             // Dokumen PDF jaminan (ticket upload-dokumen-jaminan).
             'shm.loans.pengajuan.jaminan.dokumen',
             'shm.loans.pengajuan.jaminan.foto',
+            'shm.loans.pengajuan.lampiran.dokumen',
             'shm.loans.pengajuan.pdf',
             'shm.loans.pengajuan.show',
             'shm.loans.pengajuan.store',
@@ -376,6 +380,8 @@ class ShmLoanPengajuanTest extends TestCase
             'shm.loans.products.index',
             'shm.loans.products.store',
             'shm.loans.products.update',
+            'shm.loans.report.index',
+            'shm.loans.report.pdf',
             // T83 — action eksplisit pembangkitan jadwal angsuran.
             'shm.loans.schedule.generate',
             'shm.loans.show',

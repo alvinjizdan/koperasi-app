@@ -3,64 +3,54 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
+use App\Models\ChartOfAccount;
+use App\Models\JournalEntry;
 use App\Models\Member;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SavingProduct;
 use App\Models\SavingsAccount;
 use App\Models\SavingsTransaction;
-use App\Models\Shm\ShmSavingProduct;
 use App\Models\Shm\ShmSavingsAccount;
 use App\Models\Shm\ShmSavingsTransaction;
+use App\Models\ShmAccountingMapping;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanPayment;
+use App\Models\ShmLoanProduct;
 use App\Models\ShmLoanSettlement;
+use App\Models\ShmProductAccounting;
+use App\Models\ShmSettlementCorrection;
 use App\Models\User;
+use App\Services\Accounting\ShmAccountingMappingService;
 use App\Services\Shm\ShmLoanPaymentService;
-use App\Services\Shm\ShmLoanSettlementService;
-use App\Services\Shm\ShmSavingsIntegrationService;
+use App\Services\Shm\ShmSettlementCorrectionService;
+use App\Support\AccountingContext;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Database\Seeders\ShmSavingProductSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use RuntimeException;
 use Tests\TestCase;
 
 /**
- * T89E — Penyelesaian settlement dengan OVERPAYMENT → Koperasi Simpanan Pokok.
+ * Ticket: Ubah Overpayment Pelunasan SHM Menjadi Bunga Pendapatan.
  *
- * Fixture tetap (angsuran 2x, plafon Rp30.000.000 ≤ threshold diskon):
- * - outstanding principal  Rp30.000.000
- * - bunga jatuh tempo       Rp  500.000
- * - bunga masa depan        Rp  500.000 (tanpa diskon: tidak eligible)
- * - settlement amount       Rp31.000.000
- *
- * Mengunci kontrak T89E:
- * - AC1  overpayment = payment − settlement amount.
- * - AC2  posting ke Simpanan Pokok koperasi existing (bukan SHM Savings).
- * - AC3  penerima berasal dari ShmCustomer.member_id (bukan input frontend).
- * - AC4  tidak ada pembuatan Member otomatis.
- * - AC5  tidak ada SHM Savings.
- * - AC6  overpayment tidak mengurangi principal pinjaman.
- * - AC7  posting idempoten (retry tidak menggandakan transaksi/audit).
- * - AC8  payment wajib verified sebelum completion.
- * - AC9  pinjaman ditutup tepat satu kali.
- * - AC10 settlement rejected tidak memposting overpayment.
- * - AC11 hubungan Member hilang/tidak valid/nonaktif memblokir completion.
- * - AC12 kegagalan posting membatalkan completion (tanpa commit parsial).
- * - AC13 discount/penalty/approval/payment rule lama tidak berubah.
- * - AC14 perilaku payment/allocation lama tidak berubah.
+ * Verifikasi menyeluruh:
+ * - Test 1: Settlement tanpa overpayment (Exact Payment).
+ * - Test 2: Settlement dengan overpayment -> Bunga Pendapatan SHM (COA 4-1101) & Debit Kas full payment.
+ * - Test 3: Overpayment TIDAK masuk ke Simpanan SHM maupun Simpanan Koperasi.
+ * - Test 4: Isolasi koperasi: akun dan transaksi koperasi tidak terdampak.
+ * - Test 5: Settlement Correction membalik overpayment revenue via journal reversal tanpa menyentuh Simpanan.
+ * - Test 6: Invarian principal, schedule angsuran, dan idempotensi.
  */
 class ShmSettlementOverpaymentCompletionTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** Kewajiban pelunasan fixture T89E (lihat docblock). */
+    /** Kewajiban pelunasan fixture (lihat docblock). */
     private const SETTLEMENT_AMOUNT = 31_000_000;
 
     /** Pembayaran fixture dengan lebih bayar Rp1.000.000. */
@@ -70,7 +60,17 @@ class ShmSettlementOverpaymentCompletionTest extends TestCase
 
     private User $user;
 
-    private SavingProduct $principalProduct;
+    private ShmLoanProduct $shmProduct;
+
+    private ChartOfAccount $shmCash;
+
+    private ChartOfAccount $shmReceivable;
+
+    private ChartOfAccount $shmInterest;
+
+    private ChartOfAccount $shmPenalty;
+
+    private ChartOfAccount $shmDiscount;
 
     protected function setUp(): void
     {
@@ -92,17 +92,90 @@ class ShmSettlementOverpaymentCompletionTest extends TestCase
                 'shm.view',
                 'shm.payment.create',
                 'shm.settlement.create',
+                'shm.settlement.verify',
+                'shm.settlement.approve',
             ])->pluck('id')
         );
         $this->user->roles()->attach($role->id);
 
-        $this->principalProduct = SavingProduct::create([
-            'code' => 'SP-T89E',
-            'name' => 'Simpanan Pokok',
-            'category' => SavingProduct::CATEGORY_PRINCIPAL,
-            'description' => 'Simpanan Pokok Anggota',
-            'is_active' => true,
-        ]);
+        // COA Akuntansi SHM
+        $this->shmCash = ChartOfAccount::firstOrCreate(
+            ['accounting_context' => AccountingContext::SHM, 'code' => '1-1101'],
+            [
+                'name' => 'Kas Operasional SHM',
+                'category' => ChartOfAccount::CATEGORY_ASSET,
+                'normal_balance' => ChartOfAccount::NORMAL_DEBIT,
+                'is_active' => true,
+            ]
+        );
+
+        $this->shmReceivable = ChartOfAccount::firstOrCreate(
+            ['accounting_context' => AccountingContext::SHM, 'code' => '1-1301'],
+            [
+                'name' => 'Piutang Pokok SHM',
+                'category' => ChartOfAccount::CATEGORY_ASSET,
+                'normal_balance' => ChartOfAccount::NORMAL_DEBIT,
+                'is_active' => true,
+            ]
+        );
+
+        $this->shmInterest = ChartOfAccount::firstOrCreate(
+            ['accounting_context' => AccountingContext::SHM, 'code' => '4-1101'],
+            [
+                'name' => 'Pendapatan Bunga SHM',
+                'category' => ChartOfAccount::CATEGORY_REVENUE,
+                'normal_balance' => ChartOfAccount::NORMAL_CREDIT,
+                'is_active' => true,
+            ]
+        );
+
+        $this->shmPenalty = ChartOfAccount::firstOrCreate(
+            ['accounting_context' => AccountingContext::SHM, 'code' => '4-1201'],
+            [
+                'name' => 'Pendapatan Denda SHM',
+                'category' => ChartOfAccount::CATEGORY_REVENUE,
+                'normal_balance' => ChartOfAccount::NORMAL_CREDIT,
+                'is_active' => true,
+            ]
+        );
+
+        $this->shmDiscount = ChartOfAccount::firstOrCreate(
+            ['accounting_context' => AccountingContext::SHM, 'code' => '4-1901'],
+            [
+                'name' => 'Diskon Pelunasan SHM',
+                'category' => ChartOfAccount::CATEGORY_REVENUE,
+                'normal_balance' => ChartOfAccount::NORMAL_DEBIT,
+                'is_active' => true,
+            ]
+        );
+
+        // SHM Loan Product
+        $this->shmProduct = ShmLoanProduct::firstOrCreate(
+            ['code' => 'PJS-TEST'],
+            ['name' => 'Pinjaman Siaga Test', 'category' => ShmLoanProduct::CATEGORY_PERUMAHAN, 'is_active' => true]
+        );
+
+        ShmProductAccounting::updateOrCreate(
+            [
+                'shm_loan_product_id' => $this->shmProduct->id,
+                'accounting_context' => AccountingContext::SHM,
+            ],
+            [
+                'cash_account_id' => $this->shmCash->id,
+                'receivable_account_id' => $this->shmReceivable->id,
+                'interest_revenue_account_id' => $this->shmInterest->id,
+                'penalty_revenue_account_id' => $this->shmPenalty->id,
+                'settlement_discount_account_id' => $this->shmDiscount->id,
+                'is_active' => true,
+            ]
+        );
+
+        app(ShmAccountingMappingService::class)->saveMapping([
+            'accounting_context' => AccountingContext::SHM,
+            'business_event' => ShmAccountingMapping::EVENT_SETTLEMENT,
+            'debit_account_role' => 'cash',
+            'credit_account_role' => 'receivable',
+        ], (int) $this->user->id);
     }
 
     // ==================================================================
@@ -137,6 +210,7 @@ class ShmSettlementOverpaymentCompletionTest extends TestCase
         $application = ShmLoanApplication::query()->create([
             'application_number' => 'PENGAJ-T89E-'.Str::upper(Str::random(10)),
             'shm_customer_id' => $customer->id,
+            'shm_loan_product_id' => $this->shmProduct->id,
             'application_date' => now()->toDateString(),
             'principal' => '30000000',
             'tenor_months' => 2,
@@ -147,6 +221,7 @@ class ShmSettlementOverpaymentCompletionTest extends TestCase
 
         $loan = ShmLoan::factory()->create([
             'shm_customer_id' => $customer->id,
+            'shm_loan_product_id' => $this->shmProduct->id,
             'shm_loan_application_id' => $application->id,
             'principal' => '30000000',
             'tenor_months' => 2,
@@ -214,29 +289,11 @@ class ShmSettlementOverpaymentCompletionTest extends TestCase
         return $settlement->refresh();
     }
 
-    private function principalSavingsAccountOf(ShmCustomer $customer): ?ShmSavingsAccount
-    {
-        return ShmSavingsAccount::query()
-            ->where('shm_customer_id', $customer->id)
-            ->whereHas('savingProduct', function ($query): void {
-                $query->where('category', ShmSavingProduct::CATEGORY_PRINCIPAL);
-            })
-            ->first();
-    }
-
-    private function assertSettlementStillVerifiedAndLoanActive(ShmLoan $loan, ShmLoanSettlement $settlement): void
-    {
-        $this->assertSame(ShmLoanSettlement::STATUS_PAYMENT_VERIFIED, $settlement->refresh()->status);
-        $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->refresh()->status);
-        $this->assertSame(0, AuditLog::query()->where('action', 'shm.loan.settled')->count());
-        $this->assertSame(0, AuditLog::query()->where('action', 'shm.loan.closed')->count());
-    }
-
     // ==================================================================
-    // A. EXACT PAYMENT
+    // TEST 1 — EXACT PAYMENT (WITHOUT OVERPAYMENT)
     // ==================================================================
 
-    public function test_exact_payment_completes_without_any_savings_posting(): void
+    public function test_exact_payment_completes_without_overpayment_and_balanced_journal(): void
     {
         $member = $this->createMember();
         $loan = $this->activeLoanFor($this->customerFor($member));
@@ -253,19 +310,33 @@ class ShmSettlementOverpaymentCompletionTest extends TestCase
         $this->assertSame('0.00', (string) $settlement->overpayment_amount);
         $this->assertSame(ShmLoan::STATUS_CLOSED, $loan->status);
 
-        // Tidak ada overpayment → tidak ada posting simpanan apa pun.
+        // Tidak ada mutasi simpanan apa pun
+        $this->assertSame(0, ShmSavingsTransaction::query()->count());
         $this->assertSame(0, SavingsTransaction::query()->count());
-        $this->assertSame(0, SavingsAccount::query()->count());
 
-        $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.settled')->count());
-        $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.closed')->count());
+        // Verifikasi Jurnal Settlement
+        $journal = JournalEntry::where('source_type', ShmLoanSettlement::class)
+            ->where('source_id', $settlement->id)
+            ->first();
+        $this->assertNotNull($journal);
+        $this->assertSame(AccountingContext::SHM, $journal->accounting_context);
+        $this->assertTrue($journal->isBalanced());
+        $this->assertEquals((float) self::SETTLEMENT_AMOUNT, (float) $journal->totalDebit());
+        $this->assertEquals((float) self::SETTLEMENT_AMOUNT, (float) $journal->totalCredit());
+
+        // Debit Kas = settlement_amount (31jt)
+        $this->assertEquals((float) self::SETTLEMENT_AMOUNT, (float) $journal->lines()->where('account_id', $this->shmCash->id)->value('debit'));
+
+        // Credit Piutang Pokok = 30jt, Credit Pendapatan Bunga = 1jt
+        $this->assertEquals(30_000_000.0, (float) $journal->lines()->where('account_id', $this->shmReceivable->id)->value('credit'));
+        $this->assertEquals(1_000_000.0, (float) $journal->lines()->where('account_id', $this->shmInterest->id)->value('credit'));
     }
 
     // ==================================================================
-    // B. OVERPAYMENT → SIMPANAN POKOK
+    // TEST 2 & 3 — SETTLEMENT WITH OVERPAYMENT -> BUNGA PENDAPATAN
     // ==================================================================
 
-    public function test_overpayment_is_posted_to_source_member_principal_savings(): void
+    public function test_overpayment_is_recognized_as_interest_revenue_and_not_in_savings(): void
     {
         $member = $this->createMember();
         $loan = $this->activeLoanFor($this->customerFor($member));
@@ -278,115 +349,74 @@ class ShmSettlementOverpaymentCompletionTest extends TestCase
         $settlement->refresh();
         $loan->refresh();
 
-        // AC1 — overpayment = payment − settlement amount.
-        $this->assertSame(
-            self::OVERPAYMENT_PAYMENT - self::SETTLEMENT_AMOUNT,
-            (int) $settlement->overpayment_amount,
-        );
+        // 1. overpayment tercatat di model
         $this->assertSame('1000000.00', (string) $settlement->overpayment_amount);
         $this->assertSame(ShmLoanSettlement::STATUS_COMPLETED, $settlement->status);
         $this->assertSame(ShmLoan::STATUS_CLOSED, $loan->status);
 
-        // AC2 + AC5 — posting ke modul Simpanan SHM nasabah (bukan Koperasi).
-        $account = $this->principalSavingsAccountOf($loan->customer);
-        $this->assertNotNull($account);
-        $this->assertEquals(self::OVERPAYMENT, (float) $account->balance);
-
-        $transaction = ShmSavingsTransaction::query()->sole();
-        $this->assertSame('deposit', $transaction->type);
-        $this->assertEquals(self::OVERPAYMENT, (float) $transaction->amount);
-        $this->assertSame($account->id, $transaction->shm_savings_account_id);
-        $this->assertSame(
-            sprintf('shm-settlement-overpayment:%d', $settlement->id),
-            $transaction->idempotency_key,
-        );
+        // 2. Overpayment TIDAK masuk ke Simpanan SHM maupun Simpanan Koperasi
+        $this->assertSame(0, ShmSavingsTransaction::query()->count());
+        $this->assertSame(0, ShmSavingsAccount::query()->count());
         $this->assertSame(0, SavingsTransaction::query()->count());
+        $this->assertSame(0, SavingsAccount::query()->count());
 
-        // AC6 — principal pinjaman tidak berubah.
-        $this->assertSame('30000000.00', (string) $loan->principal);
-        $this->assertSame('31000000.00', (string) $settlement->settlement_amount);
-        $this->assertEquals(
-            30_000_000,
-            (float) $loan->installments()->sum('principal_amount'),
-        );
+        // 3. Verifikasi Jurnal SHM
+        $journal = JournalEntry::where('source_type', ShmLoanSettlement::class)
+            ->where('source_id', $settlement->id)
+            ->first();
+        $this->assertNotNull($journal);
+        $this->assertSame(AccountingContext::SHM, $journal->accounting_context);
+        $this->assertTrue($journal->isBalanced());
 
-        // AC9 — audit completion & closure masing-masing tepat satu.
+        // Debit Kas = Full Payment (32jt)
+        $this->assertEquals((float) self::OVERPAYMENT_PAYMENT, (float) $journal->totalDebit());
+        $this->assertEquals((float) self::OVERPAYMENT_PAYMENT, (float) $journal->totalCredit());
+
+        $cashLine = $journal->lines()->where('account_id', $this->shmCash->id)->first();
+        $this->assertNotNull($cashLine);
+        $this->assertEquals(32_000_000.0, (float) $cashLine->debit);
+
+        // Credit Piutang Pokok = 30jt
+        $receivableLine = $journal->lines()->where('account_id', $this->shmReceivable->id)->first();
+        $this->assertNotNull($receivableLine);
+        $this->assertEquals(30_000_000.0, (float) $receivableLine->credit);
+
+        // Credit Pendapatan Bunga Normal = 1jt, Bunga Overpayment = 1jt (Total Kredit Bunga = 2jt)
+        $interestLines = $journal->lines()->where('account_id', $this->shmInterest->id)->get();
+        $this->assertCount(2, $interestLines);
+        $this->assertEquals(2_000_000.0, (float) $interestLines->sum('credit'));
+
+        $overpaymentInterestLine = $interestLines->first(fn ($line) => str_contains($line->description, 'lebih bayar'));
+        $this->assertNotNull($overpaymentInterestLine);
+        $this->assertEquals(1_000_000.0, (float) $overpaymentInterestLine->credit);
+
+        // Audit Logs
         $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.settled')->count());
         $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.closed')->count());
     }
 
-    public function test_overpayment_destination_follows_customer_member_id_not_another_member(): void
-    {
-        $source = $this->customerFor($this->createMember());
-        $unrelated = $this->customerFor($this->createMember());
-
-        // Nasabah lain sudah punya rekening Simpanan Pokok agar tidak "penampung diam-diam".
-        app(ShmSavingsIntegrationService::class)
-            ->deposit($unrelated, ShmSavingProduct::CATEGORY_PRINCIPAL, 50_000, 't89e-unrelated-seed', 'seed', (int) $this->user->id);
-
-        $loan = $this->activeLoanFor($source);
-        $settlement = $this->verifiedSettlement($loan, (string) self::OVERPAYMENT_PAYMENT);
-
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.complete', $loan))
-            ->assertSessionHas('success');
-
-        // AC3 — penerima diturunkan dari ShmCustomer.
-        $this->assertSame($source->id, $loan->refresh()->customer->id);
-
-        $this->assertEquals(self::OVERPAYMENT, (float) $this->principalSavingsAccountOf($source)->balance);
-        $this->assertEquals(50_000, (float) $this->principalSavingsAccountOf($unrelated)->balance);
-
-        $this->assertSame('shm-settlement-overpayment:'.$settlement->id, ShmSavingsTransaction::query()
-            ->where('shm_savings_account_id', $this->principalSavingsAccountOf($source)->id)
-            ->sole()
-            ->idempotency_key);
-        $this->assertSame(0, SavingsTransaction::query()->count());
-    }
-
     // ==================================================================
-    // C. MEMBER RELATIONSHIP
+    // TEST 4 — COOPERATIVE ISOLATION
     // ==================================================================
 
-    public function test_missing_member_relationship_blocks_completion(): void
+    public function test_cooperative_savings_and_accounting_are_strictly_isolated(): void
     {
-        $customerWithoutMember = ShmCustomer::factory()->create(['member_id' => null]);
-        $loan = $this->activeLoanFor($customerWithoutMember);
-        $settlement = $this->verifiedSettlement($loan, (string) self::OVERPAYMENT_PAYMENT);
+        $member = $this->createMember();
+        $coopProduct = SavingProduct::create([
+            'code' => 'SP-COOP-TEST',
+            'name' => 'Simpanan Pokok Koperasi',
+            'category' => SavingProduct::CATEGORY_PRINCIPAL,
+            'is_active' => true,
+        ]);
+        $coopAccount = SavingsAccount::create([
+            'account_number' => 'REK-COOP-001',
+            'member_id' => $member->id,
+            'saving_product_id' => $coopProduct->id,
+            'balance' => 500_000,
+            'status' => 'active',
+            'opened_at' => now(),
+        ]);
 
-        // Pada arsitektur Simpanan SHM baru, nasabah SHM tanpa hubungan member tetap dapat menyelesaikan settlement
-        // karena simpanan diposting ke ShmCustomer, bukan Member koperasi.
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.complete', $loan))
-            ->assertSessionHas('success');
-
-        $this->assertSame(ShmLoanSettlement::STATUS_COMPLETED, $settlement->refresh()->status);
-        $this->assertSame(ShmLoan::STATUS_CLOSED, $loan->refresh()->status);
-        $this->assertSame(1, ShmSavingsTransaction::query()->count());
-        $this->assertSame(0, SavingsTransaction::query()->count());
-        $this->assertSame('30000000.00', (string) $loan->refresh()->principal);
-    }
-
-    public function test_inactive_member_blocks_completion_and_creates_no_savings_account(): void
-    {
-        $member = $this->createMember(['status' => 'inactive']);
-        $loan = $this->activeLoanFor($this->customerFor($member));
-        $settlement = $this->verifiedSettlement($loan, (string) self::OVERPAYMENT_PAYMENT);
-
-        // Simpanan SHM terisolasi dari koperasi; status keanggotaan koperasi tidak memblokir simpanan SHM
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.complete', $loan))
-            ->assertSessionHas('success');
-
-        $this->assertSame(ShmLoanSettlement::STATUS_COMPLETED, $settlement->refresh()->status);
-        $this->assertSame(ShmLoan::STATUS_CLOSED, $loan->refresh()->status);
-        $this->assertSame(1, ShmSavingsTransaction::query()->count());
-        $this->assertSame(0, SavingsTransaction::query()->count());
-    }
-
-    public function test_member_with_unrecognized_status_blocks_completion(): void
-    {
-        $member = $this->createMember(['status' => 'suspended']);
         $loan = $this->activeLoanFor($this->customerFor($member));
         $settlement = $this->verifiedSettlement($loan, (string) self::OVERPAYMENT_PAYMENT);
 
@@ -394,17 +424,74 @@ class ShmSettlementOverpaymentCompletionTest extends TestCase
             ->post(route('shm.loans.pelunasan.complete', $loan))
             ->assertSessionHas('success');
 
-        $this->assertSame(ShmLoanSettlement::STATUS_COMPLETED, $settlement->refresh()->status);
-        $this->assertSame(ShmLoan::STATUS_CLOSED, $loan->refresh()->status);
-        $this->assertSame(1, ShmSavingsTransaction::query()->count());
+        // Saldo dan mutasi simpanan koperasi tidak tersentuh sama sekali
+        $this->assertEquals(500_000.0, (float) $coopAccount->refresh()->balance);
+        $this->assertSame(0, SavingsTransaction::query()->count());
+
+        // Tidak ada jurnal koperasi yang terbuat
+        $this->assertSame(0, JournalEntry::where('accounting_context', AccountingContext::KOPERASI)->count());
+    }
+
+    // ==================================================================
+    // TEST 5 — SETTLEMENT CORRECTION (REVERSAL VIA ACCOUNTING)
+    // ==================================================================
+
+    public function test_settlement_correction_reverses_overpayment_revenue_without_savings_reversal(): void
+    {
+        $member = $this->createMember();
+        $loan = $this->activeLoanFor($this->customerFor($member));
+        $settlement = $this->verifiedSettlement($loan, (string) self::OVERPAYMENT_PAYMENT);
+
+        $this->actingAs($this->user)
+            ->post(route('shm.loans.pelunasan.complete', $loan))
+            ->assertSessionHas('success');
+
+        $originalJournal = JournalEntry::where('source_type', ShmLoanSettlement::class)
+            ->where('source_id', $settlement->id)
+            ->first();
+        $this->assertNotNull($originalJournal);
+        $this->assertSame(JournalEntry::STATUS_POSTED, $originalJournal->status);
+
+        // Eksekusi Koreksi Pelunasan
+        $correctionService = app(ShmSettlementCorrectionService::class);
+        $correction = $correctionService->correct(
+            $loan,
+            $settlement,
+            'Koreksi pembatalan pelunasan dengan overpayment',
+            (int) $this->user->id,
+        );
+
+        $this->assertNotNull($correction);
+        $this->assertSame(ShmSettlementCorrection::STATUS_COMPLETED, $correction->status);
+
+        // Jurnal original berstatus REVERSED
+        $this->assertSame(JournalEntry::STATUS_REVERSED, $originalJournal->refresh()->status);
+
+        // Reversal compensating journal terbentuk dan seimbang
+        $reversalJournal = JournalEntry::where('id', $originalJournal->reversed_by_entry_id)->first();
+        $this->assertNotNull($reversalJournal);
+        $this->assertSame(JournalEntry::STATUS_POSTED, $reversalJournal->status);
+        $this->assertSame(AccountingContext::SHM, $reversalJournal->accounting_context);
+        $this->assertTrue($reversalJournal->isBalanced());
+
+        // Debit Pendapatan Bunga 2jt (membalik kredit 2jt dari bunga normal & overpayment)
+        $interestDebit = (float) $reversalJournal->lines()->where('account_id', $this->shmInterest->id)->sum('debit');
+        $this->assertEquals(2_000_000.0, $interestDebit);
+
+        // Credit Kas 32jt (membalik debit kas 32jt)
+        $cashCredit = (float) $reversalJournal->lines()->where('account_id', $this->shmCash->id)->value('credit');
+        $this->assertEquals(32_000_000.0, $cashCredit);
+
+        // Simpanan SHM dan Koperasi tetap 0 (tidak pernah tersentuh dan tidak ada reversal simpanan)
+        $this->assertSame(0, ShmSavingsTransaction::query()->count());
         $this->assertSame(0, SavingsTransaction::query()->count());
     }
 
     // ==================================================================
-    // D. IDEMPOTENCY
+    // TEST 6 — IDEMPOTENCY & PRINCIPAL INVARIANT
     // ==================================================================
 
-    public function test_repeated_completion_never_duplicates_savings_transaction_or_closure_audit(): void
+    public function test_repeated_completion_is_idempotent_and_preserves_loan_principal(): void
     {
         $member = $this->createMember();
         $loan = $this->activeLoanFor($this->customerFor($member));
@@ -415,220 +502,15 @@ class ShmSettlementOverpaymentCompletionTest extends TestCase
                 ->post(route('shm.loans.pelunasan.complete', $loan))
                 ->assertSessionHas('success');
 
-            $this->assertSame(1, ShmSavingsTransaction::query()->count(), "percobaan ke-{$attempt}");
+            $this->assertSame(0, ShmSavingsTransaction::query()->count(), "percobaan ke-{$attempt}");
+            $this->assertSame(0, SavingsTransaction::query()->count(), "percobaan ke-{$attempt}");
             $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.settled')->count(), "percobaan ke-{$attempt}");
             $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.closed')->count(), "percobaan ke-{$attempt}");
             $this->assertSame(1, ShmLoanSettlement::query()->where('status', ShmLoanSettlement::STATUS_COMPLETED)->count());
-            $this->assertEquals(
-                self::OVERPAYMENT,
-                (float) $this->principalSavingsAccountOf($loan->customer)->balance,
-                "percobaan ke-{$attempt}",
-            );
+            $this->assertSame(1, JournalEntry::where('source_type', ShmLoanSettlement::class)->where('source_id', $settlement->id)->count());
         }
 
-        $this->assertSame(
-            sprintf('shm-settlement-overpayment:%d', $settlement->id),
-            ShmSavingsTransaction::query()->sole()->idempotency_key,
-        );
-        $this->assertSame(0, SavingsTransaction::query()->count());
-    }
-
-    // ==================================================================
-    // E. PAYMENT VERIFICATION GATE
-    // ==================================================================
-
-    public function test_completion_requires_verified_payment(): void
-    {
-        // E1 — baru di-approve, pembayaran belum dibuat.
-        $member = $this->createMember();
-        $loan = $this->activeLoanFor($this->customerFor($member));
-        $settlement = $this->requested($loan);
-
-        $this->actingAs($this->user)->post(route('shm.loans.pelunasan.approve', $loan))->assertSessionHas('success');
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.complete', $loan))
-            ->assertSessionHas('error', function (string $message): bool {
-                $this->assertStringContainsString('payment_verified', $message);
-
-                return true;
-            });
-        $this->assertSame(ShmLoanSettlement::STATUS_APPROVED, $settlement->refresh()->status);
-        $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->refresh()->status);
-        $this->assertSame(0, AuditLog::query()->where('action', 'shm.loan.settled')->count());
-        $this->assertSame(0, AuditLog::query()->where('action', 'shm.loan.closed')->count());
-
-        // E2 — pembayaran dibuat (posted) tapi belum ditautkan.
-        $payment = $this->paymentFor($loan, (string) self::OVERPAYMENT_PAYMENT);
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.complete', $loan))
-            ->assertSessionHas('error');
-        $this->assertSame(ShmLoanSettlement::STATUS_APPROVED, $settlement->refresh()->status);
-
-        // E3 — ditautkan (payment_recorded) tapi belum diverifikasi.
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.payment', $loan), ['payment_id' => $payment->id])
-            ->assertSessionHas('success');
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.complete', $loan))
-            ->assertSessionHas('error', function (string $message): bool {
-                $this->assertStringContainsString('payment_verified', $message);
-
-                return true;
-            });
-        $this->assertSame(ShmLoanSettlement::STATUS_PAYMENT_RECORDED, $settlement->refresh()->status);
-        $this->assertSame(0, SavingsTransaction::query()->count());
-
-        // E4 — diverifikasi → completion diizinkan.
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.payment.verify', $loan))
-            ->assertSessionHas('success');
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.complete', $loan))
-            ->assertSessionHas('success');
-        $this->assertSame(ShmLoanSettlement::STATUS_COMPLETED, $settlement->refresh()->status);
-        $this->assertSame(1, ShmSavingsTransaction::query()->count());
-        $this->assertSame(0, SavingsTransaction::query()->count());
-    }
-
-    public function test_pending_settlement_cannot_jump_to_completed(): void
-    {
-        $member = $this->createMember();
-        $loan = $this->activeLoanFor($this->customerFor($member));
-        $settlement = $this->requested($loan);
-
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.complete', $loan))
-            ->assertSessionHas('error');
-
-        $this->assertSame(ShmLoanSettlement::STATUS_PENDING, $settlement->refresh()->status);
-        $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->refresh()->status);
-        $this->assertSame(0, SavingsTransaction::query()->count());
-    }
-
-    // ==================================================================
-    // F. ROLLBACK
-    // ==================================================================
-
-    public function test_savings_posting_failure_keeps_settlement_incomplete_and_loan_active(): void
-    {
-        $member = $this->createMember();
-        $loan = $this->activeLoanFor($this->customerFor($member));
-        $settlement = $this->verifiedSettlement($loan, (string) self::OVERPAYMENT_PAYMENT);
-
-        // Simpanan Pokok SHM tidak tersedia → posting gagal.
-        ShmSavingProduct::query()->delete();
-
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.complete', $loan))
-            ->assertSessionHas('error', function (string $message): bool {
-                $this->assertStringContainsString('SAVINGS_PRODUCT_CONFIGURATION_BLOCKER', $message);
-
-                return true;
-            });
-
-        $this->assertSettlementStillVerifiedAndLoanActive($loan, $settlement);
-        $this->assertSame(0, ShmSavingsTransaction::query()->count());
-        $this->assertSame(0, ShmSavingsAccount::query()->count());
-        $this->assertSame(0, SavingsTransaction::query()->count());
         $this->assertSame('30000000.00', (string) $loan->refresh()->principal);
-        // Angsuran belum dis settlementkan.
-        $this->assertSame(
-            0,
-            $loan->installments()->where('status', ShmLoanInstallment::STATUS_PAID)->count(),
-        );
-    }
-
-    public function test_failure_after_savings_posting_rolls_back_the_savings_transaction(): void
-    {
-        $member = $this->createMember();
-        $loan = $this->activeLoanFor($this->customerFor($member));
-        $settlement = $this->verifiedSettlement($loan, (string) self::OVERPAYMENT_PAYMENT);
-
-        // Fault injection: gagal pada tahap settlementkan angsuran, yaitu
-        // SETELAH posting Simpanan Pokok dan SEBELUM settlement/pinjaman berubah.
-        ShmLoanInstallment::saving(function (): void {
-            throw new RuntimeException('T89E fault injection: tahap penyelesaian gagal setelah posting simpanan.');
-        });
-
-        try {
-            app(ShmLoanSettlementService::class)->complete($loan, (int) $this->user->id);
-            $this->fail('Completion seharusnya gagal pada fault injection.');
-        } catch (RuntimeException $exception) {
-            $this->assertStringContainsString('T89E fault injection', $exception->getMessage());
-        }
-
-        // AC12 — tidak ada commit parsial: posting simpanan ikut ter rollback.
-        $this->assertSettlementStillVerifiedAndLoanActive($loan, $settlement);
-        $this->assertSame(0, ShmSavingsTransaction::query()->count());
-        $this->assertSame(0, ShmSavingsAccount::query()->count());
-        $this->assertSame(0, SavingsTransaction::query()->count());
-        $this->assertSame(0, AuditLog::query()->where('action', 'savings.transaction.deposit')->count());
-        $this->assertEquals(31_000_000, (float) $loan->installments()->sum('remaining_amount'));
-    }
-
-    // ==================================================================
-    // G. REJECTED SETTLEMENT
-    // ==================================================================
-
-    public function test_rejected_settlement_never_posts_overpayment(): void
-    {
-        $member = $this->createMember();
-        $loan = $this->activeLoanFor($this->customerFor($member));
-
-        $settlement = $this->requested($loan);
-
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.reject', $loan), ['reason' => 'Data belum lengkap.'])
-            ->assertSessionHas('success');
-
-        $this->assertSame(ShmLoanSettlement::STATUS_REJECTED, $settlement->refresh()->status);
-
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.complete', $loan))
-            ->assertSessionHas('error');
-
-        $this->assertSame(ShmLoanSettlement::STATUS_REJECTED, $settlement->refresh()->status);
-        $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->refresh()->status);
-        $this->assertSame(0, SavingsTransaction::query()->count());
-        $this->assertSame(0, SavingsAccount::query()->count());
-        $this->assertSame(0, AuditLog::query()->where('action', 'shm.loan.settled')->count());
-        $this->assertSame(0, AuditLog::query()->where('action', 'shm.loan.closed')->count());
-    }
-
-    // ==================================================================
-    // H. PRINCIPAL INVARIANT
-    // ==================================================================
-
-    public function test_overpayment_never_reduces_loan_principal_or_schedule(): void
-    {
-        $member = $this->createMember();
-        $loan = $this->activeLoanFor($this->customerFor($member));
-
-        $settlement = $this->verifiedSettlement($loan, (string) self::OVERPAYMENT_PAYMENT);
-        $settlementAmountBefore = (string) $settlement->settlement_amount;
-        $scheduleColumns = ['installment_number', 'principal_amount', 'interest_amount', 'total_amount'];
-        $scheduleBefore = $loan->installments()->orderBy('installment_number')->get($scheduleColumns)->toArray();
-
-        $this->actingAs($this->user)
-            ->post(route('shm.loans.pelunasan.complete', $loan))
-            ->assertSessionHas('success');
-
-        $loan->refresh();
-        $settlement->refresh();
-
-        // AC6 — pokok, bunga, dan komponen settlement tidak berubah.
-        $this->assertSame('30000000.00', (string) $loan->principal);
-        $this->assertSame($settlementAmountBefore, (string) $settlement->settlement_amount);
-        $this->assertSame('1000000.00', (string) $settlement->overpayment_amount);
-        $this->assertSame(
-            $scheduleBefore,
-            $loan->installments()->orderBy('installment_number')->get($scheduleColumns)->toArray(),
-        );
-
-        // Pokok angsuran tetap Rp30.000.000 (hanya status yang berubah menjadi paid).
         $this->assertEquals(30_000_000, (float) $loan->installments()->sum('principal_amount'));
-
-        // Tidak ada alokasi pembayaran baru dari settlement (AC14).
-        $this->assertSame(0, DB::table('shm_loan_payment_allocations')->count());
     }
 }

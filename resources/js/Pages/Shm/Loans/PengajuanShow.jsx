@@ -383,11 +383,102 @@ export default function PengajuanShow({ application, flash }) {
                             }
                             mono={pribadi.batas_hutang != null}
                         />
+                        <Row
+                            label="Status Pernikahan"
+                            value={
+                                pribadi.marital_status === 'married'
+                                    ? 'Sudah Menikah'
+                                    : pribadi.marital_status === 'single'
+                                    ? 'Belum Menikah'
+                                    : '—'
+                            }
+                        />
+                        {pribadi.marital_status === 'married' && (
+                            <>
+                                <Row label="Nama Pasangan" value={pribadi.spouse_name ?? '—'} />
+                                <Row label="NIK Pasangan" value={pribadi.spouse_nik ?? '—'} />
+                                <Row label="No. Telepon Pasangan" value={pribadi.spouse_phone ?? '—'} />
+                            </>
+                        )}
                     </dl>
+
+                    {/* Dokumen Identitas Pemohon (Foto KTP & KK) */}
+                    <div className="mt-4 pt-4 border-t border-slate-100">
+                        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                            Dokumen Identitas Pemohon
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
+                                <span className="text-xs font-semibold text-slate-700 block mb-2">
+                                    Foto KTP
+                                </span>
+                                {pribadi.ktp_photo_url ? (
+                                    <div className="space-y-2">
+                                        <img
+                                            src={pribadi.ktp_photo_url}
+                                            alt="Foto KTP"
+                                            className="max-h-56 rounded-md border border-slate-200 object-contain bg-white"
+                                        />
+                                        <a
+                                            href={pribadi.ktp_photo_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-block text-xs font-medium text-indigo-600 hover:underline"
+                                        >
+                                            Buka Ukuran Penuh
+                                        </a>
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-slate-400">
+                                        Belum ada foto KTP yang diunggah.
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
+                                <span className="text-xs font-semibold text-slate-700 block mb-2">
+                                    Foto Kartu Keluarga (KK)
+                                </span>
+                                {pribadi.kk_photo_url ? (
+                                    <div className="space-y-2">
+                                        <img
+                                            src={pribadi.kk_photo_url}
+                                            alt="Foto Kartu Keluarga"
+                                            className="max-h-56 rounded-md border border-slate-200 object-contain bg-white"
+                                        />
+                                        <a
+                                            href={pribadi.kk_photo_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-block text-xs font-medium text-indigo-600 hover:underline"
+                                        >
+                                            Buka Ukuran Penuh
+                                        </a>
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-slate-400">
+                                        Belum ada foto KK yang diunggah.
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 </DetailSection>
 
                 <DetailSection index={2} title="Pengajuan Pinjaman">
                     <dl>
+                        <Row
+                            label="Nama Agen"
+                            value={
+                                application.agent
+                                    ? `${application.agent.name}${!application.agent.is_active ? ' (Nonaktif)' : ''}`
+                                    : '—'
+                            }
+                        />
+                        <Row
+                            label="Kode Agen"
+                            value={application.agent ? application.agent.code : '—'}
+                        />
                         <Row
                             label="Produk Pinjaman"
                             value={
@@ -606,6 +697,18 @@ export default function PengajuanShow({ application, flash }) {
                 <DetailSection index={10} title="Persetujuan Pinjaman">
                     <dl>
                         <Row
+                            label="Nama Agen"
+                            value={
+                                application.agent
+                                    ? `${application.agent.name}${!application.agent.is_active ? ' (Nonaktif)' : ''}`
+                                    : '—'
+                            }
+                        />
+                        <Row
+                            label="Kode Agen"
+                            value={application.agent ? application.agent.code : '—'}
+                        />
+                        <Row
                             label="Produk Pinjaman"
                             value={
                                 application.product
@@ -661,6 +764,42 @@ export default function PengajuanShow({ application, flash }) {
                                         aria-label={`Persyaratan ${item.text}`}
                                     />
                                     <span>{item.text}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </DetailSection>
+
+                <DetailSection index={12} title="Lampiran">
+                    {!application.attachments || application.attachments.length === 0 ? (
+                        <p className="text-sm text-slate-400">
+                            Belum ada lampiran.
+                        </p>
+                    ) : (
+                        <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+                            {application.attachments.map((att) => (
+                                <li
+                                    key={`att-${att.id}`}
+                                    className="flex items-center justify-between p-3 text-sm"
+                                >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                        <FileText className="h-5 w-5 text-rose-500 shrink-0" />
+                                        <span className="font-medium text-slate-800 truncate">
+                                            {att.file_name}
+                                        </span>
+                                        <span className="text-xs text-slate-400 shrink-0">
+                                            ({(att.file_size / (1024 * 1024)).toFixed(2)} MB)
+                                        </span>
+                                    </div>
+                                    <a
+                                        href={att.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-800 underline ml-4 shrink-0"
+                                    >
+                                        <FileDown className="h-4 w-4" />
+                                        <span>Buka / Unduh PDF</span>
+                                    </a>
                                 </li>
                             ))}
                         </ul>

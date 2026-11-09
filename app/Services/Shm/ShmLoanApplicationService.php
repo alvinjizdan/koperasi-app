@@ -58,6 +58,10 @@ class ShmLoanApplicationService
 
     private const DOCUMENT_DIRECTORY = 'shm/collateral-documents';
 
+    private const IDENTITY_PHOTO_DIRECTORY = 'shm/identity-photos';
+
+    private const ATTACHMENT_DIRECTORY = 'shm/loan-attachments';
+
     public function __construct(private readonly ShmWorkflowService $workflow) {}
 
     /**
@@ -91,6 +95,19 @@ class ShmLoanApplicationService
                         'status' => 'pending',
                     ],
                 ));
+
+                // Simpan berkas identitas (KTP & KK) bila diunggah
+                $ktpPath = $this->storeIdentityPhoto($application, data_get($data, 'pribadi.ktp_photo'), 'ktp');
+                if ($ktpPath !== null) {
+                    $storedPhotos[] = $ktpPath;
+                    $application->forceFill(['ktp_photo_path' => $ktpPath])->save();
+                }
+
+                $kkPath = $this->storeIdentityPhoto($application, data_get($data, 'pribadi.kk_photo'), 'kk');
+                if ($kkPath !== null) {
+                    $storedPhotos[] = $kkPath;
+                    $application->forceFill(['kk_photo_path' => $kkPath])->save();
+                }
 
                 $this->createChildren($application, $data, $storedPhotos, $storedDocuments);
 
@@ -166,9 +183,35 @@ class ShmLoanApplicationService
                 // identity/marketing/status/tanggal TIDAK pernah berubah di sini.
                 $locked->save();
 
+                // Rekonsiliasi berkas identitas (KTP & KK)
+                $newKtpFile = data_get($data, 'pribadi.ktp_photo');
+                if ($newKtpFile instanceof UploadedFile && $newKtpFile->isValid()) {
+                    $newKtpPath = $this->storeIdentityPhoto($locked, $newKtpFile, 'ktp');
+                    if ($newKtpPath !== null) {
+                        $storedPhotos[] = $newKtpPath;
+                        if ($locked->ktp_photo_path !== null) {
+                            $retiredPhotos[] = $locked->ktp_photo_path;
+                        }
+                        $locked->forceFill(['ktp_photo_path' => $newKtpPath])->save();
+                    }
+                }
+
+                $newKkFile = data_get($data, 'pribadi.kk_photo');
+                if ($newKkFile instanceof UploadedFile && $newKkFile->isValid()) {
+                    $newKkPath = $this->storeIdentityPhoto($locked, $newKkFile, 'kk');
+                    if ($newKkPath !== null) {
+                        $storedPhotos[] = $newKkPath;
+                        if ($locked->kk_photo_path !== null) {
+                            $retiredPhotos[] = $locked->kk_photo_path;
+                        }
+                        $locked->forceFill(['kk_photo_path' => $newKkPath])->save();
+                    }
+                }
+
                 $this->reconcileCollaterals($locked, $data['jaminan'] ?? [], $storedPhotos, $retiredPhotos, $storedDocuments, $retiredDocuments);
                 $this->reconcileAssets($locked, $data['agunan'] ?? []);
                 $this->reconcileRequirements($locked, $data['persyaratan'] ?? []);
+                $this->reconcileAttachments($locked, $data['lampiran'] ?? [], $data['deleted_attachment_ids'] ?? [], $storedDocuments, $retiredDocuments);
 
                 // Tepat SATU baris audit per update (dalam transaksi yang sama).
                 AuditLogger::log(
@@ -312,7 +355,12 @@ class ShmLoanApplicationService
             'saldo_modal' => $this->amount($data, 'pribadi.saldo_modal'),
             'saldo_non_modal' => $this->amount($data, 'pribadi.saldo_non_modal'),
             'batas_hutang' => $this->amount($data, 'pribadi.batas_hutang'),
+            'marital_status' => data_get($data, 'pribadi.marital_status') ?: null,
+            'spouse_name' => data_get($data, 'pribadi.marital_status') === 'married' ? (data_get($data, 'pribadi.spouse_name') ?: null) : null,
+            'spouse_nik' => data_get($data, 'pribadi.marital_status') === 'married' ? (data_get($data, 'pribadi.spouse_nik') ?: null) : null,
+            'spouse_phone' => data_get($data, 'pribadi.marital_status') === 'married' ? (data_get($data, 'pribadi.spouse_phone') ?: null) : null,
             'shm_loan_product_id' => data_get($data, 'pengajuan.product_id') ?: null,
+            'agent_id' => data_get($data, 'pengajuan.agent_id') ?: null,
             'principal' => data_get($data, 'pengajuan.principal'),
             'tenor_months' => (int) data_get($data, 'pengajuan.tenor_months'),
             // Ticket 82 — jatuh tempo pertama dipilih Marketing (date-only;
@@ -398,6 +446,20 @@ class ShmLoanApplicationService
         $application->requirements()->createMany(
             collect($data['persyaratan'] ?? [])->map(fn (array $item): array => $this->requirementAttributes($item))->all(),
         );
+
+        // Section 12 — simpan lampiran PDF baru
+        foreach ($data['lampiran'] ?? [] as $file) {
+            $attResult = $this->storeAttachmentDocument($application, $file);
+            if ($attResult !== null) {
+                $storedDocuments[] = $attResult['path'];
+                $application->attachments()->create([
+                    'file_name' => $attResult['name'],
+                    'file_path' => $attResult['path'],
+                    'mime_type' => $attResult['mime_type'],
+                    'file_size' => $attResult['file_size'],
+                ]);
+            }
+        }
     }
 
     /**
@@ -497,6 +559,31 @@ class ShmLoanApplicationService
     }
 
     /**
+     * Simpan satu berkas foto identitas (KTP atau KK) ke disk privat.
+     */
+    private function storeIdentityPhoto(ShmLoanApplication $application, mixed $file, string $type): ?string
+    {
+        if (! $file instanceof UploadedFile || ! $file->isValid()) {
+            return null;
+        }
+
+        $extension = $file->guessExtension() ?: $file->getClientOriginalExtension() ?: 'jpg';
+        $filename = sprintf('%s_%s_%s.%s', $type, $application->id, bin2hex(random_bytes(8)), $extension);
+
+        $path = $file->storeAs(
+            self::IDENTITY_PHOTO_DIRECTORY.'/'.$application->id,
+            $filename,
+            self::PHOTO_DISK,
+        );
+
+        if ($path === false) {
+            throw new RuntimeException(sprintf('Foto %s gagal disimpan.', strtoupper($type)));
+        }
+
+        return $path;
+    }
+
+    /**
      * Ticket 77 — simpan satu berkas foto jaminan ke disk privat.
      *
      * Mengembalikan path relatif pada disk, atau null bila payload tidak
@@ -546,6 +633,74 @@ class ShmLoanApplicationService
             'path' => $path,
             'name' => $file->getClientOriginalName(),
         ];
+    }
+
+    /**
+     * Simpan satu berkas lampiran PDF ke disk privat.
+     *
+     * @return array{path: string, name: string, mime_type: string, file_size: int}|null
+     */
+    private function storeAttachmentDocument(ShmLoanApplication $application, mixed $file): ?array
+    {
+        if (! $file instanceof UploadedFile || ! $file->isValid()) {
+            return null;
+        }
+
+        $extension = $file->guessExtension() ?: $file->getClientOriginalExtension() ?: 'pdf';
+        $safeStorageName = sprintf('att_%s_%s.%s', $application->id, bin2hex(random_bytes(8)), $extension);
+
+        $path = $file->storeAs(
+            self::ATTACHMENT_DIRECTORY.'/'.$application->id,
+            $safeStorageName,
+            self::PHOTO_DISK,
+        );
+
+        if ($path === false) {
+            throw new RuntimeException('Dokumen lampiran gagal disimpan.');
+        }
+
+        return [
+            'path' => $path,
+            'name' => $file->getClientOriginalName(),
+            'mime_type' => $file->getClientMimeType() ?: 'application/pdf',
+            'file_size' => (int) $file->getSize(),
+        ];
+    }
+
+    /**
+     * Rekonsiliasi Section 12 — simpan lampiran baru & hapus lampiran yang diminta.
+     */
+    private function reconcileAttachments(
+        ShmLoanApplication $application,
+        array $newFiles,
+        array $deletedIds,
+        array &$storedDocuments,
+        array &$retiredDocuments,
+    ): void {
+        // Hapus lampiran yang ditandai untuk dihapus
+        if (! empty($deletedIds)) {
+            $toDelete = $application->attachments()->whereIn('id', $deletedIds)->get();
+            foreach ($toDelete as $att) {
+                if ($att->file_path !== null) {
+                    $retiredDocuments[] = $att->file_path;
+                }
+                $att->delete();
+            }
+        }
+
+        // Tambah lampiran baru
+        foreach ($newFiles as $file) {
+            $attResult = $this->storeAttachmentDocument($application, $file);
+            if ($attResult !== null) {
+                $storedDocuments[] = $attResult['path'];
+                $application->attachments()->create([
+                    'file_name' => $attResult['name'],
+                    'file_path' => $attResult['path'],
+                    'mime_type' => $attResult['mime_type'],
+                    'file_size' => $attResult['file_size'],
+                ]);
+            }
+        }
     }
 
     /**

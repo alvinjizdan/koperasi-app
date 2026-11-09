@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Role;
+use App\Models\ShmAgent;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanProduct;
@@ -373,10 +374,16 @@ class ShmLoanProductMasterTest extends TestCase
 
         $firstDueDate = '2026-11-25';
 
+        $agent = ShmAgent::firstOrCreate(
+            ['code' => 'AGEN-FIXTURE'],
+            ['name' => 'Agen Fixture', 'nik' => '3201000000009999', 'is_active' => true],
+        );
+
         // 1. Marketing submits application with exact tenor 48 and marketing-selected first_due_date
         $payload = [
             'pribadi' => ['customer_id' => $customer->id],
             'pengajuan' => [
+                'agent_id' => $agent->id,
                 'product_id' => $product->id,
                 'principal' => '460000000',
                 'tenor_months' => 48,

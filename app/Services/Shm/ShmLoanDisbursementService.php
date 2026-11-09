@@ -167,10 +167,12 @@ class ShmLoanDisbursementService
             //     notaris/simpanan) berbasis gross principal (approved_amount).
             //     Backend authoritative: total_deduction & net_disbursement
             //     TIDAK PERNAH datang dari frontend.
+            $hasAgent = ! empty($locked->agent_id);
             $costBreakdown = $this->costs->calculate(
                 $grossPrincipal,
                 (int) $locked->tenor_months,
                 (float) ($locked->notary_fee ?? 0),
+                $hasAgent,
             );
 
             // 5e. T85 / T002 (BR-02): net_disbursement non-positif (<= 0) DITOLAK:
@@ -248,6 +250,7 @@ class ShmLoanDisbursementService
                 'shm_customer_id' => $locked->shm_customer_id,
                 'shm_loan_product_id' => $locked->shm_loan_product_id,
                 'shm_loan_application_id' => $locked->id,
+                'agent_id' => $locked->agent_id,
                 'principal' => $grossPrincipal,
                 'tenor_months' => $locked->tenor_months,
                 // Kontrak finansial distempel DI DALAM transaksi yang sama
@@ -262,6 +265,8 @@ class ShmLoanDisbursementService
                 // disimpan SEKALI saat pencairan, tidak pernah dihitung ulang.
                 'admin_fee' => $costBreakdown['admin_fee'],
                 'provision_fee' => $costBreakdown['provision_fee'],
+                'office_provision_fee' => $costBreakdown['office_provision_fee'],
+                'agent_commission_fee' => $costBreakdown['agent_commission_fee'],
                 'insurance_fee' => $costBreakdown['insurance_fee'],
                 'notary_fee' => $costBreakdown['notary_fee'],
                 'principal_savings' => $costBreakdown['principal_savings'],
@@ -289,6 +294,7 @@ class ShmLoanDisbursementService
                 'Pencairan pinjaman SHM '.$loan->loan_number,
                 $loan,
                 $actorId,
+                CashTransaction::DOMAIN_SHM,
             );
 
             if ($cashTransaction === null) {
@@ -297,8 +303,9 @@ class ShmLoanDisbursementService
                 ]);
             }
 
-            // T006E — Jurnal Otomatis Pencairan Pinjaman SHM (atomik di dalam transaksi yang sama)
-            $this->autoJournalService->createDisbursementJournal($loan, $actorId);
+            // Automatic journal posting dinonaktifkan sesuai ticket refactor SHM Accounting.
+            // Pencatatan akuntansi kini dilakukan via import XLSX berstatus DRAFT dan diposting manual.
+            // $this->autoJournalService->createDisbursementJournal($loan, $actorId);
 
             // 7. Tepat SATU baris audit pencairan, di dalam transaksi yang
             //    sama (rollback bila pencairan gagal). Actor = pengguna
@@ -329,6 +336,8 @@ class ShmLoanDisbursementService
                     // (bukan audit event baru).
                     'admin_fee' => (string) $loan->admin_fee,
                     'provision_fee' => (string) $loan->provision_fee,
+                    'office_provision_fee' => (string) $loan->office_provision_fee,
+                    'agent_commission_fee' => (string) $loan->agent_commission_fee,
                     'insurance_fee' => (string) $loan->insurance_fee,
                     'notary_fee' => (string) $loan->notary_fee,
                     'principal_savings' => (string) $loan->principal_savings,

@@ -70,9 +70,41 @@ class StoreShmLoanApplicationRequest extends FormRequest
             'pribadi.saldo_modal' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
             'pribadi.saldo_non_modal' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
             'pribadi.batas_hutang' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
+            // Status pernikahan & informasi pasangan
+            'pribadi.marital_status' => ['nullable', 'string', Rule::in(['single', 'married'])],
+            'pribadi.spouse_name' => [
+                Rule::requiredIf(fn () => $this->input('pribadi.marital_status') === 'married'),
+                'nullable',
+                'string',
+                'max:150',
+            ],
+            'pribadi.spouse_nik' => [
+                Rule::requiredIf(fn () => $this->input('pribadi.marital_status') === 'married'),
+                'nullable',
+                'string',
+                'regex:/^[0-9]{16}$/',
+            ],
+            'pribadi.spouse_phone' => [
+                Rule::requiredIf(fn () => $this->input('pribadi.marital_status') === 'married'),
+                'nullable',
+                'string',
+                'max:30',
+                'regex:/^[0-9+\-\s()]{7,30}$/',
+            ],
+            // Upload Foto KTP & Kartu Keluarga (KK) — maks 2 MB, format JPG, JPEG, PNG
+            'pribadi.ktp_photo' => ['nullable', 'file', 'mimes:jpg,jpeg,png', 'max:2048'],
+            'pribadi.kk_photo' => ['nullable', 'file', 'mimes:jpg,jpeg,png', 'max:2048'],
 
             // Section 2 — Pengajuan Pinjaman.
             'pengajuan.product_id' => ['nullable', 'integer', Rule::exists('shm_loan_products', 'id')->where('is_active', true)],
+            // Agen bersifat opsional: pengajuan tanpa agen tetap valid
+            // (komisi agen 0%, total provisi tetap 2% menjadi porsi kantor).
+            // Jika diisi, agen WAJIB berasal dari shm_agents dan masih aktif.
+            'pengajuan.agent_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('shm_agents', 'id')->where('is_active', true),
+            ],
             'pengajuan.principal' => ['required', 'numeric', 'min:1', 'max:'.$maxAmount],
             'pengajuan.tenor_months' => ['required', 'integer', 'min:1', 'max:600'],
             // Ticket 82 — jatuh tempo pertama DIPILIH Marketing (date, bukan
@@ -122,8 +154,8 @@ class StoreShmLoanApplicationRequest extends FormRequest
             // executable/script, dan batas 2 MB sebagai batas teknis wajar
             // untuk satu berkas gambar dokumentasi jaminan.
             'jaminan.*.foto' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
-            // Dokumen jaminan pendukung (PDF, maks 5 MB).
-            'jaminan.*.dokumen' => ['nullable', 'file', 'mimes:pdf', 'max:5120'],
+            // Dokumen jaminan pendukung (PDF, distandarkan menjadi maks 10 MB).
+            'jaminan.*.dokumen' => ['nullable', 'file', 'mimes:pdf', 'max:10240'],
 
             // Section 6 — Catatan Kasir / SC.
             'catatan.date' => ['nullable', 'date'],
@@ -156,6 +188,12 @@ class StoreShmLoanApplicationRequest extends FormRequest
             'persyaratan' => ['nullable', 'array', 'max:50'],
             'persyaratan.*.text' => ['required', 'string', 'max:255'],
             'persyaratan.*.done' => ['nullable', 'boolean'],
+
+            // Section 12 — Lampiran dokumen PDF (maks 10 MB per file).
+            'lampiran' => ['nullable', 'array'],
+            'lampiran.*' => ['nullable', 'file', 'mimes:pdf', 'max:10240'],
+            'deleted_attachment_ids' => ['nullable', 'array'],
+            'deleted_attachment_ids.*' => ['integer'],
         ];
     }
 
@@ -167,6 +205,23 @@ class StoreShmLoanApplicationRequest extends FormRequest
         return [
             'pribadi.customer_id.required' => 'Nasabah SHM wajib dipilih.',
             'pribadi.customer_id.exists' => 'Nasabah SHM tidak ditemukan.',
+            'pribadi.marital_status.in' => 'Status pernikahan tidak valid.',
+            'pribadi.spouse_name.required' => 'Nama pasangan wajib diisi jika sudah menikah.',
+            'pribadi.spouse_name.required_if' => 'Nama pasangan wajib diisi jika sudah menikah.',
+            'pribadi.spouse_nik.required' => 'NIK pasangan wajib diisi jika sudah menikah.',
+            'pribadi.spouse_nik.required_if' => 'NIK pasangan wajib diisi jika sudah menikah.',
+            'pribadi.spouse_nik.regex' => 'NIK pasangan harus berupa 16 digit angka.',
+            'pribadi.spouse_phone.required' => 'Nomor telepon pasangan wajib diisi jika sudah menikah.',
+            'pribadi.spouse_phone.required_if' => 'Nomor telepon pasangan wajib diisi jika sudah menikah.',
+            'pribadi.spouse_phone.regex' => 'Format nomor telepon pasangan tidak valid.',
+            'pribadi.ktp_photo.file' => 'Foto KTP harus berupa berkas yang valid.',
+            'pribadi.ktp_photo.mimes' => 'Format Foto KTP harus berupa JPG, JPEG, atau PNG.',
+            'pribadi.ktp_photo.max' => 'Ukuran Foto KTP maksimal 2 MB.',
+            'pribadi.kk_photo.file' => 'Foto Kartu Keluarga harus berupa berkas yang valid.',
+            'pribadi.kk_photo.mimes' => 'Format Foto Kartu Keluarga harus berupa JPG, JPEG, atau PNG.',
+            'pribadi.kk_photo.max' => 'Ukuran Foto Kartu Keluarga maksimal 2 MB.',
+            'pengajuan.agent_id.exists' => 'Agen tidak ditemukan atau sudah dinonaktifkan.',
+            'pengajuan.agent_id.integer' => 'Agen tidak valid.',
             'pengajuan.product_id.exists' => 'Produk pinjaman tidak ditemukan atau sudah nonaktif.',
             'pengajuan.principal.required' => 'Besar pinjaman wajib diisi.',
             'pengajuan.principal.numeric' => 'Besar pinjaman harus berupa angka.',
@@ -180,6 +235,10 @@ class StoreShmLoanApplicationRequest extends FormRequest
             'jaminan.*.nama.required' => 'Nama jaminan wajib diisi.',
             'jaminan.*.foto.mimes' => 'Foto jaminan hanya boleh berupa gambar JPEG, PNG, atau WebP.',
             'jaminan.*.foto.max' => 'Ukuran foto jaminan maksimal 2 MB.',
+            'jaminan.*.dokumen.mimes' => 'Dokumen jaminan harus berformat PDF.',
+            'jaminan.*.dokumen.max' => 'Ukuran dokumen jaminan maksimal 10 MB.',
+            'lampiran.*.mimes' => 'File lampiran harus berupa dokumen PDF.',
+            'lampiran.*.max' => 'Ukuran setiap file lampiran maksimal 10 MB.',
             'agunan.*.jenis.required' => 'Jenis barang agunan wajib diisi.',
             'persyaratan.*.text.required' => 'Isi persyaratan tambahan atau hapus baris kosong.',
         ];

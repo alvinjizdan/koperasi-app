@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Role;
+use App\Models\ShmAgent;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanApplicationCollateral;
@@ -61,9 +62,15 @@ class ShmLoanCollateralDocumentTest extends TestCase
      */
     private function validPayload(int $customerId): array
     {
+        $agent = ShmAgent::firstOrCreate(
+            ['code' => 'AGEN-FIXTURE'],
+            ['name' => 'Agen Fixture', 'nik' => '3201000000009999', 'is_active' => true],
+        );
+
         return [
             'pribadi' => ['customer_id' => $customerId],
             'pengajuan' => [
+                'agent_id' => $agent->id,
                 'product_id' => ShmLoanProduct::factory()->create()->id,
                 'principal' => '150000000',
                 'tenor_months' => 24,
@@ -183,13 +190,13 @@ class ShmLoanCollateralDocumentTest extends TestCase
         $this->assertSame(0, ShmLoanApplication::query()->count());
     }
 
-    public function test_rejects_pdf_exceeding_max_size_5mb(): void
+    public function test_rejects_pdf_exceeding_max_size_10mb(): void
     {
         $customer = ShmCustomer::factory()->create();
         $payload = $this->validPayload($customer->id);
 
-        // 6 MB = 6144 KB > 5120 KB limit
-        $largePdf = UploadedFile::fake()->create('huge.pdf', 6144, 'application/pdf');
+        // 11 MB = 11264 KB > 10240 KB limit
+        $largePdf = UploadedFile::fake()->create('huge.pdf', 11264, 'application/pdf');
 
         $payload['jaminan'] = [
             [
@@ -205,6 +212,30 @@ class ShmLoanCollateralDocumentTest extends TestCase
         $response->assertSessionHasErrors('jaminan.0.dokumen');
 
         $this->assertSame(0, ShmLoanApplication::query()->count());
+    }
+
+    public function test_accepts_pdf_up_to_max_size_10mb(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+
+        // 10 MB = 10240 KB exactly allowed
+        $maxPdf = UploadedFile::fake()->create('max_allowed.pdf', 10240, 'application/pdf');
+
+        $payload['jaminan'] = [
+            [
+                'tanggal' => now()->toDateString(),
+                'jenis' => 'SHM',
+                'nama' => 'Sertifikat Tanah No. 1234',
+                'nilai_perkiraan' => '500000000',
+                'dokumen' => $maxPdf,
+            ],
+        ];
+
+        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $response->assertSessionHasNoErrors();
+
+        $this->assertSame(1, ShmLoanApplication::query()->count());
     }
 
     public function test_can_view_and_download_pdf_document_when_authorized(): void

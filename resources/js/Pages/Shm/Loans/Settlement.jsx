@@ -29,10 +29,8 @@ import {
  * - Penalty diisi MANUAL oleh user berwenang (tidak pernah auto-calc).
  * - Pembayaran pelunasan memakai Payment T86 yang sudah tercatat; status
  *   `posted` BUKAN verifikasi — verifikasi adalah aksi eksplisit terpisah.
- * - Overpayment (pembayaran > kewajiban) diposting ke Simpanan Pokok
- *   anggota sumber oleh server melalui relasi ShmCustomer → Member;
- *   completion ditolak deterministik bila hubungan member tidak tersedia,
- *   tidak ditemukan, atau anggota nonaktif (T89E).
+ * - Overpayment (pembayaran > kewajiban) diakui sebagai Bunga Pendapatan
+ *   pada akuntansi SHM (COA 4-1101 Pendapatan Bunga SHM).
  */
 function Field({ label, children }) {
     return (
@@ -527,7 +525,7 @@ export default function Settlement({
                                 label="Overpayment"
                                 value={settlement.overpayment_amount ?? '0'}
                                 muted
-                                note="Tujuan: Simpanan Pokok Koperasi milik anggota sumber (ShmCustomer → Member) — diblokir bila hubungan member tidak tersedia atau anggota nonaktif"
+                                note="Tujuan: Bunga Pendapatan SHM (COA 4-1101) — dicatat pada jurnal akuntansi SHM saat pelunasan selesai"
                             />
                         </div>
 

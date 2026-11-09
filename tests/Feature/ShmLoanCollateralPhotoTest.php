@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Member;
 use App\Models\Role;
+use App\Models\ShmAgent;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanApplicationCollateral;
@@ -88,9 +89,15 @@ class ShmLoanCollateralPhotoTest extends TestCase
      */
     private function validPayload(int $customerId): array
     {
+        $agent = ShmAgent::firstOrCreate(
+            ['code' => 'AGEN-FIXTURE'],
+            ['name' => 'Agen Fixture', 'nik' => '3201000000009999', 'is_active' => true],
+        );
+
         return [
             'pribadi' => ['customer_id' => $customerId],
             'pengajuan' => [
+                'agent_id' => $agent->id,
                 'product_id' => ShmLoanProduct::factory()->create()->id,
                 'principal' => '150000000',
                 'tenor_months' => 24,

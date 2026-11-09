@@ -455,7 +455,7 @@ export default function Simulation({ form: initial, result, products, options })
                                     Nilai diinput manual, bukan hasil hitungan
                                     sistem. Komponen biaya pencairan resmi sudah
                                     ditetapkan kontrak (administrasi 2%, provisi
-                                    3%, asuransi 1%, notaris custom, simpanan
+                                    2%, asuransi 1%, notaris custom, simpanan
                                     pokok/wajib) dan dihitung otomatis saat
                                     pencairan; blokir dana bukan komponen resmi.
                                 </p>

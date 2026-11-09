@@ -166,6 +166,7 @@ class RoleStructureTest extends TestCase
             'shm.customer.view',
             'shm.customer.create',
             'shm.customer.update',
+            'shm.agent.view',
             // Ticket 101: siklus Collection (view/transition/activity/PTP)
             // kini berupa permission per-aksi yang configurable; Marketing
             // tetap owner awal case dan ownership di service tetap berlaku.

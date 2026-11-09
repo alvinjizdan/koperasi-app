@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AuditLog;
 use App\Models\Role;
+use App\Models\ShmAgent;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
@@ -90,9 +91,15 @@ class ShmDisbursementCostPersistenceTest extends TestCase
      */
     private function validPayload(int $customerId, array $override = []): array
     {
+        $agent = ShmAgent::firstOrCreate(
+            ['code' => 'AGEN-FIXTURE'],
+            ['name' => 'Agen Fixture', 'nik' => '3201000000009999', 'is_active' => true],
+        );
+
         $payload = [
             'pribadi' => ['customer_id' => $customerId],
             'pengajuan' => [
+                'agent_id' => $agent->id,
                 'product_id' => $this->productWithTiers()->id,
                 'principal' => '450000000',
                 'tenor_months' => 36,
@@ -211,13 +218,13 @@ class ShmDisbursementCostPersistenceTest extends TestCase
         // Principal Rp450.000.000, tenor 36, notary Rp2.000.000.
         $this->assertEquals('450000000.00', (string) $loan->principal);
         $this->assertEquals('9000000.00', (string) $loan->admin_fee, 'Admin 2% × 450jt = 9.000.000.');
-        $this->assertEquals('13500000.00', (string) $loan->provision_fee, 'Provisi 3% × 450jt = 13.500.000.');
+        $this->assertEquals('9000000.00', (string) $loan->provision_fee, 'Provisi 2% × 450jt = 9.000.000.');
         $this->assertEquals('4500000.00', (string) $loan->insurance_fee, 'Asuransi 1% × 450jt = 4.500.000.');
         $this->assertEquals('2000000.00', (string) $loan->notary_fee, 'Notaris custom dari input pengajuan.');
         $this->assertEquals('100000.00', (string) $loan->principal_savings, 'Simpanan pokok Rp100.000.');
         $this->assertEquals('900000.00', (string) $loan->mandatory_savings, 'Rp25.000 × 36 = 900.000.');
-        $this->assertEquals('30000000.00', (string) $loan->total_deduction, 'Total potongan Rp30.000.000.');
-        $this->assertEquals('420000000.00', (string) $loan->net_disbursement, 'Dana bersih Rp420.000.000.');
+        $this->assertEquals('25500000.00', (string) $loan->total_deduction, 'Total potongan Rp25.500.000.');
+        $this->assertEquals('424500000.00', (string) $loan->net_disbursement, 'Dana bersih Rp424.500.000.');
     }
 
     public function test_reconciliation_invariants_hold_on_persisted_snapshot(): void
@@ -254,7 +261,7 @@ class ShmDisbursementCostPersistenceTest extends TestCase
 
         // 7–11. formula persentase & simpanan.
         $this->assertEqualsWithDelta($principal * 0.02, $admin, 0.001);
-        $this->assertEqualsWithDelta($principal * 0.03, $provision, 0.001);
+        $this->assertEqualsWithDelta($principal * 0.02, $provision, 0.001);
         $this->assertEqualsWithDelta($principal * 0.01, $insurance, 0.001);
         $this->assertEqualsWithDelta(100000, $principalSavings, 0.001);
         $this->assertEqualsWithDelta(25000 * 36, $mandatorySavings, 0.001);
@@ -270,8 +277,8 @@ class ShmDisbursementCostPersistenceTest extends TestCase
         // 6. Principal tidak berubah karena deduction.
         $this->assertEquals('450000000.00', (string) $loan->principal);
 
-        // 10. Net disbursement BUKAN principal (420jt ≠ 450jt).
-        $this->assertEquals('420000000.00', (string) $loan->net_disbursement);
+        // 10. Net disbursement BUKAN principal (424,5jt ≠ 450jt).
+        $this->assertEquals('424500000.00', (string) $loan->net_disbursement);
         $this->assertNotEquals((string) $loan->net_disbursement, (string) $loan->principal);
     }
 
@@ -300,8 +307,8 @@ class ShmDisbursementCostPersistenceTest extends TestCase
         $loan = ShmLoan::query()->sole();
 
         $this->assertEquals('0.00', (string) $loan->notary_fee);
-        $this->assertEquals('28000000.00', (string) $loan->total_deduction, 'Tanpa notaris: 9jt+13,5jt+4,5jt+100rb+900rb.');
-        $this->assertEquals('422000000.00', (string) $loan->net_disbursement);
+        $this->assertEquals('23500000.00', (string) $loan->total_deduction, 'Tanpa notaris: 9jt+9jt+4,5jt+100rb+900rb.');
+        $this->assertEquals('426500000.00', (string) $loan->net_disbursement);
     }
 
     // -----------------------------------------------------------------
@@ -333,8 +340,8 @@ class ShmDisbursementCostPersistenceTest extends TestCase
 
         $loan = ShmLoan::query()->sole();
 
-        $this->assertEquals('30000000.00', (string) $loan->total_deduction, 'Backend menghitung ulang, bukan payload.');
-        $this->assertEquals('420000000.00', (string) $loan->net_disbursement);
+        $this->assertEquals('25500000.00', (string) $loan->total_deduction, 'Backend menghitung ulang, bukan payload.');
+        $this->assertEquals('424500000.00', (string) $loan->net_disbursement);
         $this->assertEquals('9000000.00', (string) $loan->admin_fee);
     }
 
@@ -363,7 +370,7 @@ class ShmDisbursementCostPersistenceTest extends TestCase
         $application = $this->approvedApplication([
             'pengajuan' => ['principal' => '1000000', 'tenor_months' => 12],
             'analisa' => ['value' => '1000000'],
-            'persetujuan' => ['approved_amount' => '1000000', 'notary_fee' => '540000'],
+            'persetujuan' => ['approved_amount' => '1000000', 'notary_fee' => '550000'],
         ]);
 
         $this->disburse($application)->assertSessionHasErrors('application');
@@ -396,8 +403,8 @@ class ShmDisbursementCostPersistenceTest extends TestCase
         $logs = AuditLog::query()->where('action', self::AUDIT_ACTION)->get();
 
         $this->assertCount(1, $logs, 'Tepat SATU audit pencairan.');
-        $this->assertSame('30000000.00', data_get($logs->first()->changes, 'total_deduction'));
-        $this->assertSame('420000000.00', data_get($logs->first()->changes, 'net_disbursement'));
+        $this->assertSame('25500000.00', data_get($logs->first()->changes, 'total_deduction'));
+        $this->assertSame('424500000.00', data_get($logs->first()->changes, 'net_disbursement'));
     }
 
     // -----------------------------------------------------------------

@@ -196,9 +196,9 @@ class ShmDisbursementConcurrencyTest extends TestCase
         $this->assertSame(1, ShmLoan::query()->count(), 'Tidak boleh ada pinjaman ganda.');
         $loan = ShmLoan::query()->sole();
 
-        // Invariant finansial: gross 50jt, potongan 3,4jt, net 46,6jt.
+        // Invariant finansial: gross 50jt, potongan 2,9jt (admin 2%=1jt + provisi 2%=1jt + asuransi 1%=500rb + SP 100rb + SW 300rb), net 47,1jt.
         $this->assertSame('50000000.00', (string) $loan->principal);
-        $this->assertEqualsWithDelta(46_600_000, (float) $loan->net_disbursement, 0.001);
+        $this->assertEqualsWithDelta(47_100_000, (float) $loan->net_disbursement, 0.001);
 
         // Simpanan Pokok & Wajib: tepat SATU posting masing-masing
         // (idempotency key deterministik berbasis application_id).
@@ -233,7 +233,7 @@ class ShmDisbursementConcurrencyTest extends TestCase
             ->get();
         $this->assertCount(1, $cashOut, 'Tepat SATU kas keluar per pencairan.');
         $this->assertSame(CashTransaction::TYPE_EXPENSE, $cashOut->first()->type);
-        $this->assertEqualsWithDelta(46_600_000, (float) $cashOut->first()->amount, 0.001);
+        $this->assertEqualsWithDelta(47_100_000, (float) $cashOut->first()->amount, 0.001);
 
         // Audit pencairan: tepat SATU baris.
         $this->assertSame(

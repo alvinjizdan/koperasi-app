@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AuditLog;
 use App\Models\Member;
 use App\Models\Role;
+use App\Models\ShmAgent;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
@@ -81,9 +82,15 @@ class ShmLoanApplicationTest extends TestCase
      */
     private function validPayload(int $customerId): array
     {
+        $agent = ShmAgent::firstOrCreate(
+            ['code' => 'AGEN-FIXTURE'],
+            ['name' => 'Agen Fixture', 'nik' => '3201000000009999', 'is_active' => true],
+        );
+
         return [
             'pribadi' => ['customer_id' => $customerId],
             'pengajuan' => [
+                'agent_id' => $agent->id,
                 'product_id' => ShmLoanProduct::factory()->create()->id,
                 'principal' => '460000000',
                 'tenor_months' => 48,
@@ -582,9 +589,11 @@ class ShmLoanApplicationTest extends TestCase
             'shm.loans.pengajuan.daftar',
             'shm.loans.pengajuan.disburse',
             'shm.loans.pengajuan.edit',
+            'shm.loans.pengajuan.identitas.foto',
             // Dokumen PDF jaminan (ticket upload-dokumen-jaminan).
             'shm.loans.pengajuan.jaminan.dokumen',
             'shm.loans.pengajuan.jaminan.foto',
+            'shm.loans.pengajuan.lampiran.dokumen',
             'shm.loans.pengajuan.pdf',
             'shm.loans.pengajuan.show',
             'shm.loans.pengajuan.store',

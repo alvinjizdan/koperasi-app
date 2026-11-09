@@ -571,7 +571,7 @@ class ShmSettlementCompletionTest extends TestCase
             ->post(route('shm.loans.pelunasan.payment', $loan), ['payment_id' => $payment->id]);
         $this->actingAs($this->user)->post(route('shm.loans.pelunasan.payment.verify', $loan));
 
-        // Completion BERHASIL: overpayment diposting ke Simpanan SHM nasabah
+        // Completion BERHASIL: overpayment diakui sebagai Pendapatan Bunga SHM, BUKAN Simpanan SHM
         $this->actingAs($this->user)
             ->post(route('shm.loans.pelunasan.complete', $loan))
             ->assertSessionHas('success');
@@ -581,19 +581,15 @@ class ShmSettlementCompletionTest extends TestCase
         $this->assertSame('100000000.00', (string) $loan->refresh()->principal);
         $this->assertSame('500000.00', (string) $settlement->overpayment_amount);
 
-        // Masuk ke Simpanan SHM, bukan Simpanan Koperasi
-        $this->assertDatabaseHas('shm_savings_transactions', [
-            'amount' => 500000,
-            'type' => 'deposit',
-            'idempotency_key' => 'shm-settlement-overpayment:'.$settlement->id,
-        ]);
+        // Tidak masuk ke Simpanan SHM maupun Simpanan Koperasi
+        $this->assertSame(0, ShmSavingsTransaction::query()->count());
         $this->assertSame(0, SavingsTransaction::query()->count());
         $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.settled')->count());
         $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.closed')->count());
 
         // Retry dua kali lagi → idempoten, tidak menduplikasi posting simpanan
         $this->actingAs($this->user)->post(route('shm.loans.pelunasan.complete', $loan))->assertSessionHas('success');
-        $this->assertSame(1, ShmSavingsTransaction::query()->count());
+        $this->assertSame(0, ShmSavingsTransaction::query()->count());
         $this->assertSame(0, SavingsTransaction::query()->count());
         $this->assertSame(1, ShmLoanSettlement::query()->where('shm_loan_id', $loan->id)->count());
     }

@@ -30,7 +30,6 @@ class ShmSettlementCorrectionService
 {
     public function __construct(
         private readonly ShmLoanSettlementService $settlementService,
-        private readonly ShmSavingsIntegrationService $savingsIntegration,
         // T006E — Layanan integrasi jurnal akuntansi otomatis SHM
         private readonly ShmAutomaticJournalService $autoJournalService,
     ) {}
@@ -188,16 +187,7 @@ class ShmSettlementCorrectionService
                 }
             }
 
-            // 3. Kompensasi overpayment Simpanan Pokok (non-cash impact)
-            if ((float) $lockedSettlement->overpayment_amount > 0.005) {
-                $this->savingsIntegration->reverseOverpayment(
-                    $lockedSettlement,
-                    $actorId,
-                    $trimmedReason,
-                );
-            }
-
-            // 4. Pulihkan jadwal angsuran ke alokasi sebelum pelunasan
+            // 3. Pulihkan jadwal angsuran ke alokasi sebelum pelunasan
             $installments = $lockedLoan->installments()
                 ->orderBy('installment_number')
                 ->lockForUpdate()
@@ -253,8 +243,9 @@ class ShmSettlementCorrectionService
                 'created_by' => $actorId,
             ]);
 
-            // T006E — Reversal Jurnal Akuntansi Pelunasan Original (atomik di dalam transaksi yang sama)
-            $this->autoJournalService->reverseSettlementJournal($correction, $actorId);
+            // Automatic journal posting dinonaktifkan sesuai ticket refactor SHM Accounting.
+            // Pencatatan akuntansi kini dilakukan via import XLSX berstatus DRAFT dan diposting manual.
+            // $this->autoJournalService->reverseSettlementJournal($correction, $actorId);
 
             // 8. Audit trail
             AuditLogger::log(

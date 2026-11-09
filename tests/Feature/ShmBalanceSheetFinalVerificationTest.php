@@ -414,8 +414,8 @@ class ShmBalanceSheetFinalVerificationTest extends TestCase
 
         $report = $this->reportService->balanceSheet('2026-10-29', AccountingContext::SHM);
 
-        $this->assertSame(-500_000.0, $report['summary']['total_assets']);
-        $this->assertSame(-500_000.0, $report['summary']['total_equity']);
+        $this->assertSame(0.0, $report['summary']['total_assets']);
+        $this->assertSame(0.0, $report['summary']['total_equity']);
         $this->assertSame(0.0, $report['summary']['difference']);
         $this->assertTrue($report['balanced']);
     }

@@ -392,27 +392,14 @@ class ShmCustomerMemberIntegrationTest extends TestCase
         $this->assertSame('closed', $loan->refresh()->status);
         $this->assertEquals(30_000_000, (float) $loan->principal);
 
-        // Verifikasi overpayment Rp1.000.000 masuk ke Simpanan Pokok SHM nasabah
-        $shmPrincipalProduct = ShmSavingProduct::where('category', ShmSavingProduct::CATEGORY_PRINCIPAL)->first();
-        $principalAccount = ShmSavingsAccount::where('shm_customer_id', $customer->id)
-            ->where('shm_saving_product_id', $shmPrincipalProduct->id)
-            ->first();
-        $this->assertNotNull($principalAccount);
-        $this->assertEquals(1_000_000, (float) $principalAccount->balance);
-
-        $this->assertDatabaseHas('shm_savings_transactions', [
-            'shm_savings_account_id' => $principalAccount->id,
-            'amount' => 1000000,
-            'type' => 'deposit',
-            'idempotency_key' => 'shm-settlement-overpayment:'.$settlement->id,
-        ]);
-
-        // Koperasi savings transactions tetap 0
+        // Verifikasi overpayment Rp1.000.000 diakui pada overpayment_amount dan tidak masuk ke Simpanan SHM / Koperasi
+        $this->assertEquals(1_000_000, (float) $settlement->refresh()->overpayment_amount);
+        $this->assertDatabaseCount('shm_savings_transactions', 0);
         $this->assertDatabaseCount('savings_transactions', 0);
 
-        // Retry idempotency: tidak membuat transaksi simpanan ganda
+        // Retry idempotency: tetap konsisten
         $settlementService->complete($loan, $this->admin->id);
-        $this->assertDatabaseCount('shm_savings_transactions', 1);
-        $this->assertEquals(1_000_000, (float) $principalAccount->refresh()->balance);
+        $this->assertDatabaseCount('shm_savings_transactions', 0);
+        $this->assertDatabaseCount('savings_transactions', 0);
     }
 }

@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Services\Shm\ShmLoanApplicationFileCleanup;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Pengajuan Pinjaman SHM (Ticket 67).
@@ -34,6 +36,7 @@ use Illuminate\Support\Carbon;
  * @property string $application_number
  * @property int $shm_customer_id
  * @property int|null $shm_loan_product_id
+ * @property int|null $agent_id
  * @property int|null $marketing_id
  * @property int|null $shm_application_id
  * @property string $application_date
@@ -56,10 +59,19 @@ use Illuminate\Support\Carbon;
  */
 class ShmLoanApplication extends Model
 {
+    /**
+     * Path file yang dikumpulkan pada event `deleting` dan dibersihkan setelah
+     * transaksi database berhasil commit.
+     *
+     * @var array<int, string>
+     */
+    private array $pendingFileCleanup = [];
+
     protected $fillable = [
         'application_number',
         'shm_customer_id',
         'shm_loan_product_id',
+        'agent_id',
         'application_date',
         'principal',
         'tenor_months',
@@ -117,6 +129,12 @@ class ShmLoanApplication extends Model
         'saldo_modal',
         'saldo_non_modal',
         'batas_hutang',
+        'marital_status',
+        'spouse_name',
+        'spouse_nik',
+        'spouse_phone',
+        'ktp_photo_path',
+        'kk_photo_path',
     ];
 
     protected function casts(): array
@@ -153,6 +171,47 @@ class ShmLoanApplication extends Model
             'saldo_non_modal' => 'decimal:2',
             'batas_hutang' => 'decimal:2',
         ];
+    }
+
+    /**
+     * Cleanup file privat mengikuti lifecycle penghapusan pengajuan.
+     *
+     * Path diambil pada `deleting` (child masih ada), lalu file dihapus hanya
+     * setelah commit. Bila delete dipanggil di dalam transaksi luar, cleanup
+     * didaftarkan sebagai after-commit sehingga rollback tidak menghapus file.
+     * Query builder/mass delete tidak memicu event model dan tidak tercakup.
+     */
+    protected static function booted(): void
+    {
+        static::deleting(function (ShmLoanApplication $application): void {
+            $application->pendingFileCleanup = app(ShmLoanApplicationFileCleanup::class)
+                ->pathsFor($application);
+        });
+
+        static::deleted(function (ShmLoanApplication $application): void {
+            $paths = $application->pendingFileCleanup;
+            $application->pendingFileCleanup = [];
+
+            $cleanup = app(ShmLoanApplicationFileCleanup::class);
+            $applicationId = (int) $application->id;
+
+            if (DB::transactionLevel() > 0) {
+                DB::afterCommit(fn () => $cleanup->delete($paths, $applicationId));
+
+                return;
+            }
+
+            $cleanup->delete($paths, $applicationId);
+        });
+    }
+
+    /**
+     * Selalu hapus pengajuan di dalam transaksi agar cleanup file hanya
+     * berjalan setelah commit dan tidak pernah saat rollback.
+     */
+    public function delete(): ?bool
+    {
+        return DB::transaction(fn (): ?bool => parent::delete());
     }
 
     /**
@@ -203,6 +262,16 @@ class ShmLoanApplication extends Model
     public function requirements(): HasMany
     {
         return $this->hasMany(ShmLoanApplicationRequirement::class);
+    }
+
+    /**
+     * Section 12 — daftar lampiran dokumen PDF.
+     *
+     * @return HasMany<ShmLoanApplicationAttachment, $this>
+     */
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(ShmLoanApplicationAttachment::class);
     }
 
     /** Total penghasilan bulanan (derived). */
@@ -258,6 +327,16 @@ class ShmLoanApplication extends Model
         $tier = $product->rateTierFor((int) $this->tenor_months);
 
         return $tier === null ? null : (float) $tier->rate_percent;
+    }
+
+    /**
+     * Agen yang mereferensikan pengajuan pinjaman SHM.
+     *
+     * @return BelongsTo<ShmAgent, $this>
+     */
+    public function agent(): BelongsTo
+    {
+        return $this->belongsTo(ShmAgent::class, 'agent_id');
     }
 
     /**

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AuditLog;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\ShmAgent;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanInstallment;
@@ -154,9 +155,15 @@ class ShmLoanScheduleActionTest extends TestCase
      */
     private function validPayload(int $customerId, int $productId): array
     {
+        $agent = ShmAgent::firstOrCreate(
+            ['code' => 'AGEN-FIXTURE'],
+            ['name' => 'Agen Fixture', 'nik' => '3201000000009999', 'is_active' => true],
+        );
+
         return [
             'pribadi' => ['customer_id' => $customerId],
             'pengajuan' => [
+                'agent_id' => $agent->id,
                 'product_id' => $productId,
                 'principal' => '460000000',
                 'tenor_months' => 48,

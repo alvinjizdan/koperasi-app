@@ -63,10 +63,13 @@ class ShmLoan extends Model
         'shm_loan_product_id',
         // Ticket 69: diisi server saat pencairan (bukan payload klien).
         'shm_loan_application_id',
+        'agent_id',
         'principal',
         // Ticket 85: snapshot biaya pencairan (immutable historical).
         'admin_fee',
         'provision_fee',
+        'office_provision_fee',
+        'agent_commission_fee',
         'insurance_fee',
         'notary_fee',
         'principal_savings',
@@ -92,6 +95,8 @@ class ShmLoan extends Model
             'principal' => 'decimal:2',
             'admin_fee' => 'decimal:2',
             'provision_fee' => 'decimal:2',
+            'office_provision_fee' => 'decimal:2',
+            'agent_commission_fee' => 'decimal:2',
             'insurance_fee' => 'decimal:2',
             'notary_fee' => 'decimal:2',
             'principal_savings' => 'decimal:2',
@@ -135,6 +140,16 @@ class ShmLoan extends Model
     public function application(): BelongsTo
     {
         return $this->belongsTo(ShmLoanApplication::class, 'shm_loan_application_id');
+    }
+
+    /**
+     * Agen yang terhubung dengan pinjaman (snapshot dari pengajuan).
+     *
+     * @return BelongsTo<ShmAgent, $this>
+     */
+    public function agent(): BelongsTo
+    {
+        return $this->belongsTo(ShmAgent::class, 'agent_id');
     }
 
     /**

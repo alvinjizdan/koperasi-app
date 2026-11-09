@@ -11,6 +11,7 @@ use App\Http\Requests\Shm\StoreShmLoanProductRequest;
 use App\Http\Requests\Shm\UpdateShmLoanApplicationRequest;
 use App\Http\Requests\Shm\UpdateShmLoanProductRequest;
 use App\Models\AuditLog;
+use App\Models\ShmAgent;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
@@ -287,6 +288,7 @@ class ShmLoanController extends Controller
         $loan->load([
             'customer',
             'product',
+            'agent',
             'application.customer',
             'application.collaterals',
             'application.assets',
@@ -508,9 +510,25 @@ class ShmLoanController extends Controller
                 ->with('error', 'Pengajuan yang sudah diajukan approval tidak dapat diubah.');
         }
 
-        $application->load(['collaterals', 'assets', 'requirements']);
+        $application->load(['collaterals', 'assets', 'requirements', 'attachments']);
 
-        return Inertia::render('Shm/Loans/Pengajuan', array_merge($this->formPageProps(), [
+        $pageProps = $this->formPageProps();
+
+        // Agen historis yang sudah dinonaktifkan tetap ditampilkan pada form
+        // edit agar assignment yang sudah ada tidak hilang saat disimpan.
+        if ($application->agent_id !== null
+            && ! collect($pageProps['agents'])->contains('id', $application->agent_id)
+            && $application->agent !== null) {
+            $pageProps['agents'][] = [
+                'id' => $application->agent->id,
+                'code' => $application->agent->code,
+                'name' => $application->agent->name,
+                'nik' => $application->agent->nik,
+                'is_active' => $application->agent->is_active,
+            ];
+        }
+
+        return Inertia::render('Shm/Loans/Pengajuan', array_merge($pageProps, [
             'application' => [
                 'id' => $application->id,
                 'application_number' => $application->application_number,
@@ -703,6 +721,17 @@ class ShmLoanController extends Controller
                 'methods' => ShmLoanSimulationService::supportedMethods(),
                 'periods' => ShmLoanSimulationService::supportedPeriods(),
             ],
+            'agents' => ShmAgent::query()
+                ->active()
+                ->orderBy('name')
+                ->get(['id', 'code', 'name', 'nik', 'is_active'])
+                ->map(fn (ShmAgent $agent): array => [
+                    'id' => $agent->id,
+                    'code' => $agent->code,
+                    'name' => $agent->name,
+                    'nik' => $agent->nik,
+                    'is_active' => $agent->is_active,
+                ])->all(),
         ];
     }
 
@@ -740,9 +769,11 @@ class ShmLoanController extends Controller
         $application->load([
             'customer',
             'product',
+            'agent',
             'collaterals',
             'assets',
             'requirements',
+            'attachments',
             'shmApplication.latestApproval.decider:id,name',
             // Ticket 69 — hasil pencairan (null = belum dicairkan).
             'loan',
@@ -770,6 +801,41 @@ class ShmLoanController extends Controller
         $application->load(['customer', 'product', 'collaterals', 'assets', 'requirements']);
 
         return $this->applicationPdf->download($application);
+    }
+
+    /**
+     * Sajikan foto identitas pemohon (KTP / KK) secara terotorisasi (disk privat).
+     */
+    public function identityPhoto(
+        Request $request,
+        ShmLoanApplication $application,
+        string $type,
+    ): SymfonyResponse {
+        $this->authorizeLoanOwnership($request, $application);
+
+        abort_unless(in_array($type, ['ktp', 'kk'], true), 404);
+
+        $path = $type === 'ktp' ? $application->ktp_photo_path : $application->kk_photo_path;
+        abort_if($path === null, 404);
+
+        $disk = Storage::disk('local');
+        abort_unless($disk->exists($path), 404);
+
+        $contents = $disk->get($path);
+        if (! is_string($contents) || $contents === '') {
+            abort(404);
+        }
+
+        $mime = match (strtolower(pathinfo($path, PATHINFO_EXTENSION))) {
+            'png' => 'image/png',
+            default => 'image/jpeg',
+        };
+
+        return response($contents, 200, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline; filename="foto-'.strtolower($type).'-'.$application->id.'"',
+            'Cache-Control' => 'private, max-age=86400',
+        ]);
     }
 
     /**
@@ -860,6 +926,35 @@ class ShmLoanController extends Controller
     }
 
     /**
+     * Sajikan dokumen PDF lampiran secara terotorisasi (disk privat).
+     */
+    public function attachmentDocument(
+        Request $request,
+        ShmLoanApplication $application,
+        int $attachmentId,
+    ): SymfonyResponse {
+        $this->authorizeLoanOwnership($request, $application);
+
+        $attachment = $application->attachments()->where('id', $attachmentId)->firstOrFail();
+
+        $disk = Storage::disk('local');
+        abort_unless($disk->exists($attachment->file_path), 404);
+
+        $contents = $disk->get($attachment->file_path);
+        if (! is_string($contents) || $contents === '') {
+            abort(404);
+        }
+
+        $filename = $attachment->file_name ?: ('lampiran-'.$attachment->id.'.pdf');
+
+        return response($contents, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            'Cache-Control' => 'private, max-age=86400',
+        ]);
+    }
+
+    /**
      * Bentuk data pengajuan (11 section) untuk props Inertia.
      *
      * @return array<string, mixed>
@@ -918,6 +1013,13 @@ class ShmLoanController extends Controller
                 'code' => $application->product->code,
                 'name' => $application->product->name,
             ] : null,
+            'agent' => $application->agent ? [
+                'id' => $application->agent->id,
+                'code' => $application->agent->code,
+                'name' => $application->agent->name,
+                'nik' => $application->agent->nik,
+                'is_active' => $application->agent->is_active,
+            ] : null,
             // Ticket 76-FIX — Data Pribadi adalah DATA PENGAJUAN (snapshot per
             // aplikasi di `shm_loan_applications`), bukan data master nasabah.
             'pribadi' => [
@@ -930,6 +1032,16 @@ class ShmLoanController extends Controller
                 'saldo_modal' => $application->saldo_modal,
                 'saldo_non_modal' => $application->saldo_non_modal,
                 'batas_hutang' => $application->batas_hutang,
+                'marital_status' => $application->marital_status,
+                'spouse_name' => $application->spouse_name,
+                'spouse_nik' => $application->spouse_nik,
+                'spouse_phone' => $application->spouse_phone,
+                'ktp_photo_url' => $application->ktp_photo_path !== null
+                    ? route('shm.loans.pengajuan.identitas.foto', [$application->id, 'ktp'])
+                    : null,
+                'kk_photo_url' => $application->kk_photo_path !== null
+                    ? route('shm.loans.pengajuan.identitas.foto', [$application->id, 'kk'])
+                    : null,
             ],
             'pengajuan' => [
                 'principal' => $application->principal,
@@ -1019,6 +1131,12 @@ class ShmLoanController extends Controller
                 'text' => $requirement->requirement,
                 'done' => (bool) $requirement->is_done,
             ])->all(),
+            'attachments' => $application->attachments->map(fn ($attachment): array => [
+                'id' => $attachment->id,
+                'file_name' => $attachment->file_name,
+                'file_size' => $attachment->file_size,
+                'url' => route('shm.loans.pengajuan.lampiran.dokumen', [$application->id, $attachment->id]),
+            ])->all(),
         ];
     }
 
@@ -1053,9 +1171,22 @@ class ShmLoanController extends Controller
                 'saldo_modal' => $money($application->saldo_modal),
                 'saldo_non_modal' => $money($application->saldo_non_modal),
                 'batas_hutang' => $money($application->batas_hutang),
+                'marital_status' => $text($application->marital_status),
+                'spouse_name' => $text($application->spouse_name),
+                'spouse_nik' => $text($application->spouse_nik),
+                'spouse_phone' => $text($application->spouse_phone),
+                'ktp_photo' => null,
+                'ktp_photo_url' => $application->ktp_photo_path !== null
+                    ? route('shm.loans.pengajuan.identitas.foto', [$application->id, 'ktp'])
+                    : null,
+                'kk_photo' => null,
+                'kk_photo_url' => $application->kk_photo_path !== null
+                    ? route('shm.loans.pengajuan.identitas.foto', [$application->id, 'kk'])
+                    : null,
             ],
             'pengajuan' => [
                 'product_id' => $application->shm_loan_product_id !== null ? (string) $application->shm_loan_product_id : '',
+                'agent_id' => $application->agent_id !== null ? (string) $application->agent_id : '',
                 'principal' => $money($application->principal),
                 'tenor_months' => (string) $application->tenor_months,
                 // T82 — jatuh tempo pertama dipilih Marketing (date-only).
@@ -1143,6 +1274,12 @@ class ShmLoanController extends Controller
                 'id' => $requirement->id,
                 'text' => $requirement->requirement,
                 'done' => (bool) $requirement->is_done,
+            ])->values()->all(),
+            'existing_attachments' => $application->attachments->map(fn ($att): array => [
+                'id' => $att->id,
+                'file_name' => $att->file_name,
+                'file_size' => $att->file_size,
+                'url' => route('shm.loans.pengajuan.lampiran.dokumen', [$application->id, $att->id]),
             ])->values()->all(),
         ];
     }
@@ -1268,12 +1405,19 @@ class ShmLoanController extends Controller
                 'disbursed_at' => $loan->disbursed_at?->format('Y-m-d'),
                 'principal' => $loan->principal,
                 'status' => $loan->status,
+                'agent' => $loan->agent ? [
+                    'id' => $loan->agent->id,
+                    'code' => $loan->agent->code,
+                    'name' => $loan->agent->name,
+                ] : null,
                 // T85 — snapshot biaya pencairan (immutable historical).
                 // Seluruh nilai dibaca dari record yang sudah tersimpan;
                 // TIDAK dihitung ulang di backend maupun frontend.
                 'costs' => [
                     'admin_fee' => $loan->admin_fee,
                     'provision_fee' => $loan->provision_fee,
+                    'office_provision_fee' => $loan->office_provision_fee,
+                    'agent_commission_fee' => $loan->agent_commission_fee,
                     'insurance_fee' => $loan->insurance_fee,
                     'notary_fee' => $loan->notary_fee,
                     'principal_savings' => $loan->principal_savings,

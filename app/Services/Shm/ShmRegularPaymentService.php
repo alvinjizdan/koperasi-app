@@ -238,8 +238,9 @@ class ShmRegularPaymentService
                 );
             }
 
-            // T006E — Jurnal Otomatis Pembayaran Angsuran SHM (atomik di dalam transaksi yang sama)
-            $this->autoJournalService->createPaymentJournal($payment, $actorId);
+            // Automatic journal posting dinonaktifkan sesuai ticket refactor SHM Accounting.
+            // Pencatatan akuntansi kini dilakukan via import XLSX berstatus DRAFT dan diposting manual.
+            // $this->autoJournalService->createPaymentJournal($payment, $actorId);
 
             // 15. Audit transaksi lengkap (T151)
             AuditLogger::log(

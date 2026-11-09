@@ -770,7 +770,7 @@ class ShmBusinessRuleContractTest extends TestCase
         $costs = Config::get('shm-business-rule-contract.disbursement_costs');
 
         $this->assertSame(2.0, $costs['admin_fee']['percent']);
-        $this->assertSame(3.0, $costs['provision_fee']['percent']);
+        $this->assertSame(2.0, $costs['provision_fee']['percent']);
         $this->assertSame(1.0, $costs['insurance_fee']['percent']);
         $this->assertSame('custom', $costs['notary_fee']['type']);
         $this->assertSame(100000, $costs['principal_savings']['amount']);
@@ -781,17 +781,17 @@ class ShmBusinessRuleContractTest extends TestCase
         $principal = 450000000.0;
         $tenor = 36;
         $admin = $principal * 0.02; // 9,000,000
-        $provision = $principal * 0.03; // 13,500,000
+        $provision = $principal * 0.02; // 9,000,000 (2%)
         $insurance = $principal * 0.01; // 4,500,000
         $notary = 2000000.0;
         $principalSavings = 100000.0;
         $mandatorySavings = 25000 * $tenor; // 900,000
 
-        $totalDeduction = $admin + $provision + $insurance + $notary + $principalSavings + $mandatorySavings; // 30,000,000
-        $netDisbursement = $principal - $totalDeduction; // 420,000,000
+        $totalDeduction = $admin + $provision + $insurance + $notary + $principalSavings + $mandatorySavings; // 25,500,000
+        $netDisbursement = $principal - $totalDeduction; // 424,500,000
 
-        $this->assertEquals(30000000.0, $totalDeduction);
-        $this->assertEquals(420000000.0, $netDisbursement);
+        $this->assertEquals(25500000.0, $totalDeduction);
+        $this->assertEquals(424500000.0, $netDisbursement);
 
         $netConfig = Config::get('shm-business-rule-contract.net_disbursement');
         $this->assertStringContainsString('Original principal / plafond tetap menjadi basis', $netConfig['principal_preservation']);
