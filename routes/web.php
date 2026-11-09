@@ -25,7 +25,9 @@ use App\Http\Controllers\SavingsAccountController;
 use App\Http\Controllers\SavingsTransactionController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Shm\ShmAccountController;
+use App\Http\Controllers\Shm\ShmAccountingImportController;
 use App\Http\Controllers\Shm\ShmAccountingMappingController;
+use App\Http\Controllers\Shm\ShmAgentController;
 use App\Http\Controllers\Shm\ShmApplicationController;
 use App\Http\Controllers\Shm\ShmApprovalController;
 use App\Http\Controllers\Shm\ShmBalanceSheetController;
@@ -405,6 +407,17 @@ Route::prefix('shm')->name('shm.')->group(function () {
             ->middleware('permission:shm.property.manage')
             ->name('applications.property');
 
+        // Dokumen Legalitas Buyback pada Pengajuan (Ticket 14)
+        Route::post('/pengajuan/{application}/buyback-documents', [ShmApplicationController::class, 'buybackUploadDocument'])
+            ->middleware('permission:shm.document.update')
+            ->name('applications.buyback-documents.upload');
+        Route::get('/pengajuan/{application}/buyback-documents/{document}', [ShmApplicationController::class, 'buybackDownloadDocument'])
+            ->middleware('permission:shm.document.update')
+            ->name('applications.buyback-documents.download');
+        Route::delete('/pengajuan/{application}/buyback-documents/{document}', [ShmApplicationController::class, 'buybackDestroyDocument'])
+            ->middleware('permission:shm.document.update')
+            ->name('applications.buyback-documents.destroy');
+
         // Mulai pengerjaan credit checking. Baris credit checking dibuat di sini
         // secara eksplisit, bukan otomatis saat pengajuan dibuat.
         Route::post('/pengajuan/{application}/credit-checking/mulai', [ShmCreditCheckController::class, 'start'])
@@ -466,6 +479,32 @@ Route::prefix('shm')->name('shm.')->group(function () {
             ->middleware('permission:shm.customer.update')
             ->name('customers.toggle-active');
 
+        // Master Agen SHM / BSM Makro.
+        Route::middleware('permission:shm.agent.create')->group(function () {
+            Route::get('/agen/create', [ShmAgentController::class, 'create'])->name('agents.create');
+            Route::post('/agen', [ShmAgentController::class, 'store'])->name('agents.store');
+        });
+
+        Route::middleware('permission:shm.agent.view')->group(function () {
+            Route::get('/agen', [ShmAgentController::class, 'index'])->name('agents.index');
+        });
+
+        Route::get('/agen/{agent}/edit', [ShmAgentController::class, 'edit'])
+            ->middleware('permission:shm.agent.update')
+            ->name('agents.edit');
+
+        Route::put('/agen/{agent}', [ShmAgentController::class, 'update'])
+            ->middleware('permission:shm.agent.update')
+            ->name('agents.update');
+
+        Route::patch('/agen/{agent}/status', [ShmAgentController::class, 'toggleActive'])
+            ->middleware('permission:shm.agent.update')
+            ->name('agents.toggle-active');
+
+        Route::delete('/agen/{agent}', [ShmAgentController::class, 'destroy'])
+            ->middleware('permission:shm.agent.delete')
+            ->name('agents.destroy');
+
         // Credit Checking (Ticket 47).
         //
         // Workflow manual: Pending -> InProgress -> Completed. Bukan integrasi
@@ -492,30 +531,78 @@ Route::prefix('shm')->name('shm.')->group(function () {
         });
 
         // -----------------------------------------------------------------
-        // Modul Memorandum (Ticket 49): SHM/SHGB & Buyback.
-        //
-        // Satu domain ShmMemorandum untuk dua kategori; kategori hanya
-        // filter/atribut, bukan controller kedua. Route literal (create)
-        // didaftarkan sebelum route parameter ({memorandum}) agar tidak
-        // tertelan wildcard. Otorisasi tetap memakai permission memorandum
-        // yang sudah ada sejak Ticket 44; tidak ada permission baru.
+        // Modul Memorandum: Pengajuan SHGB, SHM/SHGB, Buyback, dan Summary.
         // -----------------------------------------------------------------
         Route::middleware('permission:shm.memorandum.update')->group(function () {
+            // Submenu Memorandum SHM/SHGB (Ticket 1 & 2)
+            Route::get('/memorandum/shm-shgb', [ShmMemorandumController::class, 'shmShgbIndex'])
+                ->name('memorandums.shm-shgb.index');
+            Route::get('/memorandum/shm-shgb/create', [ShmMemorandumController::class, 'shmShgbCreate'])
+                ->name('memorandums.shm-shgb.create');
+            Route::post('/memorandum/shm-shgb', [ShmMemorandumController::class, 'shmShgbStore'])
+                ->name('memorandums.shm-shgb.store');
+            Route::get('/memorandum/shm-shgb/{memorandum}', [ShmMemorandumController::class, 'shmShgbShow'])
+                ->name('memorandums.shm-shgb.show');
+            Route::get('/memorandum/shm-shgb/{memorandum}/edit', [ShmMemorandumController::class, 'shmShgbEdit'])
+                ->name('memorandums.shm-shgb.edit');
+            Route::put('/memorandum/shm-shgb/{memorandum}', [ShmMemorandumController::class, 'shmShgbUpdate'])
+                ->name('memorandums.shm-shgb.update');
+            Route::delete('/memorandum/shm-shgb/{memorandum}', [ShmMemorandumController::class, 'shmShgbDestroy'])
+                ->name('memorandums.shm-shgb.destroy');
+
+            // Dokumen Legalitas Buyback (Ticket 7) - didaftarkan sebelum {memorandum}
+            Route::post('/memorandum/buyback/{memorandum}/documents', [ShmMemorandumController::class, 'buybackUploadDocument'])
+                ->name('memorandums.buyback.documents.upload');
+            Route::get('/memorandum/buyback/{memorandum}/documents/{document}', [ShmMemorandumController::class, 'buybackDownloadDocument'])
+                ->name('memorandums.buyback.documents.download');
+            Route::delete('/memorandum/buyback/{memorandum}/documents/{document}', [ShmMemorandumController::class, 'buybackDestroyDocument'])
+                ->name('memorandums.buyback.documents.destroy');
+
+            // Submenu Memorandum Buyback (Ticket 1 & 4 & 7)
+            Route::get('/memorandum/buyback', [ShmMemorandumController::class, 'buybackIndex'])
+                ->name('memorandums.buyback.index');
+            Route::get('/memorandum/buyback/create', [ShmMemorandumController::class, 'buybackCreate'])
+                ->name('memorandums.buyback.create');
+            Route::get('/memorandum/buyback/{memorandum}/edit', [ShmMemorandumController::class, 'buybackEdit'])
+                ->name('memorandums.buyback.edit');
+            Route::get('/memorandum/buyback/{memorandum}', [ShmMemorandumController::class, 'buybackShow'])
+                ->name('memorandums.buyback.show');
+            Route::post('/memorandum/buyback', [ShmMemorandumController::class, 'buybackStore'])
+                ->name('memorandums.buyback.store');
+            Route::put('/memorandum/buyback/{memorandum}', [ShmMemorandumController::class, 'buybackUpdate'])
+                ->name('memorandums.buyback.update');
+            Route::delete('/memorandum/buyback/{memorandum}', [ShmMemorandumController::class, 'buybackDestroy'])
+                ->name('memorandums.buyback.destroy');
+
+            // Submenu Memorandum Summary
+            Route::get('/memorandum/summary', [ShmMemorandumController::class, 'summaryIndex'])
+                ->name('memorandums.summary.index');
+
+            // Workflow Approval Memorandum (Ticket 8)
+            Route::post('/memorandum/{memorandum}/submit', [ShmMemorandumController::class, 'submit'])
+                ->middleware('permission:shm.memorandum.submit')
+                ->name('memorandums.submit');
+            Route::post('/memorandum/{memorandum}/start-review', [ShmMemorandumController::class, 'startReview'])
+                ->middleware('permission:shm.memorandum.review')
+                ->name('memorandums.start-review');
+            Route::post('/memorandum/{memorandum}/approve', [ShmMemorandumController::class, 'approve'])
+                ->middleware('permission:shm.memorandum.approve')
+                ->name('memorandums.approve');
+            Route::post('/memorandum/{memorandum}/reject', [ShmMemorandumController::class, 'reject'])
+                ->middleware('permission:shm.memorandum.reject')
+                ->name('memorandums.reject');
+
+            // CRUD Memorandum Existing
             Route::get('/memorandum', [ShmMemorandumController::class, 'index'])
                 ->name('memorandums.index');
-
             Route::get('/memorandum/create', [ShmMemorandumController::class, 'create'])
                 ->name('memorandums.create');
-
             Route::post('/memorandum', [ShmMemorandumController::class, 'store'])
                 ->name('memorandums.store');
-
             Route::get('/memorandum/{memorandum}', [ShmMemorandumController::class, 'show'])
                 ->name('memorandums.show');
-
             Route::get('/memorandum/{memorandum}/edit', [ShmMemorandumController::class, 'edit'])
                 ->name('memorandums.edit');
-
             Route::put('/memorandum/{memorandum}', [ShmMemorandumController::class, 'update'])
                 ->name('memorandums.update');
         });
@@ -648,6 +735,9 @@ Route::prefix('shm')->name('shm.')->group(function () {
                 ->name('loans.pengajuan.show');
             Route::get('/pinjaman/pengajuan/{application}/pdf', [ShmLoanController::class, 'applicationPdf'])
                 ->name('loans.pengajuan.pdf');
+            // Foto identitas pemohon (KTP / KK): disk privat & terotorisasi.
+            Route::get('/pinjaman/pengajuan/{application}/identitas/{type}/foto', [ShmLoanController::class, 'identityPhoto'])
+                ->name('loans.pengajuan.identitas.foto');
             // Ticket 77 — foto jaminan: route literal setelah {application}
             // (path lebih panjang, tidak tertelan wildcard) dengan aturan
             // kepemilikan pengajuan yang sama. Berkas tersimpan pada disk
@@ -656,6 +746,9 @@ Route::prefix('shm')->name('shm.')->group(function () {
                 ->name('loans.pengajuan.jaminan.foto');
             Route::get('/pinjaman/pengajuan/{application}/jaminan/{collateral}/dokumen', [ShmLoanController::class, 'collateralDocument'])
                 ->name('loans.pengajuan.jaminan.dokumen');
+            // Section 12 Lampiran: dokumen PDF lampiran pengajuan (terotorisasi disk privat)
+            Route::get('/pinjaman/pengajuan/{application}/lampiran/{attachmentId}/dokumen', [ShmLoanController::class, 'attachmentDocument'])
+                ->name('loans.pengajuan.lampiran.dokumen');
 
             // Daftar record pinjaman SHM + detail pinjaman.
             Route::get('/pinjaman', [ShmLoanController::class, 'index'])
@@ -1069,6 +1162,28 @@ Route::prefix('shm')->name('shm.')->group(function () {
                 Route::get('/', [ShmBalanceSheetController::class, 'index'])->name('index');
                 Route::get('/export', [ShmBalanceSheetController::class, 'export'])->name('export');
                 Route::get('/template', [ShmBalanceSheetController::class, 'template'])->name('template');
+            });
+        });
+
+        // -----------------------------------------------------------------
+        // Modul Akuntansi SHM — Import Center & Manual Posting
+        // -----------------------------------------------------------------
+        Route::prefix('akuntansi/import')->name('accounting-import.')->group(function () {
+            Route::middleware('permission:accounting.shm.view')->group(function () {
+                Route::get('/', [ShmAccountingImportController::class, 'index'])->name('index');
+                Route::get('/{batch}', [ShmAccountingImportController::class, 'show'])->name('show');
+                Route::get('/template/jurnal', [ShmAccountingImportController::class, 'journalTemplate'])->name('template.journal');
+                Route::post('/preview/jurnal', [ShmAccountingImportController::class, 'previewJournal'])->name('preview.journal');
+                Route::post('/preview/laporan', [ShmAccountingImportController::class, 'previewReport'])->name('preview.report');
+            });
+
+            Route::middleware('permission:accounting.shm.accounts.manage')->group(function () {
+                Route::post('/jurnal', [ShmAccountingImportController::class, 'storeJournal'])->name('store.journal');
+                Route::post('/laporan', [ShmAccountingImportController::class, 'storeReport'])->name('store.report');
+            });
+
+            Route::middleware('permission:accounting.shm.journals.post')->group(function () {
+                Route::post('/jurnal/{entry}/post', [ShmAccountingImportController::class, 'postJournal'])->name('post.journal');
             });
         });
     });

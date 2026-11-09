@@ -961,8 +961,10 @@ return [
             'status' => 'CONFIRMED (T84)',
             'admin_fee_percent' => 2.0,
             'admin_fee_rule' => '2% × plafond pinjaman',
-            'provision_fee_percent' => 3.0,
-            'provision_fee_rule' => '3% × plafond pinjaman',
+            'provision_fee_percent' => 2.0,
+            'provision_fee_rule' => '2% × plafond pinjaman (1% kantor + 1% agen)',
+            'office_provision_percent' => 1.0,
+            'agent_commission_percent' => 1.0,
             'insurance_fee_percent' => 1.0,
             'insurance_fee_rule' => '1% × plafond pinjaman',
             'notary_fee_type' => 'custom',
@@ -1802,7 +1804,9 @@ return [
     'disbursement_costs' => [
         'status' => 'CONFIRMED (T84)',
         'admin_fee' => ['percent' => 2.0, 'rule' => '2% × plafond pinjaman', 'status' => 'CONFIRMED'],
-        'provision_fee' => ['percent' => 3.0, 'rule' => '3% × plafond pinjaman', 'status' => 'CONFIRMED'],
+        'provision_fee' => ['percent' => 2.0, 'rule' => '2% × plafond pinjaman (split: 1% kantor + 1% agen)', 'status' => 'CONFIRMED'],
+        'office_provision' => ['percent' => 1.0, 'rule' => '1% × plafond pinjaman', 'status' => 'CONFIRMED'],
+        'agent_commission' => ['percent' => 1.0, 'rule' => '1% × plafond pinjaman', 'status' => 'CONFIRMED'],
         'insurance_fee' => ['percent' => 1.0, 'rule' => '1% × plafond pinjaman', 'status' => 'CONFIRMED'],
         'notary_fee' => ['type' => 'custom', 'rule' => 'custom/fillable nominal diinput authorized user, tanpa preset', 'status' => 'CONFIRMED'],
         'principal_savings' => ['amount' => 100000, 'rule' => 'Rp100.000', 'status' => 'CONFIRMED'],
@@ -2063,7 +2067,7 @@ return [
 
         // T84 Financial & Payment Contract Assertions
         'disbursement_admin_fee_two_percent' => true,
-        'disbursement_provision_fee_three_percent' => true,
+        'disbursement_provision_fee_two_percent' => true,
         'disbursement_insurance_fee_one_percent' => true,
         'disbursement_notary_fee_custom' => true,
         'disbursement_principal_savings_one_hundred_thousand' => true,

@@ -113,6 +113,11 @@ return [
                 'credit_checking.view' => 'Melihat proses & hasil credit checking pengajuan',
                 'credit_checking.update' => 'Mengerjakan & menyelesaikan credit checking pengajuan',
                 'memorandum.update' => 'Mencatat memorandum pengajuan',
+                'memorandum.submit' => 'Mengajukan memorandum untuk approval',
+                'memorandum.review' => 'Memeriksa & mereview memorandum pengajuan',
+                'memorandum.approve' => 'Menyetujui (approve) memorandum pengajuan',
+                'memorandum.reject' => 'Menolak (reject) memorandum pengajuan',
+                'memorandum.history.view' => 'Melihat riwayat audit/workflow approval memorandum',
                 'approval.decide' => 'Mengambil keputusan approval atau penolakan',
                 'document.update' => 'Mencatat kelengkapan dokumen pengajuan',
                 'disburse' => 'Menandai pengajuan sebagai dicairkan',
@@ -159,6 +164,11 @@ return [
                 // diputuskan KSP — PENDING BUSINESS CONFIRMATION, teknikal
                 // permission ini tetap configurable via UI Role & Permission.
                 'customer.delete' => 'Menghapus nasabah SHM',
+                // Master Agen SHM / BSM Makro.
+                'agent.view' => 'Melihat daftar & detail agen SHM',
+                'agent.create' => 'Menambah master agen SHM',
+                'agent.update' => 'Mengubah data & status master agen SHM',
+                'agent.delete' => 'Menghapus master agen SHM',
                 // Ticket 98-FIX: master produk pinjaman SHM (CRUD kategori,
                 // deskripsi, syarat, status aktif). Baca tetap shm.view;
                 // tulis memakai permission terpisah (pola BUG-01) supaya
@@ -365,6 +375,7 @@ return [
                 'shm.customer.view',
                 'shm.customer.create',
                 'shm.customer.update',
+                'shm.agent.view',
                 // Ticket 101: Marketing sebagai owner awal case Collection
                 // tetap menjalankan siklus Collection (T90-T99) melalui
                 // permission per-aksi yang kini configurable. Ownership

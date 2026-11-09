@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Shm;
 
 use App\Models\MarketingActivity;
+use App\Models\ShmApplication;
 use App\Models\ShmCustomer;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
@@ -39,6 +40,11 @@ class StoreShmApplicationRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'type' => [
+                'nullable',
+                'string',
+                Rule::in(ShmApplication::types()),
+            ],
             'shm_customer_id' => [
                 'nullable',
                 'integer',
@@ -78,6 +84,15 @@ class StoreShmApplicationRequest extends FormRequest
                 // harus ditolak. Ownership dicek di after() di bawah.
                 Rule::exists('marketing_activities', 'id'),
             ],
+            'shgb_start_date' => [
+                'nullable',
+                'date',
+            ],
+            'shgb_end_date' => [
+                'nullable',
+                'date',
+                'after_or_equal:shgb_start_date',
+            ],
         ];
     }
 
@@ -116,13 +131,18 @@ class StoreShmApplicationRequest extends FormRequest
     /**
      * Data yang diteruskan ke service dalam bentuk ternormalisasi.
      *
-     * @return array{shm_customer_id: int|null, new_customer: array{name: string, nik: string|null, phone: string|null}|null, notes: string|null, marketing_activity_id: int|null}
+     * @return array{type: string, shm_customer_id: int|null, new_customer: array{name: string, nik: string|null, phone: string|null}|null, notes: string|null, marketing_activity_id: int|null}
      */
     public function payload(): array
     {
         $newCustomerName = trim((string) $this->input('new_customer.name', ''));
+        $type = (string) $this->input('type', ShmApplication::TYPE_SHGB);
+        if (! in_array($type, ShmApplication::types(), true)) {
+            $type = ShmApplication::TYPE_SHGB;
+        }
 
         return [
+            'type' => $type,
             'shm_customer_id' => $this->input('shm_customer_id') !== null
                 ? (int) $this->input('shm_customer_id')
                 : null,
@@ -137,6 +157,8 @@ class StoreShmApplicationRequest extends FormRequest
             'marketing_activity_id' => $this->input('marketing_activity_id') !== null
                 ? (int) $this->input('marketing_activity_id')
                 : null,
+            'shgb_start_date' => $this->input('shgb_start_date'),
+            'shgb_end_date' => $this->input('shgb_end_date'),
         ];
     }
 

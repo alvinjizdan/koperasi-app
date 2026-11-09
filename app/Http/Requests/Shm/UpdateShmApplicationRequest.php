@@ -45,6 +45,15 @@ class UpdateShmApplicationRequest extends FormRequest
                 'string',
                 'max:2000',
             ],
+            'shgb_start_date' => [
+                'nullable',
+                'date',
+            ],
+            'shgb_end_date' => [
+                'nullable',
+                'date',
+                'after_or_equal:shgb_start_date',
+            ],
         ];
     }
 

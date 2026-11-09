@@ -14,6 +14,7 @@ import {
     MapPin,
     Receipt,
     ScrollText,
+    UserCheck,
     UserRound,
     Wallet,
     X,
@@ -37,12 +38,6 @@ const shmNavigation = [
         name: "Dashboard",
         route: "shm.dashboard",
         icon: LayoutDashboard,
-        permission: "shm.view",
-    },
-    {
-        name: "Pengajuan",
-        route: "shm.applications.index",
-        icon: FileText,
         permission: "shm.view",
     },
     {
@@ -76,15 +71,23 @@ const shmNavigation = [
         icon: ScrollText,
         children: [
             {
+                name: "Pengajuan",
+                route: "shm.applications.index",
+                permission: "shm.view",
+            },
+            {
                 name: "SHM/SHGB",
-                route: "shm.memorandums.index",
-                query: { type: "shm_shgb" },
+                route: "shm.memorandums.shm-shgb.index",
                 permission: "shm.memorandum.update",
             },
             {
                 name: "Buyback",
-                route: "shm.memorandums.index",
-                query: { type: "buyback" },
+                route: "shm.memorandums.buyback.index",
+                permission: "shm.memorandum.update",
+            },
+            {
+                name: "Summary",
+                route: "shm.memorandums.summary.index",
                 permission: "shm.memorandum.update",
             },
         ],
@@ -118,6 +121,12 @@ const shmNavigation = [
         name: "Marketing",
         icon: Briefcase,
         children: [
+            {
+                name: "Master Agen",
+                route: "shm.agents.index",
+                icon: UserCheck,
+                permission: "shm.agent.view",
+            },
             {
                 name: "Aktivitas Kunjungan",
                 route: "shm.marketing.activities.index",
@@ -288,6 +297,11 @@ const shmNavigation = [
             {
                 name: "Accounting Mapping",
                 route: "shm.accounting-mapping.index",
+                permission: "accounting.shm.view",
+            },
+            {
+                name: "Import Center & Jurnal",
+                route: "shm.accounting-import.index",
                 permission: "accounting.shm.view",
             },
             {

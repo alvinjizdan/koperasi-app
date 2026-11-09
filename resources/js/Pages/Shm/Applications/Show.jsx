@@ -20,6 +20,12 @@ import {
     Play,
     ExternalLink,
     ArrowRight,
+    Upload,
+    Download,
+    Trash2,
+    AlertCircle,
+    Calendar,
+    Lock,
 } from 'lucide-react';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
 import StatusBadge from '@/Components/Admin/StatusBadge';
@@ -37,6 +43,9 @@ import StatusBadge from '@/Components/Admin/StatusBadge';
  */
 export default function Show({
     application,
+    buyback_documents,
+    is_buyback_documents_complete,
+    buyback_documents_ratio,
     properties,
     credit_check,
     memorandum,
@@ -65,10 +74,21 @@ export default function Show({
             <div className="space-y-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                        <h1 className="text-xl font-semibold text-gray-800">
-                            {application.application_number}
-                        </h1>
-                        <p className="text-sm text-gray-500">
+                        <div className="flex items-center gap-2">
+                            <h1 className="text-xl font-semibold text-gray-800">
+                                {application.application_number}
+                            </h1>
+                            <span
+                                className={`rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase ${
+                                    application.type === 'buyback'
+                                        ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                        : 'bg-blue-50 text-blue-700 border border-blue-200'
+                                }`}
+                            >
+                                {application.type_label ?? (application.type === 'buyback' ? 'Buyback' : 'SHGB')}
+                            </span>
+                        </div>
+                        <p className="text-sm text-gray-500 mt-0.5">
                             Status saat ini: {application.status_label}
                         </p>
                     </div>
@@ -223,6 +243,17 @@ export default function Show({
                             canDecide={can('can_decide_approval')}
                         />
 
+                        {/* Dokumen Legalitas Buyback (Ticket 14) */}
+                        {application.type === 'buyback' && (
+                            <BuybackDocumentsSection
+                                application={application}
+                                documents={buyback_documents}
+                                isComplete={is_buyback_documents_complete}
+                                ratio={buyback_documents_ratio}
+                                canUpdate={can('can_update_document')}
+                            />
+                        )}
+
                         {/* Dokumen */}
                         <DocumentSection
                             application={application}
@@ -250,6 +281,12 @@ export default function Show({
                             </h2>
                             <dl className="space-y-3 text-sm">
                                 <div>
+                                    <dt className="text-xs text-gray-500">Tipe Pengajuan</dt>
+                                    <dd className="font-semibold text-slate-800">
+                                        {application.type_label ?? (application.type === 'buyback' ? 'Buyback' : 'SHGB')}
+                                    </dd>
+                                </div>
+                                <div>
                                     <dt className="text-xs text-gray-500">Nasabah</dt>
                                     <dd className="font-medium">{application.customer_label}</dd>
                                 </div>
@@ -259,6 +296,21 @@ export default function Show({
                                         {application.marketing?.name ?? '-'}
                                     </dd>
                                 </div>
+                                {application.type === 'shgb' && (
+                                    <div className="pt-2 border-t border-slate-100">
+                                        <dt className="text-xs text-gray-500">Masa Berlaku SHGB</dt>
+                                        <dd className="font-medium text-slate-700">
+                                            {application.shgb_start_date && application.shgb_end_date ? (
+                                                <span className="flex items-center gap-1.5 text-xs text-slate-800">
+                                                    <Calendar className="h-3.5 w-3.5 text-bsm-primary" />
+                                                    {application.shgb_start_date} s/d {application.shgb_end_date}
+                                                </span>
+                                            ) : (
+                                                <span className="text-slate-400 italic text-xs">Belum ditentukan</span>
+                                            )}
+                                        </dd>
+                                    </div>
+                                )}
                                 {application.submitted_at && (
                                     <div>
                                         <dt className="text-xs text-gray-500">Submitted</dt>
@@ -904,6 +956,215 @@ function DisbursementSection({
                 confirmText="Buka Kembali"
                 cancelText="Batal"
             />
+        </section>
+    );
+}
+
+/**
+ * Section Dokumen Legalitas Buyback pada Pengajuan (Ticket 14).
+ * Single Source of Truth untuk 5 dokumen legalitas buyback.
+ */
+function BuybackDocumentsSection({ application, documents, isComplete, ratio, canUpdate }) {
+    const [uploadingType, setUploadingType] = useState(null);
+    const [deletingDoc, setDeletingDoc] = useState(null);
+    const [fileToUpload, setFileToUpload] = useState(null);
+    const [uploadError, setUploadError] = useState(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const isLocked = application.status === 'completed';
+
+    const handleFileSelect = (slotType, file) => {
+        if (!file) return;
+
+        if (file.type !== 'application/pdf') {
+            setUploadError('Berkas harus berformat PDF (.pdf).');
+            return;
+        }
+
+        if (file.size > 10 * 1024 * 1024) {
+            setUploadError('Ukuran berkas maksimal adalah 10 MB.');
+            return;
+        }
+
+        setUploadError(null);
+        setUploadingType(slotType);
+        setFileToUpload(file);
+
+        const formData = new FormData();
+        formData.append('document_type', slotType);
+        formData.append('file', file);
+
+        setIsSubmitting(true);
+        router.post(route('shm.applications.buyback-documents.upload', application.id), formData, {
+            preserveScroll: true,
+            onFinish: () => {
+                setIsSubmitting(false);
+                setUploadingType(null);
+                setFileToUpload(null);
+            },
+            onError: (errors) => {
+                const firstErr = Object.values(errors)[0];
+                setUploadError(firstErr || 'Gagal mengunggah berkas.');
+            },
+        });
+    };
+
+    const handleDelete = (doc) => {
+        if (!confirm('Apakah Anda yakin ingin menghapus berkas dokumen ini?')) {
+            return;
+        }
+
+        router.delete(route('shm.applications.buyback-documents.destroy', [application.id, doc.id]), {
+            preserveScroll: true,
+        });
+    };
+
+    return (
+        <section className="rounded-lg bg-white p-5 shadow border border-slate-200">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div>
+                    <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                        <FolderOpen className="h-4 w-4 text-indigo-600" />
+                        Dokumen Legalitas Buyback (Wajib 5 Dokumen)
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                        Dokumen legalitas diinput pada tahap Pengajuan dan menjadi prasyarat konversi ke Memorandum.
+                    </p>
+                </div>
+                <div>
+                    <span
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                            isComplete
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}
+                    >
+                        {isComplete ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                        ) : (
+                            <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
+                        )}
+                        {ratio ?? '0/5'} Dokumen ({isComplete ? 'Lengkap' : 'Belum Lengkap'})
+                    </span>
+                </div>
+            </div>
+
+            {isLocked && (
+                <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 p-3.5 text-xs text-slate-700">
+                    <Lock className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
+                    <div>
+                        <p className="font-semibold text-slate-800">Dokumen Legalitas Terkunci</p>
+                        <p className="text-slate-600 mt-0.5">
+                            Pengajuan telah selesai (Completed). Pengunggahan, penggantian, dan penghapusan dokumen legalitas tidak dapat dilakukan lagi.
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {uploadError && (
+                <div className="mb-4 rounded-md bg-rose-50 p-3 text-xs text-rose-700 border border-rose-200">
+                    {uploadError}
+                </div>
+            )}
+
+            <div className="space-y-3">
+                {(documents ?? []).map((slot, index) => (
+                    <div
+                        key={slot.type}
+                        className={`flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-lg border text-xs gap-3 ${
+                            slot.is_uploaded
+                                ? 'bg-slate-50 border-slate-200'
+                                : 'bg-rose-50/40 border-rose-200'
+                        }`}
+                    >
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                                <span className="font-semibold text-slate-800 text-sm">
+                                    {index + 1}. {slot.label}
+                                </span>
+                                <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                                        slot.is_uploaded
+                                            ? 'bg-emerald-100 text-emerald-800'
+                                            : 'bg-rose-100 text-rose-800'
+                                    }`}
+                                >
+                                    {slot.is_uploaded ? 'Sudah Diunggah' : 'Belum Diunggah'}
+                                </span>
+                            </div>
+                            {slot.is_uploaded && slot.document && (
+                                <p className="text-slate-500 text-[11px]">
+                                    Berkas: <span className="font-medium text-slate-700">{slot.document.file_name}</span> ({(slot.document.file_size / 1024).toFixed(1)} KB)
+                                    {slot.document.uploader_name && (
+                                        <span className="ml-2 text-slate-400">• Oleh {slot.document.uploader_name}</span>
+                                    )}
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            {slot.is_uploaded && slot.document && (
+                                <a
+                                    href={route('shm.applications.buyback-documents.download', [
+                                        application.id,
+                                        slot.document.id,
+                                    ])}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 rounded bg-white px-2.5 py-1.5 text-xs font-medium text-bsm-primary border border-slate-300 hover:bg-slate-50 shadow-sm"
+                                    title="Lihat / Unduh Dokumen PDF"
+                                >
+                                    <Download className="h-3.5 w-3.5" />
+                                    Lihat PDF
+                                </a>
+                            )}
+
+                            {canUpdate && !isLocked && (
+                                <>
+                                    <label
+                                        className={`inline-flex items-center gap-1 rounded px-2.5 py-1.5 text-xs font-medium cursor-pointer shadow-sm transition ${
+                                            isSubmitting && uploadingType === slot.type
+                                                ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                                                : slot.is_uploaded
+                                                ? 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
+                                                : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                        }`}
+                                    >
+                                        <Upload className="h-3.5 w-3.5" />
+                                        {isSubmitting && uploadingType === slot.type
+                                            ? 'Mengunggah...'
+                                            : slot.is_uploaded
+                                            ? 'Ganti Berkas'
+                                            : 'Unggah PDF'}
+                                        <input
+                                            type="file"
+                                            accept="application/pdf"
+                                            className="hidden"
+                                            disabled={isSubmitting}
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) handleFileSelect(slot.type, file);
+                                                e.target.value = '';
+                                            }}
+                                        />
+                                    </label>
+
+                                    {slot.is_uploaded && slot.document && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDelete(slot.document)}
+                                            className="inline-flex items-center p-1.5 rounded text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200"
+                                            title="Hapus Dokumen"
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
         </section>
     );
 }

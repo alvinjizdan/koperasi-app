@@ -14,9 +14,11 @@ use App\Http\Requests\Shm\SaveShmPropertyRequest;
 use App\Http\Requests\Shm\StoreShmApplicationRequest;
 use App\Http\Requests\Shm\TransitionShmApplicationRequest;
 use App\Http\Requests\Shm\UpdateShmApplicationRequest;
+use App\Http\Requests\Shm\UploadShmBuybackDocumentRequest;
 use App\Models\AuditLog;
 use App\Models\MarketingActivity;
 use App\Models\ShmApplication;
+use App\Models\ShmBuybackDocument;
 use App\Models\ShmCustomer;
 use App\Services\ShmApplicationService;
 use App\Services\ShmWorkflowService;
@@ -25,9 +27,12 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 /**
  * Halaman pengajuan SHM/SHGB.
@@ -58,6 +63,7 @@ class ShmApplicationController extends Controller
         $this->authorizeAction('shm.view');
 
         $filters = [
+            'type' => $request->input('type'),
             'status' => $request->input('status'),
             'shm_customer_id' => $request->input('shm_customer_id'),
             'marketing_id' => $request->input('marketing_id'),
@@ -66,6 +72,7 @@ class ShmApplicationController extends Controller
 
         $query = $this->scopedQuery($request)
             ->with(['customer:id,customer_number,name', 'marketing:id,name', 'properties'])
+            ->when($filters['type'], fn (Builder $q, string $type) => $q->where('type', $type))
             ->when($filters['status'], fn (Builder $q, string $status) => $q->where('status', $status))
             ->when($filters['shm_customer_id'], fn (Builder $q, string $id) => $q->where('shm_customer_id', $id))
             ->when(
@@ -96,6 +103,7 @@ class ShmApplicationController extends Controller
 
         $sortStatus = $this->applySorting($query, $request, [
             'application_number' => 'application_number',
+            'type' => 'type',
             'status' => 'status',
             'created_at' => 'created_at',
             'submitted_at' => 'submitted_at',
@@ -106,6 +114,8 @@ class ShmApplicationController extends Controller
             ->through(fn (ShmApplication $application): array => [
                 'id' => $application->id,
                 'application_number' => $application->application_number,
+                'type' => $application->type ?? ShmApplication::TYPE_SHGB,
+                'type_label' => $application->typeLabel(),
                 'status' => $application->status->value,
                 'status_label' => $application->status->label(),
                 'customer_label' => $application->customerLabel(),
@@ -122,6 +132,11 @@ class ShmApplicationController extends Controller
             'applications' => $applications,
             'sort' => $sortStatus,
             'filters' => $filters,
+            'types' => collect(ShmApplication::typeLabels())
+                ->map(fn (string $label, string $value): array => [
+                    'value' => $value,
+                    'label' => $label,
+                ])->values()->all(),
             'statuses' => $this->statusOptions(),
             // Master nasabah SHM, bukan daftar anggota koperasi.
             'customers' => $this->applications->selectableCustomers(),
@@ -142,6 +157,11 @@ class ShmApplicationController extends Controller
         $this->authorizeAction('shm.create');
 
         return Inertia::render('Shm/Applications/Create', [
+            'types' => collect(ShmApplication::typeLabels())
+                ->map(fn (string $label, string $value): array => [
+                    'value' => $value,
+                    'label' => $label,
+                ])->values()->all(),
             'customers' => $this->applications->selectableCustomers(),
             'can_create_customer' => Gate::allows('shm.customer.create'),
             'flash' => [
@@ -179,20 +199,46 @@ class ShmApplicationController extends Controller
             'memorandums.creator:id,name',
             'approvals.decider:id,name',
             'documents.checker:id,name',
+            'buybackDocuments.uploader:id,name',
         ]);
 
         $creditCheck = $application->latestCreditCheck;
+
+        $existingBuybackDocs = $application->buybackDocuments->keyBy('document_type');
+        $buybackDocumentsList = collect(ShmBuybackDocument::REQUIRED_TYPES)->map(function (string $type) use ($existingBuybackDocs): array {
+            $doc = $existingBuybackDocs->get($type);
+
+            return [
+                'type' => $type,
+                'label' => ShmBuybackDocument::TYPE_LABELS[$type] ?? $type,
+                'is_uploaded' => $doc !== null,
+                'document' => $doc === null ? null : [
+                    'id' => $doc->id,
+                    'file_name' => $doc->file_name,
+                    'file_size' => $doc->file_size,
+                    'mime_type' => $doc->mime_type,
+                    'uploaded_at' => $doc->created_at,
+                    'uploader_name' => $doc->uploader?->name,
+                ],
+            ];
+        })->values()->all();
+
+        $uploadedBuybackCount = $existingBuybackDocs->whereIn('document_type', ShmBuybackDocument::REQUIRED_TYPES)->count();
 
         return Inertia::render('Shm/Applications/Show', [
             'application' => [
                 'id' => $application->id,
                 'application_number' => $application->application_number,
+                'type' => $application->type ?? ShmApplication::TYPE_SHGB,
+                'type_label' => $application->typeLabel(),
                 'customer' => $application->customer,
                 'shm_customer_id' => $application->shm_customer_id,
                 'customer_label' => $application->customerLabel(),
                 'marketing' => $application->marketing,
                 'status' => $application->status->value,
                 'status_label' => $application->status->label(),
+                'shgb_start_date' => $application->shgb_start_date?->toDateString(),
+                'shgb_end_date' => $application->shgb_end_date?->toDateString(),
                 'submitted_at' => $application->submitted_at,
                 'approved_at' => $application->approved_at,
                 'rejected_at' => $application->rejected_at,
@@ -202,6 +248,9 @@ class ShmApplicationController extends Controller
                 'is_editable' => $application->isEditable(),
                 'marketing_activity_id' => $application->marketing_activity_id,
             ],
+            'buyback_documents' => $buybackDocumentsList,
+            'is_buyback_documents_complete' => $uploadedBuybackCount === count(ShmBuybackDocument::REQUIRED_TYPES),
+            'buyback_documents_ratio' => "{$uploadedBuybackCount}/".count(ShmBuybackDocument::REQUIRED_TYPES),
             'properties' => $application->properties,
             // Ringkasan credit checking untuk panel di halaman pengajuan.
             // Sumber kebenaran hasil tetap halaman Credit Checking.
@@ -270,8 +319,12 @@ class ShmApplicationController extends Controller
             'application' => [
                 'id' => $application->id,
                 'application_number' => $application->application_number,
+                'type' => $application->type ?? ShmApplication::TYPE_SHGB,
+                'type_label' => $application->typeLabel(),
                 'shm_customer_id' => $application->shm_customer_id,
                 'notes' => $application->notes,
+                'shgb_start_date' => $application->shgb_start_date?->toDateString(),
+                'shgb_end_date' => $application->shgb_end_date?->toDateString(),
                 'status' => $application->status->value,
             ],
             'customers' => $this->applications->selectableCustomers(),
@@ -826,5 +879,138 @@ class ShmApplicationController extends Controller
                 'label' => $status->label(),
             ])
             ->all();
+    }
+
+    /**
+     * Upload Dokumen Legalitas Buyback pada Pengajuan (Ticket 14).
+     */
+    public function buybackUploadDocument(
+        UploadShmBuybackDocumentRequest $request,
+        ShmApplication $application,
+    ): RedirectResponse {
+        $this->authorizeAction('shm.document.update');
+        abort_unless(($application->type ?? ShmApplication::TYPE_SHGB) === ShmApplication::TYPE_BUYBACK, 404, 'Tipe pengajuan bukan Buyback.');
+        $this->authorizeShmOwnership($request, $application);
+
+        $docType = $request->documentTypeValue();
+        $file = $request->file('file');
+
+        // Immutability Guard: Dokumen tidak dapat diunggah / diganti jika pengajuan berstatus Selesai (Completed)
+        abort_if(
+            $application->status === ShmApplicationStatus::Completed,
+            422,
+            'Dokumen tidak dapat diunggah atau diganti pada pengajuan yang telah selesai (Completed).'
+        );
+
+        // Simpan file baru ke disk 'local' di direktori privat
+        $storedPath = $file->store("shm/applications/{$application->id}/buyback-documents", 'local');
+        if (! $storedPath) {
+            return back()->with('error', 'Gagal menyimpan berkas dokumen legalitas.');
+        }
+
+        $oldFilePathToDelete = null;
+        $isExisting = false;
+
+        try {
+            DB::transaction(function () use ($application, $docType, $file, $storedPath, $request, &$oldFilePathToDelete, &$isExisting): void {
+                $existingDoc = $application->buybackDocuments()->where('document_type', $docType)->lockForUpdate()->first();
+
+                if ($existingDoc) {
+                    $isExisting = true;
+                    $oldFilePathToDelete = $existingDoc->file_path;
+                    $existingDoc->update([
+                        'file_name' => $file->getClientOriginalName(),
+                        'file_path' => $storedPath,
+                        'mime_type' => 'application/pdf',
+                        'file_size' => $file->getSize(),
+                        'uploaded_by' => $request->user()->id,
+                    ]);
+                } else {
+                    $application->buybackDocuments()->create([
+                        'document_type' => $docType,
+                        'file_name' => $file->getClientOriginalName(),
+                        'file_path' => $storedPath,
+                        'mime_type' => 'application/pdf',
+                        'file_size' => $file->getSize(),
+                        'uploaded_by' => $request->user()->id,
+                    ]);
+                }
+            });
+
+            // Hapus berkas lama hanya setelah transaksi database berhasil
+            if ($oldFilePathToDelete && Storage::disk('local')->exists($oldFilePathToDelete)) {
+                Storage::disk('local')->delete($oldFilePathToDelete);
+            }
+        } catch (\Throwable $e) {
+            // Kompensasi jika database gagal: bersihkan file baru yang sudah terlanjur tersimpan di disk
+            if (Storage::disk('local')->exists($storedPath)) {
+                Storage::disk('local')->delete($storedPath);
+            }
+
+            report($e);
+
+            return back()->with('error', 'Terjadi kesalahan sistem saat memperbarui dokumen legalitas.');
+        }
+
+        return back()->with('success', 'Dokumen legalitas '.($isExisting ? 'berhasil diperbarui' : 'berhasil diunggah').'.');
+    }
+
+    /**
+     * Download/Preview Dokumen Legalitas Buyback pada Pengajuan (Ticket 14).
+     */
+    public function buybackDownloadDocument(
+        Request $request,
+        ShmApplication $application,
+        int $documentId,
+    ): SymfonyResponse {
+        $this->authorizeAction('shm.document.update');
+        abort_unless(($application->type ?? ShmApplication::TYPE_SHGB) === ShmApplication::TYPE_BUYBACK, 404, 'Tipe pengajuan bukan Buyback.');
+        $this->authorizeShmOwnership($request, $application);
+
+        $document = ShmBuybackDocument::where('shm_application_id', $application->id)
+            ->where('id', $documentId)
+            ->first();
+        abort_unless($document !== null, 404, 'Document not found: '.$documentId);
+
+        $disk = Storage::disk('local');
+        abort_unless($disk->exists($document->file_path), 404, 'File path missing: '.$document->file_path);
+
+        $contents = $disk->get($document->file_path);
+        abort_unless(is_string($contents) && $contents !== '', 404, 'File contents empty');
+
+        $filename = $document->file_name ?: ('dokumen-'.$document->document_type.'.pdf');
+
+        return response($contents, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            'Cache-Control' => 'private, max-age=86400',
+        ]);
+    }
+
+    /**
+     * Hapus Dokumen Legalitas Buyback pada Pengajuan (Ticket 14).
+     */
+    public function buybackDestroyDocument(
+        Request $request,
+        ShmApplication $application,
+        ShmBuybackDocument $document,
+    ): RedirectResponse {
+        $this->authorizeAction('shm.document.update');
+        abort_unless(($application->type ?? ShmApplication::TYPE_SHGB) === ShmApplication::TYPE_BUYBACK, 404, 'Tipe pengajuan bukan Buyback.');
+        abort_unless($document->shm_application_id === $application->id, 404);
+        $this->authorizeShmOwnership($request, $application);
+
+        if ($application->status === ShmApplicationStatus::Completed) {
+            return back()->with('error', 'Dokumen tidak dapat dihapus karena Pengajuan telah Selesai (Completed).');
+        }
+
+        $filePath = $document->file_path;
+        $document->delete();
+
+        if ($filePath && Storage::disk('local')->exists($filePath)) {
+            Storage::disk('local')->delete($filePath);
+        }
+
+        return back()->with('success', 'Dokumen legalitas berhasil dihapus.');
     }
 }

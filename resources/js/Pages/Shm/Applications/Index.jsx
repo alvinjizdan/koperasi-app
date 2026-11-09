@@ -3,22 +3,23 @@ import { Link, router } from '@inertiajs/react';
 import ShmLayout from '@/Layouts/ShmLayout';
 import ReportTable from '@/Components/Admin/ReportTable';
 import PrimaryButton from '@/Components/PrimaryButton';
+import SecondaryButton from '@/Components/SecondaryButton';
 import useTableSort from '@/hooks/useTableSort';
 import { formatDateTime } from '@/utils/format';
-import { Filter, Plus } from 'lucide-react';
+import { Filter, Plus, RotateCcw } from 'lucide-react';
 
 /**
- * Daftar pengajuan SHM/SHGB.
+ * Daftar pengajuan SHM/SHGB & Buyback (Ticket 3).
  *
- * Cakupan data sudah dibatasi di server: tanpa shm.view_all, pengguna hanya
- * melihat pengajuannya sendiri. Tombol di halaman ini hanya menyesuaikan
- * tampilan; otorisasi tetap diverifikasi ulang di backend pada setiap request.
- *
- * Filter nasabah memakai master Nasabah SHM, bukan anggota koperasi.
+ * Mendukung filter tipe pengajuan:
+ * - Semua Tipe
+ * - SHGB
+ * - Buyback
  */
 export default function Index({
     applications,
     sort,
+    types,
     statuses,
     customers,
     filters,
@@ -28,6 +29,7 @@ export default function Index({
 }) {
     const handleSort = useTableSort('shm.applications.index');
 
+    const [type, setType] = useState(filters.type || '');
     const [status, setStatus] = useState(filters.status || '');
     const [customerId, setCustomerId] = useState(filters.shm_customer_id || '');
 
@@ -36,11 +38,19 @@ export default function Index({
         router.get(
             route('shm.applications.index'),
             {
+                type: type || undefined,
                 status: status || undefined,
                 shm_customer_id: customerId || undefined,
             },
             { preserveState: true, replace: true },
         );
+    };
+
+    const resetFilters = () => {
+        setType('');
+        setStatus('');
+        setCustomerId('');
+        router.get(route('shm.applications.index'), {}, { preserveState: true, replace: true });
     };
 
     const columns = [
@@ -51,10 +61,26 @@ export default function Index({
             render: (row) => (
                 <Link
                     href={route('shm.applications.show', row.id)}
-                    className="font-medium text-indigo-600 hover:underline"
+                    className="font-medium text-bsm-primary hover:underline"
                 >
                     {row.application_number}
                 </Link>
+            ),
+        },
+        {
+            key: 'type',
+            label: 'Tipe',
+            sortable: true,
+            render: (row) => (
+                <span
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase ${
+                        row.type === 'buyback'
+                            ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                            : 'bg-blue-50 text-blue-700 border border-blue-200'
+                    }`}
+                >
+                    {row.type_label ?? (row.type === 'buyback' ? 'Buyback' : 'SHGB')}
+                </span>
             ),
         },
         { key: 'customer_label', label: 'Nasabah', sortable: false },
@@ -86,15 +112,15 @@ export default function Index({
     ];
 
     return (
-        <ShmLayout title="Pengajuan SHM/SHGB">
+        <ShmLayout title="Pengajuan BSM Makro">
             <div className="space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-xl font-semibold text-gray-800">
-                            Pengajuan SHM/SHGB
+                            Pengajuan BSM Makro (SHGB & Buyback)
                         </h1>
                         <p className="text-sm text-gray-500">
-                            Alur ini adalah workflow teknis MVP, bukan SOP resmi KSP.
+                            Kelola berkas pengajuan SHGB dan Buyback melalui workflow operasional.
                         </p>
                     </div>
                     {can_create && (
@@ -113,42 +139,68 @@ export default function Index({
                     </div>
                 )}
 
-                <form onSubmit={applyFilters} className="flex flex-wrap items-end gap-3">
-                    <div>
-                        <label className="text-xs font-semibold text-slate-700">Status</label>
-                        <select
-                            value={status}
-                            onChange={(event) => setStatus(event.target.value)}
-                            className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        >
-                            <option value="">Semua status</option>
-                            {statuses.map((item) => (
-                                <option key={item.value} value={item.value}>
-                                    {item.label}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="text-xs font-semibold text-slate-700">Nasabah SHM</label>
-                        <select
-                            value={customerId}
-                            onChange={(event) => setCustomerId(event.target.value)}
-                            className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        >
-                            <option value="">Semua nasabah</option>
-                            {customers.map((customer) => (
-                                <option key={customer.id} value={customer.id}>
-                                    {customer.name}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                    <PrimaryButton type="submit">
-                        <Filter className="mr-2 h-4 w-4" />
-                        Filter
-                    </PrimaryButton>
-                </form>
+                <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                    <form onSubmit={applyFilters} className="flex flex-wrap items-end gap-3">
+                        <div>
+                            <label className="text-xs font-semibold text-slate-700">Tipe Pengajuan</label>
+                            <select
+                                value={type}
+                                onChange={(event) => setType(event.target.value)}
+                                className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-bsm-primary focus:ring-bsm-primary"
+                            >
+                                <option value="">Semua Tipe</option>
+                                {types &&
+                                    types.map((item) => (
+                                        <option key={item.value} value={item.value}>
+                                            {item.label}
+                                        </option>
+                                    ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-xs font-semibold text-slate-700">Status</label>
+                            <select
+                                value={status}
+                                onChange={(event) => setStatus(event.target.value)}
+                                className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-bsm-primary focus:ring-bsm-primary"
+                            >
+                                <option value="">Semua status</option>
+                                {statuses.map((item) => (
+                                    <option key={item.value} value={item.value}>
+                                        {item.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-xs font-semibold text-slate-700">Nasabah SHM</label>
+                            <select
+                                value={customerId}
+                                onChange={(event) => setCustomerId(event.target.value)}
+                                className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-bsm-primary focus:ring-bsm-primary"
+                            >
+                                <option value="">Semua nasabah</option>
+                                {customers.map((customer) => (
+                                    <option key={customer.id} value={customer.id}>
+                                        {customer.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <PrimaryButton type="submit">
+                                <Filter className="mr-1.5 h-4 w-4" />
+                                Filter
+                            </PrimaryButton>
+                            {(type || status || customerId) && (
+                                <SecondaryButton type="button" onClick={resetFilters}>
+                                    <RotateCcw className="mr-1.5 h-4 w-4" />
+                                    Reset
+                                </SecondaryButton>
+                            )}
+                        </div>
+                    </form>
+                </div>
 
                 <ReportTable
                     columns={columns}
@@ -158,7 +210,7 @@ export default function Index({
                     onSort={handleSort}
                     routeName="shm.applications.index"
                     emptyTitle="Belum ada pengajuan"
-                    emptyDescription="Pengajuan SHM yang dibuat akan tampil di sini."
+                    emptyDescription="Pengajuan SHM/SHGB atau Buyback yang dibuat akan tampil di sini."
                 />
             </div>
         </ShmLayout>

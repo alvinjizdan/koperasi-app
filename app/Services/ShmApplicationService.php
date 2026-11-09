@@ -48,7 +48,7 @@ class ShmApplicationService
      *   bila `member_id` tidak tersedia, pembuatan ditolak oleh
      *   ShmCustomerService (kontrak T89C/T89F-2).
      *
-     * @param  array{shm_customer_id?: int|null, new_customer?: array{member_id?: int|null, name: string, nik?: string|null, phone?: string|null}|null, notes?: string|null, marketing_activity_id?: int|null}  $data
+     * @param  array{type?: string|null, shm_customer_id?: int|null, new_customer?: array{member_id?: int|null, name: string, nik?: string|null, phone?: string|null}|null, notes?: string|null, marketing_activity_id?: int|null}  $data
      */
     public function create(array $data): ShmApplication
     {
@@ -56,9 +56,11 @@ class ShmApplicationService
             $actorId = Auth::id();
 
             $customerId = $this->resolveCustomerId($data);
+            $type = $data['type'] ?? ShmApplication::TYPE_SHGB;
 
             $application = ShmApplication::query()->create([
                 'application_number' => $this->generateApplicationNumber(),
+                'type' => $type,
                 // Rujukan nasabah SELALU ke master nasabah SHM, bukan ke anggota koperasi.
                 'shm_customer_id' => $customerId,
                 // Actor dari user yang login, bukan dari input form.
@@ -66,6 +68,8 @@ class ShmApplicationService
                 'marketing_activity_id' => $data['marketing_activity_id'] ?? null,
                 'status' => ShmApplicationStatus::Draft->value,
                 'notes' => $data['notes'] ?? null,
+                'shgb_start_date' => $type === ShmApplication::TYPE_SHGB ? ($data['shgb_start_date'] ?? null) : null,
+                'shgb_end_date' => $type === ShmApplication::TYPE_SHGB ? ($data['shgb_end_date'] ?? null) : null,
             ]);
 
             AuditLogger::log(
@@ -75,6 +79,7 @@ class ShmApplicationService
                 $application->application_number,
                 'Pengajuan SHM dibuat.',
                 [
+                    'type' => $application->type,
                     'shm_customer_id' => $application->shm_customer_id,
                     'status' => $application->status->value,
                     'actor_id' => $actorId,
@@ -102,12 +107,23 @@ class ShmApplicationService
 
             $previousCustomerId = $locked->shm_customer_id;
 
-            $locked->fill([
+            $fillData = [
                 'shm_customer_id' => array_key_exists('shm_customer_id', $data) && $data['shm_customer_id'] !== null
                     ? (int) $data['shm_customer_id']
                     : $locked->shm_customer_id,
                 'notes' => array_key_exists('notes', $data) ? $data['notes'] : $locked->notes,
-            ]);
+            ];
+
+            if ($locked->type === ShmApplication::TYPE_SHGB) {
+                if (array_key_exists('shgb_start_date', $data)) {
+                    $fillData['shgb_start_date'] = $data['shgb_start_date'];
+                }
+                if (array_key_exists('shgb_end_date', $data)) {
+                    $fillData['shgb_end_date'] = $data['shgb_end_date'];
+                }
+            }
+
+            $locked->fill($fillData);
 
             $locked->save();
 

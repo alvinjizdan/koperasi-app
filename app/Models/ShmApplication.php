@@ -25,6 +25,7 @@ use Illuminate\Support\Collection;
  *
  * @property int $id
  * @property string $application_number
+ * @property string $type
  * @property int $shm_customer_id
  * @property int $marketing_id
  * @property ShmApplicationStatus $status
@@ -39,12 +40,19 @@ class ShmApplication extends Model
 {
     use HasFactory;
 
+    public const TYPE_SHGB = 'shgb';
+
+    public const TYPE_BUYBACK = 'buyback';
+
     protected $fillable = [
         'application_number',
+        'type',
         'shm_customer_id',
         'marketing_id',
         'status',
         'notes',
+        'shgb_start_date',
+        'shgb_end_date',
     ];
 
     protected function casts(): array
@@ -56,6 +64,8 @@ class ShmApplication extends Model
             'rejected_at' => 'datetime',
             'disbursed_at' => 'datetime',
             'completed_at' => 'datetime',
+            'shgb_start_date' => 'date',
+            'shgb_end_date' => 'date',
         ];
     }
 
@@ -90,6 +100,48 @@ class ShmApplication extends Model
     public function memorandums(): HasMany
     {
         return $this->hasMany(ShmMemorandum::class);
+    }
+
+    /**
+     * Dokumen legalitas Buyback yang melekat pada pengajuan (Ticket 14).
+     */
+    public function buybackDocuments(): HasMany
+    {
+        return $this->hasMany(ShmBuybackDocument::class, 'shm_application_id');
+    }
+
+    /**
+     * Apakah kelima dokumen legalitas buyback pengajuan sudah lengkap dan valid? (Ticket 14)
+     */
+    public function isBuybackDocumentsComplete(): bool
+    {
+        if ($this->type !== self::TYPE_BUYBACK) {
+            return false;
+        }
+
+        $existingTypes = $this->buybackDocuments()->pluck('document_type')->all();
+
+        foreach (ShmBuybackDocument::REQUIRED_TYPES as $requiredType) {
+            if (! in_array($requiredType, $existingTypes, true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Menghitung rasio dokumen buyback yang sudah diunggah (misal "3/5"). (Ticket 14)
+     */
+    public function buybackDocumentsRatio(): string
+    {
+        if ($this->type !== self::TYPE_BUYBACK) {
+            return '-';
+        }
+
+        $count = $this->buybackDocuments()->whereIn('document_type', ShmBuybackDocument::REQUIRED_TYPES)->count();
+
+        return "{$count}/".count(ShmBuybackDocument::REQUIRED_TYPES);
     }
 
     public function approvals(): HasMany
@@ -241,5 +293,36 @@ class ShmApplication extends Model
             ->orderByDesc('checked_in_at')
             ->limit(50)
             ->get();
+    }
+
+    /**
+     * Daftar tipe pengajuan yang valid.
+     *
+     * @return array<int, string>
+     */
+    public static function types(): array
+    {
+        return [self::TYPE_SHGB, self::TYPE_BUYBACK];
+    }
+
+    /**
+     * Label tipe pengajuan.
+     *
+     * @return array<string, string>
+     */
+    public static function typeLabels(): array
+    {
+        return [
+            self::TYPE_SHGB => 'SHGB',
+            self::TYPE_BUYBACK => 'Buyback',
+        ];
+    }
+
+    /**
+     * Label teks untuk tipe pengajuan saat ini.
+     */
+    public function typeLabel(): string
+    {
+        return self::typeLabels()[$this->type] ?? ucfirst($this->type ?? 'shgb');
     }
 }
