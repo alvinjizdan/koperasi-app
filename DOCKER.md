@@ -1,103 +1,148 @@
-# Docker Demo Stack — KSP Bima Sakti Mandiri
+# Docker Demo & Production Stack — KSP Bima Sakti Mandiri
 
-Stack lokal: **Nginx + PHP-FPM + PostgreSQL + ngrok (opsional)** untuk demo & portofolio.
-Semua konfigurasi Vercel telah dihapus (lihat riwayat Ticket 31–34 sebelumnya).
+Stack kontainer mandiri: **Nginx + PHP-FPM + PostgreSQL + ngrok (opsional)** untuk deployment lokal, staging, maupun demo portofolio.
+Mendukung seluruh fitur aplikasi: Akuntansi Koperasi, Kasir, Pinjaman SHM, Pengajuan Multi-Type (SHGB & Buyback), Dokumen Legalitas Buyback, dan Approval Workflow Memorandum.
+
+---
 
 ## 1. Prasyarat
 
-- Docker Desktop (engine Linux) berjalan: `docker info` harus sukses
-- Akun ngrok gratis (hanya bila butuh URL publik HTTPS): https://dashboard.ngrok.com
+- Docker Engine / Docker Desktop (v20+ dengan Docker Compose v2+): `docker info` harus berhasil.
+- RAM minimal yang disarankan: 2 GB (untuk multi-stage Vite build dan PostgreSQL).
+- Akun ngrok gratis (hanya jika memerlukan URL publik HTTPS): https://dashboard.ngrok.com.
 
-## 2. Setup
+---
+
+## 2. Setup Awal & Inisialisasi
 
 ```bash
-# 1) Siapkan environment (jangan commit .env.docker!)
+# 1) Siapkan file environment Docker dari template (JANGAN PERNAH commit .env.docker!)
 cp .env.docker.example .env.docker
 
-# 2) Isi minimal:
-#    - APP_KEY        -> php artisan key:generate --show  (dari mesin host, pakai PHP lokal)
-#    - DB_PASSWORD & POSTGRES_PASSWORD (sama, bukan default)
-#    - APP_URL        -> http://localhost:8080 (atau URL ngrok nanti)
+# 2) Konfigurasikan variabel wajib di .env.docker:
+#    - APP_KEY           -> Buat via host: php artisan key:generate --show
+#    - DB_PASSWORD & POSTGRES_PASSWORD (samakan keduanya dengan password yang kuat)
+#    - APP_URL           -> http://localhost:8080 (atau URL ngrok jika menggunakan tunnel)
 
-# 3) Build image
+# 3) Build Docker image (multi-stage build mencakup Vite frontend assets & PHP-FPM dependencies):
 docker compose build
 
-# 4) Jalankan stack (db menunggu healthcheck sebelum app start)
+# 4) Jalankan stack container (database PostgreSQL memiliki healthcheck sebelum app start):
 docker compose up -d
 
-# 5) Migrasi SEKALI secara terkontrol (tidak pernah otomatis):
-#    set RUN_MIGRATIONS=true di .env.docker lalu:
-docker compose up -d --force-recreate app
-#    ...tunggu log "[entrypoint] Selesai migrate", lalu kembalikan RUN_MIGRATIONS=false:
+# 5) Jalankan migrasi database secara terkontrol:
+#    Cara A: Jalankan langsung via artisan di container app:
+docker compose exec app php artisan migrate --force
+
+#    Cara B: Atau set RUN_MIGRATIONS=true di .env.docker lalu recreate container:
 #    docker compose up -d --force-recreate app
 
-# 6) Seed data awal (roles/permissions/settings + superadmin) — idempoten:
+# 6) Seed data awal (roles, permissions, settings, superadmin) secara idempoten:
+docker compose exec app php artisan db:seed --class=PermissionSeeder --force
+docker compose exec app php artisan db:seed --class=RoleSeeder --force
 docker compose exec app php artisan db:seed --force
-#    Login awal: superadmin@ksp.local / password  -> SEGERA ganti passwordnya.
+#    Kredensial default: superadmin@ksp.local / password (SEGERA ganti setelah login awal).
 
-# 7) Akses: http://localhost:8080
+# 7) Buka aplikasi di browser:
+#    http://localhost:8080
 ```
 
-## 3. Ngrok tunnel HTTPS publik (opsional)
+---
+
+## 3. Ngrok Tunnel HTTPS Publik (Opsional)
+
+Jika ingin membagikan akses demo ke penguji luar atau client tanpa port forwarding:
 
 ```bash
-# 1) Ambil authtoken: https://dashboard.ngrok.com/get-started/your-authtoken
-#    Isi NGROK_AUTHTOKEN di .env.docker (jangan pernah di-commit).
-
-# 2) Arahkan APP_URL ke URL publik di .env.docker, mis.:
-#    APP_URL=https://xxxx.ngrok-free.app
-#    (opsional hardening: SESSION_SECURE_COOKIE=true)
-
-# 3) Mulai tunnel (profile "tunnel"):
+# 1) Isi NGROK_AUTHTOKEN pada .env.docker Anda.
+# 2) Sesuaikan APP_URL pada .env.docker ke domain ngrok (misal: https://xxxx.ngrok-free.app).
+# 3) Jalankan service ngrok dengan profile "tunnel":
 docker compose --profile tunnel up -d
 
-# 4) URL publik tampil di:
-docker compose logs ngrok        # cari baris "url=https://....ngrok-free.app"
-#    atau inspector lokal: http://localhost:4040
+# 4) Periksa URL publik yang diberikan:
+docker compose logs ngrok
+# atau buka web inspector ngrok lokal di: http://localhost:4040
 
-# 5) Hentikan tunnel:
+# 5) Untuk menghentikan tunnel ngrok:
 docker compose --profile tunnel stop ngrok
-#    atau matikan total: docker compose --profile tunnel down
 ```
 
-Catatan URL gratis ngrok:
-- URL berubah **setiap kali tunnel dibuat ulang** (restart/container recreate).
-- Untuk domain statis dibutuhkan akun berbayar (isi `NGROK_DOMAIN`).
-- Halaman peringatan browser ngrok muncul pada kunjungan pertama (klik "Visit Site").
-- Trafik: internet -> ngrok -> nginx:80 -> FastCGI app:9000. **PostgreSQL tidak pernah terekspos publik** (tanpa mapping port, hanya jaringan internal).
+---
 
-## 4. Perintah berguna
+## 4. Persistensi Data & Dokumen Privat
 
+Aplikasi menggunakan tiga named Docker volume:
+1. **`db-data` (`/var/lib/postgresql/data`)**: Menyimpan seluruh tabel PostgreSQL (nasabah, pengajuan, pinjaman, jurnal akuntansi, sesi kasir, dan memorandum). Data aman saat container di-restart atau di-recreate.
+2. **`app-storage` (`/var/www/html/storage`)**: Menyimpan berkas log, cache, dan **dokumen legalitas Buyback** (`storage/app/private/shm/memorandums/...`). Dokumen terlindungi dan tetap persisten.
+3. **`nginx-root` (`/var/nginx-app`)**: Volume sinkronisasi aset publik antara PHP-FPM dan Nginx.
+
+> [!CAUTION]
+> Jangan pernah menjalankan `docker compose down -v` pada server yang memiliki data operasional, karena flag `-v` akan menghapus seluruh named volume secara permanen.
+
+---
+
+## 5. Prosedur Backup & Restore Database
+
+### Backup Database:
 ```bash
-docker compose ps                      # status + healthcheck
-docker compose logs -f app nginx       # log aplikasi & web server
-docker compose exec app php artisan psql:test 2>/dev/null || docker compose exec db psql -U ksp_docker -d ksp_bima_sakti_docker -c "select 1;"
-docker compose exec app php artisan migrate:status
-# Test suite dijalankan dari HOST (phpunit/tests tidak ikut dalam image production):
-php artisan test --compact
-docker compose down                    # stop (volume data tetap aman)
-docker compose down -v                 # HAPUS volume db — destruktif, jangan sembarangan
+# Dump database PostgreSQL dari container db ke file lokal host:
+docker compose exec db pg_dump -U ksp_docker -d ksp_bima_sakti_docker -F c -b -v -f /tmp/backup.dump
+docker compose cp db:/tmp/backup.dump ./backup_$(date +%Y%m%d_%H%M%S).dump
+docker compose exec db rm -f /tmp/backup.dump
 ```
 
-## 5. Arsitektur & keamanan
+### Restore Database:
+```bash
+# Salin file backup ke container lalu jalankan pg_restore:
+docker compose cp ./backup_file.dump db:/tmp/restore.dump
+docker compose exec db pg_restore -U ksp_docker -d ksp_bima_sakti_docker -v --clean --if-exists /tmp/restore.dump
+docker compose exec db rm -f /tmp/restore.dump
+```
 
-| Komponen | Detail |
-|---|---|
-| `app` | PHP 8.4-FPM (composer `php: ^8.3`), ekstensi pdo_pgsql/intl/bcmath/gd/opcache, `storage/` di named volume |
-| `nginx` | Document root = salinan `public/` (volume `nginx-root`, disinkron entrypoint app); aset `/build/*` immutable; file `.env`/dotfile/sqlite/log **ditolak (404)**; PHP selalu via FastCGI (source code tidak pernah dilayani mentah) |
-| `db` | PostgreSQL 18-alpine, `PGDATA` di named volume `db-data`, **tanpa port publik**, healthcheck `pg_isready` |
-| `ngrok` | Profile `tunnel`; token via env `NGROK_AUTHTOKEN`; config `docker/ngrok/ngrok.yml` tanpa token |
-| Secrets | Hanya di `.env.docker` (di-gitignore). Image dibangun tanpa `.env*` (`.dockerignore`). |
-| HTTPS | ngrok terminasi TLS; `TRUST_PROXIES=*` + `real_ip` nginx meneruskan host/proto asli ke Laravel |
-| Migrasi | Manual via `RUN_MIGRATIONS=true` (sekali) — tidak pernah otomatis per start/request |
+---
 
-## 6. Troubleshooting
+## 6. Operasional, Pemeliharaan & Troubleshooting
 
-| Gejala | Sebab umum | Solusi |
+### Perintah Berguna:
+```bash
+# Memeriksa status dan kesehatan container:
+docker compose ps
+
+# Memeriksa log aplikasi Laravel dan web server Nginx:
+docker compose logs -f app nginx
+
+# Memeriksa status migrasi database:
+docker compose exec app php artisan migrate:status
+
+# Membersihkan dan merefresh cache konfigurasi/rute:
+docker compose exec app php artisan config:clear
+docker compose exec app php artisan route:clear
+docker compose exec app php artisan view:clear
+
+# Menghentikan seluruh container (data tetap tersimpan aman di volume):
+docker compose down
+
+# Menjalankan kembali container:
+docker compose up -d
+```
+
+### Panduan Troubleshooting:
+| Gejala | Penyebab Umum | Solusi |
 |---|---|---|
-| `docker compose up` gagal: env_file tidak ada | `.env.docker` belum dibuat | `cp .env.docker.example .env.docker` |
-| App loop restart: "PostgreSQL tidak merespons" | DB_PASSWORD/POSTGRES_PASSWORD tidak konsisten, atau volume lama dengan kredensial beda | Samakan kredensial; bila volume memang boleh di-reset: `docker compose down -v && docker compose up -d` |
-| Halaman 500 + log `No application encryption key` | `APP_KEY` kosong | Isi `APP_KEY=base64:...` (host: `php artisan key:generate --show`) lalu recreate app |
+| `docker compose up` error: `.env.docker not found` | File konfigurasi belum disalin | `cp .env.docker.example .env.docker` dan isi variabelnya. |
+| Container `app` restart terus-menerus: *"PostgreSQL tidak merespons"* | Kredensial `DB_PASSWORD` dan `POSTGRES_PASSWORD` tidak sama | Samakan nilai password di `.env.docker`. |
+| Error HTTP 500: *"No application encryption key"* | `APP_KEY` belum diset | Buat key baru (`php artisan key:generate --show`) dan masukkan ke `APP_KEY` di `.env.docker`. |
+| Perubahan kode atau aset frontend belum tampak | Container masih menggunakan image lama | Jalankan `docker compose build --no-cache && docker compose up -d`. |
+| File `.env` atau direktori sensitif diakses via browser | Ditolak oleh konfigurasi Nginx | Perilaku keamanan standar: Nginx secara otomatis memblokir file tersembunyi (`.env`, `.git`) dengan status 403/404. |
+
+---
+
+## 7. Arsitektur Keamanan Docker
+
+- **Non-Root & Privilese Minimum**: PHP-FPM berjalan sebagai `www-data`, file source code dilindungi izin baca ketat.
+- **Isolasi Database**: Port PostgreSQL (`5432`) hanya diekspos ke jaringan internal bridge (`internal`), tidak terekspos ke internet publik.
+- **Zero Secrets in Image**: Image dibangun tanpa menyertakan `.env` atau kunci rahasia apa pun (`.dockerignore` mengecualikan seluruh file konfigurasi rahasia).
+- **Perlindungan Dokumen Privat**: Dokumen PDF legalitas Buyback disimpan di luar web root publik (`storage/app/private/`) dan hanya dapat diunduh melalui controller Laravel berotorisasi (`buybackDownloadDocument`).
 | CSS/JS 404 | Build aset tidak ikut | Pastikan `docker compose build` ulang; cek `docker compose exec app ls public/build` |
 | Login gagal setelah ganti APP_URL | Cookie domain/skema | Samakan `APP_URL` dengan URL aktif; untuk HTTPS ngrok set `SESSION_SECURE_COOKIE=true` |
 | ngrok error `ERR_NGROK_108` | Authtoken kosong/salah | Isi `NGROK_AUTHTOKEN` valid di `.env.docker`, lalu `docker compose --profile tunnel up -d --force-recreate ngrok` |
