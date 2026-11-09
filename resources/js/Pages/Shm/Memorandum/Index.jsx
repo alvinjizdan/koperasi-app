@@ -133,14 +133,24 @@ export default function Index({
                         </p>
                     </div>
                     {can_create && (
-                        <Link href={route('shm.memorandums.create')}>
-                            <SecondaryButton>
-                                <span className="inline-flex items-center gap-2">
-                                    <Plus className="h-4 w-4" />
-                                    Buat Memorandum
-                                </span>
-                            </SecondaryButton>
-                        </Link>
+                        <div className="flex items-center gap-2">
+                            <Link href={route('shm.memorandums.shm-shgb.create')}>
+                                <SecondaryButton>
+                                    <span className="inline-flex items-center gap-1.5">
+                                        <Plus className="h-4 w-4" />
+                                        Buat SHM/SHGB
+                                    </span>
+                                </SecondaryButton>
+                            </Link>
+                            <Link href={route('shm.memorandums.buyback.create')}>
+                                <SecondaryButton>
+                                    <span className="inline-flex items-center gap-1.5">
+                                        <Plus className="h-4 w-4" />
+                                        Buat Buyback
+                                    </span>
+                                </SecondaryButton>
+                            </Link>
+                        </div>
                     )}
                 </div>
 

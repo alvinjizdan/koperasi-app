@@ -41,7 +41,7 @@ class UpdateShmMemorandumRequest extends FormRequest
             'status' => [
                 'required',
                 'string',
-                Rule::in(ShmMemorandum::statuses()),
+                Rule::in([ShmMemorandum::STATUS_DRAFT, ShmMemorandum::STATUS_SUBMITTED]),
             ],
             'notes' => [
                 'nullable',

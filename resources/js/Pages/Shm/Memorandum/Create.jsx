@@ -32,14 +32,14 @@ export default function Create({
     });
     const [errors, setErrors] = useState({});
 
-    const pickApplication = (id) => {
+    const pickApplication = (app) => {
+        const id = String(app.id);
         setSelectedId(id);
-        // Konteks dimuat ulang dari server agar pengajuannya dibatasi otorisasi.
-        router.get(
-            route('shm.memorandums.create'),
-            { application_id: id },
-            { preserveState: true, replace: true },
-        );
+        if (app.type === 'buyback') {
+            router.get(route('shm.memorandums.buyback.create'), { application_id: id });
+        } else {
+            router.get(route('shm.memorandums.shm-shgb.create'), { application_id: id });
+        }
     };
 
     const submit = (event) => {
@@ -97,7 +97,7 @@ export default function Create({
                                         <button
                                             key={application.id}
                                             type="button"
-                                            onClick={() => pickApplication(String(application.id))}
+                                            onClick={() => pickApplication(application)}
                                             className={`flex w-full items-center justify-between rounded-lg border px-4 py-2.5 text-left text-sm transition-colors ${
                                                 selectedId === String(application.id)
                                                     ? 'border-indigo-500 bg-indigo-50'

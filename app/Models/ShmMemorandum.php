@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -22,6 +23,15 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $submitted_at
  * @property string $status
  * @property string|null $notes
+ * @property Carbon|null $shgb_start_date
+ * @property Carbon|null $shgb_end_date
+ * @property int|null $submitted_by
+ * @property int|null $reviewed_by
+ * @property Carbon|null $reviewed_at
+ * @property int|null $approved_by
+ * @property Carbon|null $approved_at
+ * @property Carbon|null $rejected_at
+ * @property string|null $rejection_notes
  */
 class ShmMemorandum extends Model
 {
@@ -40,6 +50,10 @@ class ShmMemorandum extends Model
 
     public const STATUS_SUBMITTED = 'submitted';
 
+    public const STATUS_UNDER_REVIEW = 'under_review';
+
+    public const STATUS_APPROVED = 'approved';
+
     /**
      * Ticket 49: kategori memorandum. Pembeda teknis naskah, bukan kategori
      * legal dan bukan aturan finansial.
@@ -56,12 +70,26 @@ class ShmMemorandum extends Model
         'submitted_at',
         'status',
         'notes',
+        'shgb_start_date',
+        'shgb_end_date',
+        'submitted_by',
+        'reviewed_by',
+        'reviewed_at',
+        'approved_by',
+        'approved_at',
+        'rejected_at',
+        'rejection_notes',
     ];
 
     protected function casts(): array
     {
         return [
             'submitted_at' => 'datetime',
+            'shgb_start_date' => 'date',
+            'shgb_end_date' => 'date',
+            'reviewed_at' => 'datetime',
+            'approved_at' => 'datetime',
+            'rejected_at' => 'datetime',
         ];
     }
 
@@ -75,9 +103,102 @@ class ShmMemorandum extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function submitter(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'submitted_by');
+    }
+
+    public function reviewer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    /**
+     * Riwayat persetujuan workflow memorandum (Ticket 8).
+     */
+    public function approvalHistories(): HasMany
+    {
+        return $this->hasMany(ShmMemorandumApprovalHistory::class, 'shm_memorandum_id')->orderBy('created_at', 'asc');
+    }
+
+    /**
+     * Dokumen legalitas Buyback (mengambil dari aplikasi sumber, atau relasi legacy memorandum).
+     */
+    public function buybackDocuments(): HasMany
+    {
+        return $this->hasMany(ShmBuybackDocument::class, 'shm_memorandum_id');
+    }
+
+    /**
+     * Apakah kelima dokumen legalitas buyback sudah lengkap dan valid?
+     */
+    public function isBuybackDocumentsComplete(): bool
+    {
+        if ($this->type !== self::TYPE_BUYBACK) {
+            return false;
+        }
+
+        // Cek pada pengajuan sumber terlebih dahulu (Ticket 14)
+        if ($this->application && $this->application->isBuybackDocumentsComplete()) {
+            return true;
+        }
+
+        $existingTypes = $this->buybackDocuments()->pluck('document_type')->all();
+
+        foreach (ShmBuybackDocument::REQUIRED_TYPES as $requiredType) {
+            if (! in_array($requiredType, $existingTypes, true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Menghitung rasio dokumen buyback yang sudah diunggah (misal "3/5").
+     */
+    public function buybackDocumentsRatio(): string
+    {
+        if ($this->type !== self::TYPE_BUYBACK) {
+            return '-';
+        }
+
+        // Ambil dari pengajuan sumber jika ada (Ticket 14)
+        if ($this->application) {
+            $count = $this->application->buybackDocuments()->whereIn('document_type', ShmBuybackDocument::REQUIRED_TYPES)->count();
+            if ($count > 0) {
+                return "{$count}/".count(ShmBuybackDocument::REQUIRED_TYPES);
+            }
+        }
+
+        $count = $this->buybackDocuments()->whereIn('document_type', ShmBuybackDocument::REQUIRED_TYPES)->count();
+
+        return "{$count}/".count(ShmBuybackDocument::REQUIRED_TYPES);
+    }
+
     public function isSubmitted(): bool
     {
         return $this->status === self::STATUS_SUBMITTED;
+    }
+
+    public function isUnderReview(): bool
+    {
+        return $this->status === self::STATUS_UNDER_REVIEW;
+    }
+
+    public function isApproved(): bool
+    {
+        return $this->status === self::STATUS_APPROVED;
+    }
+
+    public function isDraft(): bool
+    {
+        return $this->status === self::STATUS_DRAFT;
     }
 
     /**
@@ -85,7 +206,12 @@ class ShmMemorandum extends Model
      */
     public static function statuses(): array
     {
-        return [self::STATUS_DRAFT, self::STATUS_SUBMITTED];
+        return [
+            self::STATUS_DRAFT,
+            self::STATUS_SUBMITTED,
+            self::STATUS_UNDER_REVIEW,
+            self::STATUS_APPROVED,
+        ];
     }
 
     /**
@@ -120,8 +246,7 @@ class ShmMemorandum extends Model
     }
 
     /**
-     * Peta status => label. Status tetap status workflow sederhana
-     * (draft/submitted), bukan status kelayakan atau keuangan.
+     * Peta status => label.
      *
      * @return array<string, string>
      */
@@ -130,6 +255,8 @@ class ShmMemorandum extends Model
         return [
             self::STATUS_DRAFT => 'Draft',
             self::STATUS_SUBMITTED => 'Diajukan',
+            self::STATUS_UNDER_REVIEW => 'Sedang Direview',
+            self::STATUS_APPROVED => 'Disetujui',
         ];
     }
 
