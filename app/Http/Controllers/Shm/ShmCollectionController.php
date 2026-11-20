@@ -197,7 +197,6 @@ class ShmCollectionController extends Controller
         // + alokasinya, dan relasi presentasi — tanpa N+1.
         $loan->load([
             'customer:id,customer_number,name,nik,phone,address,is_active,member_id',
-            'customer.member:id,full_name,member_number',
             'product:id,code,name',
             'installments' => fn ($installments) => $installments->orderBy('installment_number'),
             'payments.allocations',
@@ -556,17 +555,7 @@ class ShmCollectionController extends Controller
                     'phone' => $loan->customer?->phone,
                     'address' => $loan->customer?->address,
                     'is_active' => $loan->customer?->is_active,
-                    // Kaitan ke anggota koperasi lewat relasi existing
-                    // (ShmCustomer::member) — tanpa konversi/efek samping.
-                    // Nama anggota memakai kolom `full_name` (bukan `name`
-                    // — tabel members tidak punya kolom `name`).
-                    'member' => $loan->customer?->member !== null
-                        ? [
-                            'id' => $loan->customer->member->id,
-                            'member_number' => $loan->customer->member->member_number,
-                            'name' => $loan->customer->member->full_name,
-                        ]
-                        : null,
+                    'member' => null,
                 ],
             ],
             // Ringkasan dari service — predikat & formula yang SAMA dengan

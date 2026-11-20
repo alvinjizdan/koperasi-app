@@ -9,6 +9,7 @@ use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanApplicationAttachment;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -32,10 +33,11 @@ class ShmLoanApplicationAttachmentTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->marketing = $this->userWithRole('marketing');
-        $this->otherMarketing = $this->userWithRole('marketing');
-        $this->admin = $this->userWithRole('admin');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->otherMarketing = $this->userWithRole('marketing_makro');
+        $this->admin = $this->userWithRole('admin_makro');
 
         Storage::fake('local');
     }

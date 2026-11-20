@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
-use App\Models\Member;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\ShmCustomer;
@@ -15,6 +14,7 @@ use App\Models\ShmLoanPaymentAllocation;
 use App\Models\User;
 use App\Services\Shm\ShmLoanPaymentAllocationService;
 use App\Services\Shm\ShmLoanPaymentService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -53,11 +53,12 @@ class ShmCollectionTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         // admin = pemegang shm.view_all; marketing tanpa view_all.
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
-        $this->marketing2 = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->marketing2 = $this->userWithRole('marketing_makro');
     }
 
     // ------------------------------------------------------------------
@@ -85,10 +86,11 @@ class ShmCollectionTest extends TestCase
             'name' => 'collection-tester-'.Str::uuid(),
             'display_name' => 'Collection Tester',
             'is_system' => false,
+            'entity' => 'makro',
         ]);
 
         $role->permissions()->attach(
-            Permission::query()->whereIn('name', $permissionNames)->pluck('id')
+            Permission::query()->where('entity', 'makro')->whereIn('name', $permissionNames)->pluck('id')
         );
 
         $user->roles()->attach($role->id);
@@ -539,8 +541,6 @@ class ShmCollectionTest extends TestCase
     public function test_detail_shows_customer_loan_summary_schedule_and_payments(): void
     {
         $loan = $this->overdueLoanOf($this->marketing, 'Nasabah Detail T90');
-        $member = Member::factory()->create();
-        $loan->customer->update(['member_id' => $member->id]);
 
         // Pembayaran parsial 500.000 lewat service + alokasi asli.
         $this->allocate($this->paymentFor($loan, 500_000, $this->marketing));
@@ -550,12 +550,9 @@ class ShmCollectionTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Shm/Collection/Show')
-                // A. Nasabah + kaitan anggota koperasi (relasi existing).
-                // `name` = full_name anggota; guard terhadap pemilihan kolom
-                // member yang salah (SQLite lens, PostgreSQL error).
+                // A. Nasabah SHM
                 ->where('collection.loan.customer.name', 'Nasabah Detail T90')
-                ->where('collection.loan.customer.member.member_number', $member->member_number)
-                ->where('collection.loan.customer.member.name', $member->full_name)
+                ->where('collection.loan.customer.member', null)
                 // B. Pinjaman.
                 ->where('collection.loan.loan_number', $loan->loan_number)
                 ->where('collection.loan.status', ShmLoan::STATUS_ACTIVE)

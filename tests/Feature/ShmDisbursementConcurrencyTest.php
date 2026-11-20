@@ -3,8 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\CashTransaction;
-use App\Models\Member;
-use App\Models\SavingProduct;
 use App\Models\Shm\ShmSavingProduct;
 use App\Models\Shm\ShmSavingsTransaction;
 use App\Models\ShmApplication;
@@ -107,24 +105,7 @@ class ShmDisbursementConcurrencyTest extends TestCase
             'is_active' => true,
         ]);
 
-        SavingProduct::create([
-            'code' => 'SP-CONC',
-            'name' => 'Simpanan Pokok',
-            'category' => SavingProduct::CATEGORY_PRINCIPAL,
-            'description' => 'Simpanan Pokok (uji konkurensi T002C)',
-            'is_active' => true,
-        ]);
-
-        SavingProduct::create([
-            'code' => 'SW-CONC',
-            'name' => 'Simpanan Wajib',
-            'category' => SavingProduct::CATEGORY_MANDATORY,
-            'description' => 'Simpanan Wajib (uji konkurensi T002C)',
-            'is_active' => true,
-        ]);
-
-        $member = Member::factory()->create(['status' => 'active']);
-        $customer = ShmCustomer::factory()->create(['member_id' => $member->id]);
+        $customer = ShmCustomer::factory()->create();
         $product = ShmLoanProduct::factory()->create();
 
         // Mirror approval SHM (pola ShmCustomerMemberIntegrationTest).
@@ -133,6 +114,13 @@ class ShmDisbursementConcurrencyTest extends TestCase
             'shm_customer_id' => $customer->id,
             'marketing_id' => $this->marketing->id,
             'status' => 'approved',
+        ]);
+
+        $shmApp->approvals()->create([
+            'stage' => 'approval',
+            'status' => 'approved_bm',
+            'decided_by' => $this->marketing->id,
+            'decided_at' => now()->subMinute(),
         ]);
 
         $shmApp->approvals()->create([

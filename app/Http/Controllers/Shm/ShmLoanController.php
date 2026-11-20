@@ -804,6 +804,61 @@ class ShmLoanController extends Controller
     }
 
     /**
+     * Sajikan dokumen status pernikahan pemohon (Buku Nikah / Akta Cerai) secara terotorisasi (disk privat).
+     */
+    public function maritalDocument(
+        Request $request,
+        ShmLoanApplication $application,
+        string $type,
+    ): SymfonyResponse {
+        $this->authorizeLoanOwnership($request, $application);
+
+        abort_unless(in_array($type, ['buku_nikah', 'akta_cerai', 'akta_kematian'], true), 404);
+
+        $path = match ($type) {
+            'buku_nikah' => $application->marriage_certificate_path,
+            'akta_cerai' => $application->divorce_certificate_path,
+            'akta_kematian' => $application->death_certificate_path,
+            default => null,
+        };
+        abort_if($path === null, 404);
+
+        $disk = Storage::disk('local');
+        abort_unless($disk->exists($path), 404);
+
+        $contents = $disk->get($path);
+        if ($contents === null || $contents === false) {
+            abort(404);
+        }
+
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        $mime = $extension === 'pdf' ? 'application/pdf' : 'application/octet-stream';
+
+        $typeLabel = match ($type) {
+            'buku_nikah' => 'buku-nikah',
+            'akta_cerai' => 'akta-cerai',
+            'akta_kematian' => 'akta-kematian',
+            default => 'dokumen',
+        };
+
+        $filename = sprintf(
+            '%s-%s.%s',
+            $typeLabel,
+            $application->application_number,
+            $extension
+        );
+
+        return response($contents, 200, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            'Cache-Control' => 'private, no-cache, no-store, must-revalidate',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
      * Sajikan foto identitas pemohon (KTP / KK) secara terotorisasi (disk privat).
      */
     public function identityPhoto(
@@ -1033,6 +1088,7 @@ class ShmLoanController extends Controller
                 'saldo_non_modal' => $application->saldo_non_modal,
                 'batas_hutang' => $application->batas_hutang,
                 'marital_status' => $application->marital_status,
+                'marital_separation_type' => $application->marital_separation_type,
                 'spouse_name' => $application->spouse_name,
                 'spouse_nik' => $application->spouse_nik,
                 'spouse_phone' => $application->spouse_phone,
@@ -1041,6 +1097,15 @@ class ShmLoanController extends Controller
                     : null,
                 'kk_photo_url' => $application->kk_photo_path !== null
                     ? route('shm.loans.pengajuan.identitas.foto', [$application->id, 'kk'])
+                    : null,
+                'buku_nikah_url' => $application->marriage_certificate_path !== null
+                    ? route('shm.loans.pengajuan.dokumen-pernikahan', [$application->id, 'buku_nikah'])
+                    : null,
+                'akta_cerai_url' => $application->divorce_certificate_path !== null
+                    ? route('shm.loans.pengajuan.dokumen-pernikahan', [$application->id, 'akta_cerai'])
+                    : null,
+                'akta_kematian_url' => $application->death_certificate_path !== null
+                    ? route('shm.loans.pengajuan.dokumen-pernikahan', [$application->id, 'akta_kematian'])
                     : null,
             ],
             'pengajuan' => [
@@ -1172,6 +1237,7 @@ class ShmLoanController extends Controller
                 'saldo_non_modal' => $money($application->saldo_non_modal),
                 'batas_hutang' => $money($application->batas_hutang),
                 'marital_status' => $text($application->marital_status),
+                'marital_separation_type' => $text($application->marital_separation_type),
                 'spouse_name' => $text($application->spouse_name),
                 'spouse_nik' => $text($application->spouse_nik),
                 'spouse_phone' => $text($application->spouse_phone),
@@ -1182,6 +1248,18 @@ class ShmLoanController extends Controller
                 'kk_photo' => null,
                 'kk_photo_url' => $application->kk_photo_path !== null
                     ? route('shm.loans.pengajuan.identitas.foto', [$application->id, 'kk'])
+                    : null,
+                'buku_nikah' => null,
+                'buku_nikah_url' => $application->marriage_certificate_path !== null
+                    ? route('shm.loans.pengajuan.dokumen-pernikahan', [$application->id, 'buku_nikah'])
+                    : null,
+                'akta_cerai' => null,
+                'akta_cerai_url' => $application->divorce_certificate_path !== null
+                    ? route('shm.loans.pengajuan.dokumen-pernikahan', [$application->id, 'akta_cerai'])
+                    : null,
+                'akta_kematian' => null,
+                'akta_kematian_url' => $application->death_certificate_path !== null
+                    ? route('shm.loans.pengajuan.dokumen-pernikahan', [$application->id, 'akta_kematian'])
                     : null,
             ],
             'pengajuan' => [

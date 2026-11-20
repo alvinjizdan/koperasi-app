@@ -4,8 +4,6 @@ namespace Tests\Concerns;
 
 use App\Models\CashierSession;
 use App\Models\ChartOfAccount;
-use App\Models\Member;
-use App\Models\SavingProduct;
 use App\Models\Shm\ShmSavingProduct;
 use App\Models\ShmAccountingMapping;
 use App\Models\ShmAgent;
@@ -22,8 +20,8 @@ use App\Support\AccountingContext;
  * Pencairan fail-closed membutuhkan tiga prasyarat nyata sesuai kontrak
  * T002/T150:
  *
- * 1. Nasabah SHM dengan relasi anggota sumber AKTIF (T89C/T150).
- * 2. Produk simpanan Pokok & Wajib aktif agar rekening anggota dapat
+ * 1. Nasabah SHM mandiri (ShmCustomer).
+ * 2. Produk simpanan Pokok & Wajib aktif agar rekening nasabah SHM dapat
  *    di-resolve/dibuka oleh ShmSavingsIntegrationService.
  * 3. Sesi kasir AKTIF milik pelaku pencairan dengan saldo kas cukup untuk
  *    kas keluar net (T002C F-01/F-02: tanpa sesi aktif pencairan ditolak,
@@ -71,26 +69,6 @@ trait InteractsWithShmDisbursement
                 'name' => 'Simpanan Wajib SHM',
                 'category' => ShmSavingProduct::CATEGORY_MANDATORY,
                 'description' => 'Simpanan Wajib SHM (fixture uji)',
-                'is_active' => true,
-            ],
-        );
-
-        SavingProduct::firstOrCreate(
-            ['code' => 'SP-T002C'],
-            [
-                'name' => 'Simpanan Pokok',
-                'category' => SavingProduct::CATEGORY_PRINCIPAL,
-                'description' => 'Simpanan Pokok (fixture uji T002C)',
-                'is_active' => true,
-            ],
-        );
-
-        SavingProduct::firstOrCreate(
-            ['code' => 'SW-T002C'],
-            [
-                'name' => 'Simpanan Wajib',
-                'category' => SavingProduct::CATEGORY_MANDATORY,
-                'description' => 'Simpanan Wajib (fixture uji T002C)',
                 'is_active' => true,
             ],
         );
@@ -145,14 +123,11 @@ trait InteractsWithShmDisbursement
     }
 
     /**
-     * Nasabah SHM yang memiliki anggota koperasi sumber aktif — prasyarat
-     * pencairan (T89C/T150: tanpa relasi anggota sumber, pencairan ditolak).
+     * Nasabah SHM mandiri untuk pengujian pencairan.
      */
     protected function createShmCustomerWithMember(): ShmCustomer
     {
-        $member = Member::factory()->create(['status' => 'active']);
-
-        return ShmCustomer::factory()->create(['member_id' => $member->id]);
+        return ShmCustomer::factory()->create();
     }
 
     /**

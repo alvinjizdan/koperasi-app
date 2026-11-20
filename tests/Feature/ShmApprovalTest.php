@@ -12,6 +12,7 @@ use App\Models\ShmCustomer;
 use App\Models\ShmDocument;
 use App\Models\ShmMemorandum;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -36,18 +37,29 @@ class ShmApprovalTest extends TestCase
 
     private ShmCustomer $customer;
 
+    private User $director;
+
+    private User $branchManager;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->superadmin = $this->userWithRole('superadmin');
         $this->admin = $this->userWithRole('admin');
         $this->marketing = $this->userWithRole('marketing');
         $this->otherMarketing = $this->userWithRole('marketing');
         $this->pengawas = $this->userWithRole('pengawas');
+
+        $this->branchManager = User::factory()->create(['is_active' => true]);
+        $this->branchManager->roles()->attach(Role::where('name', 'branch_manager_makro')->value('id'));
+
+        $this->director = User::factory()->create(['is_active' => true]);
+        $this->director->roles()->attach(Role::where('name', 'direktur_utama_makro')->value('id'));
 
         $this->customer = ShmCustomer::factory()->create();
     }
@@ -135,11 +147,20 @@ class ShmApprovalTest extends TestCase
     // A. Akses modul: permission existing, bukan permission baru
     // -----------------------------------------------------------------
 
-    public function test_admin_can_open_approval_list(): void
+    public function test_admin_cannot_open_approval_list_without_decide_permission(): void
     {
         $application = $this->approvalStageApplication($this->marketing);
 
         $this->actingAs($this->admin)
+            ->get(route('shm.approvals.index'))
+            ->assertForbidden();
+    }
+
+    public function test_director_can_open_approval_list(): void
+    {
+        $application = $this->approvalStageApplication($this->marketing);
+
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -207,7 +228,7 @@ class ShmApprovalTest extends TestCase
 
         // Bawaan hanya menampilkan pengajuan yang menunggu keputusan;
         // hasil keputusan hanya muncul ketika diminta lewat filter.
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -222,7 +243,7 @@ class ShmApprovalTest extends TestCase
         $rejected = $this->decidedApplication(ShmApplicationStatus::Rejected);
         $this->approvalStageApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index', ['status' => 'approved']))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -230,7 +251,7 @@ class ShmApprovalTest extends TestCase
                 ->where('approvals.data.0.application_number', $approved->application_number)
             );
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index', ['status' => 'rejected']))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -238,7 +259,7 @@ class ShmApprovalTest extends TestCase
                 ->where('approvals.data.0.application_number', $rejected->application_number)
             );
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index', ['status' => 'all']))
             ->assertOk()
             ->assertInertia(fn ($page) => $page->has('approvals.data', 3));
@@ -249,7 +270,7 @@ class ShmApprovalTest extends TestCase
         $target = $this->approvalStageApplication($this->marketing);
         $this->approvalStageApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index', ['search' => $target->application_number]))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -265,7 +286,7 @@ class ShmApprovalTest extends TestCase
         $application->update(['status' => ShmApplicationStatus::Approval]);
         $this->approvalStageApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index', ['search' => 'Budi Santoso']))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -280,7 +301,7 @@ class ShmApprovalTest extends TestCase
         $this->approvalStageApplication($this->marketing, ShmMemorandum::TYPE_BUYBACK);
         $this->approvalStageApplication($this->marketing); // tanpa kategori
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index', ['type' => ShmMemorandum::TYPE_SHM_SHGB]))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -289,7 +310,7 @@ class ShmApprovalTest extends TestCase
                 ->where('approvals.data.0.memorandum_type', ShmMemorandum::TYPE_SHM_SHGB)
             );
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index', ['type' => ShmMemorandum::TYPE_BUYBACK]))
             ->assertOk()
             ->assertInertia(fn ($page) => $page->has('approvals.data', 1));
@@ -301,7 +322,7 @@ class ShmApprovalTest extends TestCase
             $this->approvalStageApplication($this->marketing);
         }
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index', ['per_page' => 10]))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -315,7 +336,7 @@ class ShmApprovalTest extends TestCase
     {
         $this->approvalStageApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index'))
             ->assertOk()
             ->assertInertia(function ($page) {
@@ -358,7 +379,7 @@ class ShmApprovalTest extends TestCase
         $first = $this->approvalStageApplication($this->marketing);
         $second = $this->approvalStageApplication($this->otherMarketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page->has('approvals.data', 2));
@@ -377,11 +398,11 @@ class ShmApprovalTest extends TestCase
         $application = $this->approvalStageApplication($this->marketing);
 
         if ($target === ShmApplicationStatus::Approved) {
-            $this->actingAs($this->admin)
+            $this->actingAs($this->director)
                 ->post(route('shm.applications.approve', $application->id), ['notes' => 'Disetujui fixture'])
                 ->assertSessionHasNoErrors();
         } else {
-            $this->actingAs($this->admin)
+            $this->actingAs($this->director)
                 ->post(route('shm.applications.reject', $application->id), ['notes' => 'Ditolak fixture'])
                 ->assertSessionHasNoErrors();
         }
@@ -393,11 +414,20 @@ class ShmApprovalTest extends TestCase
     // C. Detail approval: data existing, read-only kecuali keputusan
     // -----------------------------------------------------------------
 
-    public function test_admin_can_open_approval_detail(): void
+    public function test_admin_cannot_open_approval_detail(): void
     {
         $application = $this->approvalStageApplication($this->marketing, ShmMemorandum::TYPE_SHM_SHGB);
 
         $this->actingAs($this->admin)
+            ->get(route('shm.approvals.show', $application->id))
+            ->assertForbidden();
+    }
+
+    public function test_director_can_open_approval_detail(): void
+    {
+        $application = $this->approvalStageApplication($this->marketing, ShmMemorandum::TYPE_SHM_SHGB);
+
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.show', $application->id))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -417,16 +447,16 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->approvalStageApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id), ['notes' => 'Layak didanai'])
             ->assertSessionHasNoErrors();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.show', $application->id))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->where('approval.status', ShmApproval::STATUS_APPROVED)
-                ->where('approval.decider', $this->admin->name)
+                ->where('approval.decider', $this->director->name)
                 ->where('approval.notes', 'Layak didanai')
                 ->where('can_decide', false)
             );
@@ -436,7 +466,7 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->approvalStageApplication($this->marketing, ShmMemorandum::TYPE_BUYBACK);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.show', $application->id))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -452,7 +482,7 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->approvalStageApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id), ['notes' => 'Setuju'])
             ->assertSessionHasNoErrors();
 
@@ -463,7 +493,7 @@ class ShmApprovalTest extends TestCase
 
         $approval = ShmApproval::query()->where('shm_application_id', $application->id)->firstOrFail();
         $this->assertSame(ShmApproval::STATUS_APPROVED, $approval->status);
-        $this->assertSame($this->admin->id, $approval->decided_by);
+        $this->assertSame($this->director->id, $approval->decided_by);
         $this->assertNotNull($approval->decided_at);
         $this->assertSame('Setuju', $approval->notes);
 
@@ -476,7 +506,7 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->approvalStageApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.reject', $application->id), ['notes' => 'Belum memenuhi syarat'])
             ->assertSessionHasNoErrors();
 
@@ -487,7 +517,7 @@ class ShmApprovalTest extends TestCase
 
         $approval = ShmApproval::query()->where('shm_application_id', $application->id)->firstOrFail();
         $this->assertSame(ShmApproval::STATUS_REJECTED, $approval->status);
-        $this->assertSame($this->admin->id, $approval->decided_by);
+        $this->assertSame($this->director->id, $approval->decided_by);
         $this->assertSame('Belum memenuhi syarat', $approval->notes);
 
         // Behavior existing: alasan penolakan juga tersimpan pada pengajuan.
@@ -502,7 +532,7 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->createApplicationFor($this->marketing); // draft
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id))
             ->assertSessionHasErrors('status');
 
@@ -515,7 +545,7 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->createApplicationFor($this->marketing); // draft
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.reject', $application->id))
             ->assertSessionHasErrors('status');
 
@@ -548,11 +578,11 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->approvalStageApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id))
             ->assertSessionHasNoErrors();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id))
             ->assertSessionHasErrors('status');
 
@@ -566,7 +596,7 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->approvalStageApplication($this->marketing, ShmMemorandum::TYPE_BUYBACK);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id))
             ->assertSessionHasNoErrors();
 
@@ -579,11 +609,11 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->approvalStageApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.reject', $application->id), ['notes' => 'Dokumen kurang'])
             ->assertSessionHasNoErrors();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.return-to-draft', $application->id))
             ->assertSessionHasNoErrors();
 
@@ -624,7 +654,7 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->approvalStageApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id))
             ->assertSessionHasNoErrors();
 
@@ -667,7 +697,7 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->approvalStageApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id))
             ->assertSessionHasNoErrors();
 
@@ -771,10 +801,10 @@ class ShmApprovalTest extends TestCase
         $approved = $this->pendingApprovalApplication($this->marketing);
         $rejected = $this->pendingApprovalApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $approved->id), ['notes' => 'Ok'])
             ->assertSessionHasNoErrors();
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.reject', $rejected->id), ['notes' => 'Tidak'])
             ->assertSessionHasNoErrors();
 
@@ -801,7 +831,7 @@ class ShmApprovalTest extends TestCase
         $this->pendingApprovalApplication($this->marketing);
         $this->pendingApprovalApplication($this->otherMarketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -838,7 +868,7 @@ class ShmApprovalTest extends TestCase
             ->assertForbidden();
 
         // Pemegang permission menerima angka yang benar.
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.dashboard'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -852,9 +882,9 @@ class ShmApprovalTest extends TestCase
         $approval = ShmApproval::query()->where('shm_application_id', $application->id)->firstOrFail();
         $auditBefore = AuditLog::query()->count();
 
-        $this->actingAs($this->admin)->get(route('shm.approvals.index'))->assertOk();
-        $this->actingAs($this->admin)->get(route('shm.approvals.show', $application->id))->assertOk();
-        $this->actingAs($this->admin)->get(route('shm.dashboard'))->assertOk();
+        $this->actingAs($this->director)->get(route('shm.approvals.index'))->assertOk();
+        $this->actingAs($this->director)->get(route('shm.approvals.show', $application->id))->assertOk();
+        $this->actingAs($this->director)->get(route('shm.dashboard'))->assertOk();
 
         $approval->refresh();
         $this->assertSame(ShmApproval::STATUS_PENDING, $approval->status);
@@ -868,7 +898,7 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->pendingApprovalApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id), ['notes' => 'Setuju'])
             ->assertSessionHasNoErrors();
 
@@ -881,7 +911,7 @@ class ShmApprovalTest extends TestCase
             ShmApproval::STATUS_APPROVED,
             ShmApproval::query()->where('shm_application_id', $application->id)->value('status')
         );
-        $this->assertSame(0, ShmApproval::pendingCountForUser(true, $this->admin->id));
+        $this->assertSame(0, ShmApproval::pendingCountForUser(true, $this->director->id));
 
         // Audit approval existing tetap tercatat.
         $this->assertSame(1, AuditLog::query()->where('action', 'shm.application.approved')->count());
@@ -891,10 +921,10 @@ class ShmApprovalTest extends TestCase
     {
         $application = $this->pendingApprovalApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.reject', $application->id), ['notes' => 'Kurang'])
             ->assertSessionHasNoErrors();
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.return-to-draft', $application->id))
             ->assertSessionHasNoErrors();
 
@@ -949,14 +979,14 @@ class ShmApprovalTest extends TestCase
         $approved = $this->pendingApprovalApplication($this->marketing);
         $rejected = $this->pendingApprovalApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $approved->id))
             ->assertSessionHasNoErrors();
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.reject', $rejected->id))
             ->assertSessionHasNoErrors();
 
-        $result = ShmApproval::pendingCountByMarketing(true, $this->admin->id);
+        $result = ShmApproval::pendingCountByMarketing(true, $this->director->id);
 
         $this->assertCount(1, $result);
         $this->assertSame(1, $result[0]['pending_count']);
@@ -969,7 +999,7 @@ class ShmApprovalTest extends TestCase
         $this->pendingApprovalApplication($this->otherMarketing);
         $this->pendingApprovalApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -1061,11 +1091,11 @@ class ShmApprovalTest extends TestCase
 
         $auditBefore = AuditLog::query()->count();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index'))
             ->assertOk();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index'))
             ->assertInertia(fn ($page) => $page
                 ->has('marketing_queue', 2)
@@ -1088,7 +1118,7 @@ class ShmApprovalTest extends TestCase
     {
         $this->pendingApprovalApplication($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page->has('marketing_queue', 1));

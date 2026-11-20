@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Member;
 use App\Models\Role;
 use App\Models\ShmAgent;
 use App\Models\ShmCustomer;
@@ -10,6 +9,7 @@ use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanApplicationCollateral;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -53,12 +53,19 @@ class ShmLoanCollateralPhotoTest extends TestCase
 
     private User $kasir;
 
+    private User $branchManager;
+
+    private User $director;
+
+    private User $finance;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->superadmin = $this->userWithRole('superadmin');
         $this->admin = $this->userWithRole('admin');
@@ -66,10 +73,19 @@ class ShmLoanCollateralPhotoTest extends TestCase
         $this->otherMarketing = $this->userWithRole('marketing');
         $this->kasir = $this->userWithRole('kasir');
 
+        $this->branchManager = User::factory()->create(['is_active' => true]);
+        $this->branchManager->roles()->attach(Role::where('name', 'branch_manager_makro')->value('id'));
+
+        $this->director = User::factory()->create(['is_active' => true]);
+        $this->director->roles()->attach(Role::where('name', 'direktur_utama_makro')->value('id'));
+
+        $this->finance = User::factory()->create(['is_active' => true]);
+        $this->finance->roles()->attach(Role::where('name', 'finance_operational_makro')->value('id'));
+
         // T002C — prasyarat pencairan fail-closed (AC-16/17): produk
-        // simpanan aktif + sesi kasir aktif milik pelaku pencairan (admin).
+        // simpanan aktif + sesi kasir aktif milik pelaku pencairan (finance).
         $this->seedShmSavingsProducts();
-        $this->openCashierSessionFor($this->admin);
+        $this->openCashierSessionFor($this->finance);
 
         Storage::fake('local');
     }
@@ -222,9 +238,9 @@ class ShmLoanCollateralPhotoTest extends TestCase
 
     public function test_koperasi_member_cannot_be_used_for_collateral_application(): void
     {
-        $member = Member::factory()->create();
+        $nonExistentCustomerId = 999999;
         $payload = $this->validPayload(1);
-        $payload['pribadi']['customer_id'] = $member->id;
+        $payload['pribadi']['customer_id'] = $nonExistentCustomerId;
 
         $this->storeAs($this->admin, $payload)
             ->assertSessionHasErrors('pribadi.customer_id');
@@ -427,13 +443,19 @@ class ShmLoanCollateralPhotoTest extends TestCase
 
         // Keputusan memakai modul Approval SHM existing (shm.applications.approve
         // dengan ShmWorkflowService sebagai state machine tunggal).
-        $this->actingAs($this->admin)
+        $this->actingAs($this->branchManager)
+            ->post(route('shm.applications.approve-bm', $application->shm_application_id), [
+                'notes' => 'Disetujui BM Level 1 (uji T77).',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->shm_application_id), [
                 'notes' => 'Disetujui (uji T77).',
             ])
             ->assertSessionHasNoErrors();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->finance)
             ->post(route('shm.loans.pengajuan.disburse', $application->id))
             ->assertSessionHasNoErrors();
 

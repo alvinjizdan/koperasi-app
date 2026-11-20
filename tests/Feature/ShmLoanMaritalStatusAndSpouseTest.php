@@ -8,9 +8,12 @@ use App\Models\ShmCustomer;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
@@ -20,17 +23,23 @@ class ShmLoanMaritalStatusAndSpouseTest extends TestCase
 
     private User $marketing;
 
+    private User $marketingOther;
+
     private User $admin;
 
     protected function setUp(): void
     {
         parent::setUp();
 
+        Storage::fake('local');
+
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->marketing = $this->userWithRole('marketing');
-        $this->admin = $this->userWithRole('admin');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->marketingOther = $this->userWithRole('marketing_makro');
+        $this->admin = $this->userWithRole('admin_makro');
     }
 
     private function userWithRole(string $roleName): User
@@ -60,7 +69,8 @@ class ShmLoanMaritalStatusAndSpouseTest extends TestCase
                 'saldo_modal' => '1000000',
                 'saldo_non_modal' => '500000',
                 'batas_hutang' => '5000000',
-                'marital_status' => 'single',
+                'marital_status' => 'belum_menikah',
+                'marital_separation_type' => '',
                 'spouse_name' => '',
                 'spouse_nik' => '',
                 'spouse_phone' => '',
@@ -99,218 +109,471 @@ class ShmLoanMaritalStatusAndSpouseTest extends TestCase
         ];
     }
 
-    /** 1 & 2 & 3. Buat pengajuan dengan status Belum Menikah: data pasangan null/tidak disimpan */
-    public function test_submit_with_single_status_does_not_store_spouse_data(): void
+    /** 1. Janda + Cerai Hidup requires Akta Cerai */
+    public function test_janda_cerai_hidup_requires_akta_cerai(): void
     {
         $customer = ShmCustomer::factory()->create();
         $payload = $this->validPayload($customer->id);
-        $payload['pribadi']['marital_status'] = 'single';
-        $payload['pribadi']['spouse_name'] = 'Should Be Cleared';
-        $payload['pribadi']['spouse_nik'] = '3201000000009999';
+        $payload['pribadi']['marital_status'] = 'janda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_hidup';
+
+        // Tanpa akta cerai -> error
+        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $response->assertSessionHasErrors(['pribadi.akta_cerai']);
+
+        // Dengan akta cerai PDF -> sukses
+        $payload['pribadi']['akta_cerai'] = UploadedFile::fake()->create('akta_cerai.pdf', 300, 'application/pdf');
+        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $response->assertSessionHasNoErrors();
+
+        $app = ShmLoanApplication::query()->sole();
+        $this->assertSame('janda', $app->marital_status);
+        $this->assertSame('cerai_hidup', $app->marital_separation_type);
+        $this->assertNotNull($app->divorce_certificate_path);
+        $this->assertNull($app->death_certificate_path);
+        Storage::disk('local')->assertExists($app->divorce_certificate_path);
+    }
+
+    /** 2. Janda + Cerai Mati requires Akta Kematian */
+    public function test_janda_cerai_mati_requires_akta_kematian(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'janda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_mati';
+
+        // Tanpa akta kematian -> error
+        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $response->assertSessionHasErrors(['pribadi.akta_kematian']);
+
+        // Dengan akta kematian PDF -> sukses
+        $payload['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian.pdf', 300, 'application/pdf');
+        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $response->assertSessionHasNoErrors();
+
+        $app = ShmLoanApplication::query()->sole();
+        $this->assertSame('janda', $app->marital_status);
+        $this->assertSame('cerai_mati', $app->marital_separation_type);
+        $this->assertNotNull($app->death_certificate_path);
+        $this->assertNull($app->divorce_certificate_path);
+        Storage::disk('local')->assertExists($app->death_certificate_path);
+    }
+
+    /** 3. Duda + Cerai Hidup requires Akta Cerai */
+    public function test_duda_cerai_hidup_requires_akta_cerai(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'duda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_hidup';
+
+        // Tanpa akta cerai -> error
+        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $response->assertSessionHasErrors(['pribadi.akta_cerai']);
+
+        // Dengan akta cerai PDF -> sukses
+        $payload['pribadi']['akta_cerai'] = UploadedFile::fake()->create('akta_cerai_duda.pdf', 300, 'application/pdf');
+        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $response->assertSessionHasNoErrors();
+
+        $app = ShmLoanApplication::query()->sole();
+        $this->assertSame('duda', $app->marital_status);
+        $this->assertSame('cerai_hidup', $app->marital_separation_type);
+        $this->assertNotNull($app->divorce_certificate_path);
+        Storage::disk('local')->assertExists($app->divorce_certificate_path);
+    }
+
+    /** 4. Duda + Cerai Mati requires Akta Kematian */
+    public function test_duda_cerai_mati_requires_akta_kematian(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'duda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_mati';
+
+        // Tanpa akta kematian -> error
+        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $response->assertSessionHasErrors(['pribadi.akta_kematian']);
+
+        // Dengan akta kematian PDF -> sukses
+        $payload['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian_duda.pdf', 300, 'application/pdf');
+        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $response->assertSessionHasNoErrors();
+
+        $app = ShmLoanApplication::query()->sole();
+        $this->assertSame('duda', $app->marital_status);
+        $this->assertSame('cerai_mati', $app->marital_separation_type);
+        $this->assertNotNull($app->death_certificate_path);
+        Storage::disk('local')->assertExists($app->death_certificate_path);
+    }
+
+    /** 5. Missing separation type is rejected for Janda/Duda */
+    public function test_missing_separation_type_is_rejected_for_janda_and_duda(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+
+        // Janda tanpa separation type
+        $payloadJanda = $this->validPayload($customer->id);
+        $payloadJanda['pribadi']['marital_status'] = 'janda';
+        $payloadJanda['pribadi']['marital_separation_type'] = '';
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payloadJanda)
+            ->assertSessionHasErrors(['pribadi.marital_separation_type']);
+
+        // Duda tanpa separation type
+        $payloadDuda = $this->validPayload($customer->id);
+        $payloadDuda['pribadi']['marital_status'] = 'duda';
+        $payloadDuda['pribadi']['marital_separation_type'] = '';
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payloadDuda)
+            ->assertSessionHasErrors(['pribadi.marital_separation_type']);
+    }
+
+    /** 6. Invalid separation type is rejected */
+    public function test_invalid_separation_type_is_rejected(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'janda';
+        $payload['pribadi']['marital_separation_type'] = 'pisah_ranjang'; // invalid
+
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload)
+            ->assertSessionHasErrors(['pribadi.marital_separation_type']);
+    }
+
+    /** 7. Menikah still requires Buku Nikah */
+    public function test_menikah_still_requires_buku_nikah(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'menikah';
+        $payload['pribadi']['spouse_name'] = 'Siti Aminah';
+        $payload['pribadi']['spouse_nik'] = '3201015505920001';
         $payload['pribadi']['spouse_phone'] = '081234567890';
+
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload)
+            ->assertSessionHasErrors(['pribadi.buku_nikah']);
+
+        $payload['pribadi']['buku_nikah'] = UploadedFile::fake()->create('buku_nikah.pdf', 300, 'application/pdf');
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload)
+            ->assertSessionHasNoErrors();
+
+        $app = ShmLoanApplication::query()->sole();
+        $this->assertSame('menikah', $app->marital_status);
+        $this->assertNull($app->marital_separation_type);
+        $this->assertNotNull($app->marriage_certificate_path);
+    }
+
+    /** 8. Belum Menikah requires no marital document */
+    public function test_belum_menikah_requires_no_marital_document(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'belum_menikah';
+        $payload['pribadi']['marital_separation_type'] = '';
 
         $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
         $response->assertSessionHasNoErrors();
-        $response->assertRedirect();
 
         $app = ShmLoanApplication::query()->sole();
-        $this->assertSame('single', $app->marital_status);
-        $this->assertNull($app->spouse_name);
-        $this->assertNull($app->spouse_nik);
-        $this->assertNull($app->spouse_phone);
-
-        // Detail view hanya menampilkan status tanpa info pasangan
-        $this->actingAs($this->admin)->get(route('shm.loans.pengajuan.show', $app))
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->component('Shm/Loans/PengajuanShow')
-                ->where('application.pribadi.marital_status', 'single')
-                ->where('application.pribadi.spouse_name', null)
-                ->etc());
+        $this->assertSame('belum_menikah', $app->marital_status);
+        $this->assertNull($app->marital_separation_type);
+        $this->assertNull($app->marriage_certificate_path);
+        $this->assertNull($app->divorce_certificate_path);
+        $this->assertNull($app->death_certificate_path);
     }
 
-    /** 4 & 5. Buat pengajuan dengan status Sudah Menikah & data pasangan lengkap */
-    public function test_submit_with_married_status_stores_spouse_data_correctly(): void
+    /** 9. Wrong document type for selected separation type is rejected */
+    public function test_wrong_document_type_for_selected_separation_type_is_rejected(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+
+        // Cerai Mati tetapi hanya upload Akta Cerai (kurang akta kematian)
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'janda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_mati';
+        $payload['pribadi']['akta_cerai'] = UploadedFile::fake()->create('akta_cerai.pdf', 300, 'application/pdf');
+
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload)
+            ->assertSessionHasErrors(['pribadi.akta_kematian']);
+
+        // Cerai Hidup tetapi hanya upload Akta Kematian (kurang akta cerai)
+        $payload2 = $this->validPayload($customer->id);
+        $payload2['pribadi']['marital_status'] = 'duda';
+        $payload2['pribadi']['marital_separation_type'] = 'cerai_hidup';
+        $payload2['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian.pdf', 300, 'application/pdf');
+
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload2)
+            ->assertSessionHasErrors(['pribadi.akta_cerai']);
+    }
+
+    /** 10. Non-PDF uploads are rejected */
+    public function test_non_pdf_uploads_are_rejected(): void
     {
         $customer = ShmCustomer::factory()->create();
         $payload = $this->validPayload($customer->id);
-        $payload['pribadi']['marital_status'] = 'married';
-        $payload['pribadi']['spouse_name'] = 'Siti Aminah';
-        $payload['pribadi']['spouse_nik'] = '3201015505920001';
-        $payload['pribadi']['spouse_phone'] = '081234567890';
+        $payload['pribadi']['marital_status'] = 'janda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_mati';
+        $payload['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian.jpg', 300, 'image/jpeg');
 
-        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
-        $response->assertSessionHasNoErrors();
-        $response->assertRedirect();
-
-        $app = ShmLoanApplication::query()->sole();
-        $this->assertSame('married', $app->marital_status);
-        $this->assertSame('Siti Aminah', $app->spouse_name);
-        $this->assertSame('3201015505920001', $app->spouse_nik);
-        $this->assertSame('081234567890', $app->spouse_phone);
-
-        // Detail view menampilkan data pasangan
-        $this->actingAs($this->admin)->get(route('shm.loans.pengajuan.show', $app))
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->component('Shm/Loans/PengajuanShow')
-                ->where('application.pribadi.marital_status', 'married')
-                ->where('application.pribadi.spouse_name', 'Siti Aminah')
-                ->where('application.pribadi.spouse_nik', '3201015505920001')
-                ->where('application.pribadi.spouse_phone', '081234567890')
-                ->etc());
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload)
+            ->assertSessionHasErrors(['pribadi.akta_kematian']);
     }
 
-    /** 6. Submit status Sudah Menikah tanpa nama pasangan ditolak */
-    public function test_submit_married_without_spouse_name_fails(): void
+    /** 11. Documents exceeding 10 MB are rejected */
+    public function test_documents_exceeding_10mb_are_rejected(): void
     {
         $customer = ShmCustomer::factory()->create();
         $payload = $this->validPayload($customer->id);
-        $payload['pribadi']['marital_status'] = 'married';
-        $payload['pribadi']['spouse_name'] = '';
-        $payload['pribadi']['spouse_nik'] = '3201015505920001';
-        $payload['pribadi']['spouse_phone'] = '081234567890';
+        $payload['pribadi']['marital_status'] = 'duda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_mati';
+        $payload['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian_large.pdf', 11000, 'application/pdf');
 
-        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
-        $response->assertSessionHasErrors(['pribadi.spouse_name']);
-        $this->assertSame(0, ShmLoanApplication::query()->count());
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload)
+            ->assertSessionHasErrors(['pribadi.akta_kematian']);
     }
 
-    /** 7. Submit status Sudah Menikah tanpa NIK pasangan ditolak */
-    public function test_submit_married_without_spouse_nik_fails(): void
+    /** 12. Existing documents are preserved when no replacement is submitted */
+    public function test_existing_documents_are_preserved_when_no_replacement_submitted(): void
     {
         $customer = ShmCustomer::factory()->create();
         $payload = $this->validPayload($customer->id);
-        $payload['pribadi']['marital_status'] = 'married';
-        $payload['pribadi']['spouse_name'] = 'Siti Aminah';
-        $payload['pribadi']['spouse_nik'] = '';
-        $payload['pribadi']['spouse_phone'] = '081234567890';
-
-        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
-        $response->assertSessionHasErrors(['pribadi.spouse_nik']);
-        $this->assertSame(0, ShmLoanApplication::query()->count());
-    }
-
-    /** 8. Submit status Sudah Menikah tanpa nomor telepon pasangan ditolak */
-    public function test_submit_married_without_spouse_phone_fails(): void
-    {
-        $customer = ShmCustomer::factory()->create();
-        $payload = $this->validPayload($customer->id);
-        $payload['pribadi']['marital_status'] = 'married';
-        $payload['pribadi']['spouse_name'] = 'Siti Aminah';
-        $payload['pribadi']['spouse_nik'] = '3201015505920001';
-        $payload['pribadi']['spouse_phone'] = '';
-
-        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
-        $response->assertSessionHasErrors(['pribadi.spouse_phone']);
-        $this->assertSame(0, ShmLoanApplication::query()->count());
-    }
-
-    /** 9. Submit NIK pasangan dengan format tidak valid (bukan 16 digit angka) */
-    public function test_submit_spouse_nik_with_invalid_format_fails(): void
-    {
-        $customer = ShmCustomer::factory()->create();
-        $payload = $this->validPayload($customer->id);
-        $payload['pribadi']['marital_status'] = 'married';
-        $payload['pribadi']['spouse_name'] = 'Siti Aminah';
-        $payload['pribadi']['spouse_nik'] = '12345'; // kurang dari 16 digit
-        $payload['pribadi']['spouse_phone'] = '081234567890';
-
-        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
-        $response->assertSessionHasErrors(['pribadi.spouse_nik']);
-
-        $payload['pribadi']['spouse_nik'] = '320101550592000A'; // ada huruf
-        $response = $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
-        $response->assertSessionHasErrors(['pribadi.spouse_nik']);
-
-        $this->assertSame(0, ShmLoanApplication::query()->count());
-    }
-
-    /** 10. Edit pengajuan menikah memastikan data sebelumnya terisi */
-    public function test_edit_married_application_prefills_spouse_data(): void
-    {
-        $customer = ShmCustomer::factory()->create();
-        $payload = $this->validPayload($customer->id);
-        $payload['pribadi']['marital_status'] = 'married';
-        $payload['pribadi']['spouse_name'] = 'Siti Aminah';
-        $payload['pribadi']['spouse_nik'] = '3201015505920001';
-        $payload['pribadi']['spouse_phone'] = '081234567890';
+        $payload['pribadi']['marital_status'] = 'janda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_mati';
+        $payload['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian.pdf', 300, 'application/pdf');
 
         $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
         $app = ShmLoanApplication::query()->sole();
+        $origPath = $app->death_certificate_path;
 
-        $this->actingAs($this->marketing)->get(route('shm.loans.pengajuan.edit', $app->id))
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->component('Shm/Loans/Pengajuan')
-                ->where('formData.pribadi.marital_status', 'married')
-                ->where('formData.pribadi.spouse_name', 'Siti Aminah')
-                ->where('formData.pribadi.spouse_nik', '3201015505920001')
-                ->where('formData.pribadi.spouse_phone', '081234567890')
-                ->etc());
-    }
-
-    /** 11 & 12. Ubah status dari Sudah Menikah menjadi Belum Menikah menghapus data pasangan */
-    public function test_updating_status_from_married_to_single_clears_spouse_data(): void
-    {
-        $customer = ShmCustomer::factory()->create();
-        $payload = $this->validPayload($customer->id);
-        $payload['pribadi']['marital_status'] = 'married';
-        $payload['pribadi']['spouse_name'] = 'Siti Aminah';
-        $payload['pribadi']['spouse_nik'] = '3201015505920001';
-        $payload['pribadi']['spouse_phone'] = '081234567890';
-
-        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
-        $app = ShmLoanApplication::query()->sole();
-
-        // Update jadi single
+        // Update tanpa mengirim akta kematian baru
         $updatePayload = $this->validPayload($customer->id);
-        $updatePayload['pribadi']['marital_status'] = 'single';
-        $updatePayload['pribadi']['spouse_name'] = '';
-        $updatePayload['pribadi']['spouse_nik'] = '';
-        $updatePayload['pribadi']['spouse_phone'] = '';
+        $updatePayload['pribadi']['marital_status'] = 'janda';
+        $updatePayload['pribadi']['marital_separation_type'] = 'cerai_mati';
+        $updatePayload['pribadi']['unit_kerja'] = 'Pemasaran Baru';
 
         $response = $this->actingAs($this->marketing)
             ->put(route('shm.loans.pengajuan.update', $app->id), $updatePayload);
         $response->assertSessionHasNoErrors();
 
         $app->refresh();
-        $this->assertSame('single', $app->marital_status);
-        $this->assertNull($app->spouse_name);
-        $this->assertNull($app->spouse_nik);
-        $this->assertNull($app->spouse_phone);
+        $this->assertSame('Pemasaran Baru', $app->unit_kerja);
+        $this->assertSame($origPath, $app->death_certificate_path);
+        Storage::disk('local')->assertExists($origPath);
     }
 
-    /** 13. Data lama tanpa status pernikahan tetap dapat dibuka */
-    public function test_legacy_application_without_marital_status_still_opens_seamlessly(): void
+    /** 13. Replacing documents cleans up old files safely */
+    public function test_replacing_documents_cleans_up_old_files_safely(): void
     {
         $customer = ShmCustomer::factory()->create();
         $payload = $this->validPayload($customer->id);
-        unset($payload['pribadi']['marital_status']);
-        unset($payload['pribadi']['spouse_name']);
-        unset($payload['pribadi']['spouse_nik']);
-        unset($payload['pribadi']['spouse_phone']);
+        $payload['pribadi']['marital_status'] = 'janda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_mati';
+        $payload['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian_v1.pdf', 300, 'application/pdf');
 
-        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload)
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $app = ShmLoanApplication::query()->sole();
+        $oldPath = $app->death_certificate_path;
+
+        // Replace dengan akta kematian baru
+        $updatePayload = $this->validPayload($customer->id);
+        $updatePayload['pribadi']['marital_status'] = 'janda';
+        $updatePayload['pribadi']['marital_separation_type'] = 'cerai_mati';
+        $updatePayload['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian_v2.pdf', 350, 'application/pdf');
+
+        $response = $this->actingAs($this->marketing)
+            ->put(route('shm.loans.pengajuan.update', $app->id), $updatePayload);
+        $response->assertSessionHasNoErrors();
+
+        $app->refresh();
+        $this->assertNotSame($oldPath, $app->death_certificate_path);
+        Storage::disk('local')->assertMissing($oldPath);
+        Storage::disk('local')->assertExists($app->death_certificate_path);
+    }
+
+    /** 14. Switching from Cerai Hidup to Cerai Mati preserves data integrity */
+    public function test_switching_from_cerai_hidup_to_cerai_mati_preserves_integrity(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'janda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_hidup';
+        $payload['pribadi']['akta_cerai'] = UploadedFile::fake()->create('akta_cerai.pdf', 300, 'application/pdf');
+
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $app = ShmLoanApplication::query()->sole();
+        $ceraiPath = $app->divorce_certificate_path;
+
+        // Switch ke cerai mati dengan upload akta kematian
+        $updatePayload = $this->validPayload($customer->id);
+        $updatePayload['pribadi']['marital_status'] = 'janda';
+        $updatePayload['pribadi']['marital_separation_type'] = 'cerai_mati';
+        $updatePayload['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian.pdf', 300, 'application/pdf');
+
+        $this->actingAs($this->marketing)->put(route('shm.loans.pengajuan.update', $app->id), $updatePayload)
             ->assertSessionHasNoErrors();
 
+        $app->refresh();
+        $this->assertSame('cerai_mati', $app->marital_separation_type);
+        $this->assertNotNull($app->death_certificate_path);
+        Storage::disk('local')->assertExists($app->death_certificate_path);
+        Storage::disk('local')->assertExists($ceraiPath); // Previously stored document is preserved safely
+    }
+
+    /** 15. Switching from Cerai Mati to Cerai Hidup preserves data integrity */
+    public function test_switching_from_cerai_mati_to_cerai_hidup_preserves_integrity(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'duda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_mati';
+        $payload['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian.pdf', 300, 'application/pdf');
+
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
         $app = ShmLoanApplication::query()->sole();
-        $this->assertNull($app->marital_status);
+        $deathPath = $app->death_certificate_path;
 
-        // Dapat dibuka di show
-        $this->actingAs($this->admin)->get(route('shm.loans.pengajuan.show', $app))
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->component('Shm/Loans/PengajuanShow')
-                ->where('application.pribadi.marital_status', null)
-                ->etc());
+        // Switch ke cerai hidup dengan upload akta cerai
+        $updatePayload = $this->validPayload($customer->id);
+        $updatePayload['pribadi']['marital_status'] = 'duda';
+        $updatePayload['pribadi']['marital_separation_type'] = 'cerai_hidup';
+        $updatePayload['pribadi']['akta_cerai'] = UploadedFile::fake()->create('akta_cerai.pdf', 300, 'application/pdf');
 
-        // Dapat dibuka di edit
-        $this->actingAs($this->marketing)->get(route('shm.loans.pengajuan.edit', $app->id))
+        $this->actingAs($this->marketing)->put(route('shm.loans.pengajuan.update', $app->id), $updatePayload)
+            ->assertSessionHasNoErrors();
+
+        $app->refresh();
+        $this->assertSame('cerai_hidup', $app->marital_separation_type);
+        $this->assertNotNull($app->divorce_certificate_path);
+        Storage::disk('local')->assertExists($app->divorce_certificate_path);
+        Storage::disk('local')->assertExists($deathPath);
+    }
+
+    /** 16. Authorized users can view the correct document */
+    public function test_authorized_users_can_view_the_correct_document(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'janda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_mati';
+        $payload['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian.pdf', 300, 'application/pdf');
+
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $app = ShmLoanApplication::query()->sole();
+
+        $response = $this->actingAs($this->marketing)->get(
+            route('shm.loans.pengajuan.dokumen-pernikahan', [$app->id, 'akta_kematian'])
+        );
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'application/pdf');
+
+        // Admin juga dapat melihat
+        $this->actingAs($this->admin)->get(
+            route('shm.loans.pengajuan.dokumen-pernikahan', [$app->id, 'akta_kematian'])
+        )->assertOk();
+    }
+
+    /** 17. Unauthorized users cannot access another applicant's document */
+    public function test_unauthorized_users_cannot_access_another_applicants_document(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'janda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_mati';
+        $payload['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian.pdf', 300, 'application/pdf');
+
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $app = ShmLoanApplication::query()->sole();
+
+        $this->actingAs($this->marketingOther)->get(
+            route('shm.loans.pengajuan.dokumen-pernikahan', [$app->id, 'akta_kematian'])
+        )->assertForbidden();
+    }
+
+    /** 18. Deleting an application cleans up all marital documents */
+    public function test_deleting_application_cleans_up_all_marital_documents(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'janda';
+        $payload['pribadi']['marital_separation_type'] = 'cerai_mati';
+        $payload['pribadi']['akta_kematian'] = UploadedFile::fake()->create('akta_kematian.pdf', 300, 'application/pdf');
+
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload);
+        $app = ShmLoanApplication::query()->sole();
+        $path = $app->death_certificate_path;
+
+        Storage::disk('local')->assertExists($path);
+        $app->delete();
+        Storage::disk('local')->assertMissing($path);
+    }
+
+    /** 19. Legacy single, married, and null records remain readable and editable */
+    public function test_legacy_single_married_and_null_records_remain_readable_and_editable(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+
+        // Null marital status
+        $payloadNull = $this->validPayload($customer->id);
+        unset($payloadNull['pribadi']['marital_status']);
+        unset($payloadNull['pribadi']['marital_separation_type']);
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payloadNull)->assertSessionHasNoErrors();
+
+        $appNull = ShmLoanApplication::query()->sole();
+        $this->assertNull($appNull->marital_status);
+
+        $this->actingAs($this->marketing)->get(route('shm.loans.pengajuan.edit', $appNull->id))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Shm/Loans/Pengajuan')
                 ->where('formData.pribadi.marital_status', '')
+                ->where('formData.pribadi.marital_separation_type', '')
                 ->etc());
+
+        // Single status
+        $payloadSingle = $this->validPayload($customer->id);
+        $payloadSingle['pribadi']['marital_status'] = 'single';
+        $this->actingAs($this->marketing)->put(route('shm.loans.pengajuan.update', $appNull->id), $payloadSingle)->assertSessionHasNoErrors();
+        $appNull->refresh();
+        $this->assertSame('single', $appNull->marital_status);
+
+        // Detail page Inertia verification
+        $this->actingAs($this->admin)->get(route('shm.loans.pengajuan.show', $appNull))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Shm/Loans/PengajuanShow')
+                ->where('application.pribadi.marital_status', 'single')
+                ->etc());
+    }
+
+    /** 20. Existing spouse-data validation remains correct */
+    public function test_existing_spouse_data_validation_remains_correct(): void
+    {
+        $customer = ShmCustomer::factory()->create();
+        $payload = $this->validPayload($customer->id);
+        $payload['pribadi']['marital_status'] = 'menikah';
+        $payload['pribadi']['buku_nikah'] = UploadedFile::fake()->create('buku_nikah.pdf', 300, 'application/pdf');
+
+        // Missing spouse_name
+        $payload['pribadi']['spouse_name'] = '';
+        $payload['pribadi']['spouse_nik'] = '3201015505920001';
+        $payload['pribadi']['spouse_phone'] = '081234567890';
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload)
+            ->assertSessionHasErrors(['pribadi.spouse_name']);
+
+        // Invalid NIK
+        $payload['pribadi']['spouse_name'] = 'Siti Aminah';
+        $payload['pribadi']['spouse_nik'] = '12345';
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload)
+            ->assertSessionHasErrors(['pribadi.spouse_nik']);
+
+        // Complete & valid
+        $payload['pribadi']['spouse_nik'] = '3201015505920001';
+        $this->actingAs($this->marketing)->post(route('shm.loans.pengajuan.store'), $payload)
+            ->assertSessionHasNoErrors();
+
+        $app = ShmLoanApplication::query()->sole();
+        $this->assertSame('Siti Aminah', $app->spouse_name);
+        $this->assertSame('3201015505920001', $app->spouse_nik);
+        $this->assertSame('081234567890', $app->spouse_phone);
     }
 }

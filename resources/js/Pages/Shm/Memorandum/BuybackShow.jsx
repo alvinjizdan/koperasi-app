@@ -7,6 +7,9 @@ import SecondaryButton from '@/Components/SecondaryButton';
 import MemorandumApprovalActions from '@/Components/Shm/MemorandumApprovalActions';
 import MemorandumApprovalCard from '@/Components/Shm/MemorandumApprovalCard';
 import MemorandumApprovalTimeline from '@/Components/Shm/MemorandumApprovalTimeline';
+import CreditCheckSummaryCard from '@/Components/Shm/CreditCheckSummaryCard';
+import MemorandumRevisionHistory from '@/Components/Shm/MemorandumRevisionHistory';
+import CompletionBypassModal from '@/Components/Shm/CompletionBypassModal';
 import { formatDateTime } from '@/utils/format';
 import {
     ArrowLeft,
@@ -30,7 +33,7 @@ import {
  *
  * Menampilkan:
  * 1. Data Memorandum: ID, tipe (Buyback), status (draft/submitted), naskah/catatan, waktu submit.
- * 2. Dokumen Legalitas Buyback: 5 slot (SHM, Akta Buyback, Kuasa Awal, PPJB, Pengosongan).
+ * 2. Dokumen Legalitas Buyback: 5 slot (SHM, Akta Buyback, Kuasa Jual, PPJB, Pengosongan).
  * 3. Data Pengajuan Asal (Read-only): No Pengajuan (type Buyback), Marketing, Tanggal.
  * 4. Data Nasabah Asal (Read-only): Nama, NIK, No Telepon, Alamat.
  * 5. Data Objek Asal (Read-only): Tipe Sertifikat, Nomor Sertifikat, Pemilik, Alamat.
@@ -42,6 +45,8 @@ export default function BuybackShow({
     application,
     properties,
     credit_check,
+    submissions = [],
+    active_exception = null,
     history,
     approval_histories = [],
     can_edit,
@@ -50,6 +55,8 @@ export default function BuybackShow({
     can_start_review,
     can_approve,
     can_reject,
+    can_override_fail,
+    can_bypass_completion,
     flash,
 }) {
     const customer = application?.customer;
@@ -102,8 +109,16 @@ export default function BuybackShow({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
+                        <CompletionBypassModal
+                            memorandum={memorandum}
+                            creditCheck={credit_check}
+                            activeException={active_exception}
+                            canBypassCompletion={can_bypass_completion}
+                        />
                         <MemorandumApprovalActions
                             memorandum={memorandum}
+                            credit_check={credit_check}
+                            active_exception={active_exception}
                             can_submit={can_submit}
                             can_start_review={can_start_review}
                             can_approve={can_approve}
@@ -304,6 +319,20 @@ export default function BuybackShow({
                                 <p className="text-xs text-slate-400 italic">Tidak ada rincian objek terdaftar pada pengajuan ini.</p>
                             )}
                         </section>
+
+                        {/* Credit Checking Integration Card (Ticket CC-06) */}
+                        <CreditCheckSummaryCard
+                            creditCheck={credit_check}
+                            snapshot={memorandum.credit_check_snapshot}
+                            activeException={active_exception}
+                            isDraft={memorandum.status === 'draft'}
+                        />
+
+                        {/* Riwayat Revisi Pengajuan Memorandum (Ticket CC-06) */}
+                        <MemorandumRevisionHistory
+                            submissions={submissions}
+                            memorandumId={memorandum.id}
+                        />
 
                         {/* Informasi Approval (Ticket 8) */}
                         <MemorandumApprovalCard memorandum={memorandum} />

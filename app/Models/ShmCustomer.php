@@ -7,7 +7,6 @@ use Database\Factories\ShmCustomerFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -76,13 +75,13 @@ class ShmCustomer extends Model
     }
 
     /**
-     * Anggota koperasi yang menjadi sumber data nasabah SHM ini (T89C).
-     *
-     * @return BelongsTo<Member, $this>
+     * ID rujukan historis ke anggota koperasi sumber (legacy reference).
+     * Kolom member_id dipertahankan sebagai nullable BIGINT untuk audit historis,
+     * tetapi foreign key dan relasi aktif telah didecommission pada Ticket 15J.
      */
-    public function member(): BelongsTo
+    public function legacyMemberId(): ?int
     {
-        return $this->belongsTo(Member::class, 'member_id');
+        return $this->member_id;
     }
 
     /**

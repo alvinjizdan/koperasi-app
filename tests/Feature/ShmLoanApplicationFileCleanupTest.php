@@ -178,7 +178,7 @@ class ShmLoanApplicationFileCleanupTest extends TestCase
 
         $this->assertIsString($source);
         $this->assertStringContainsString(
-            'Format: PDF — maksimal 10 MB.',
+            'Maksimal 10 MB',
             $source,
         );
         $this->assertStringNotContainsString(

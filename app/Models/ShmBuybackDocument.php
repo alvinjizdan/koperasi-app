@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /**
  * Model Dokumen Legalitas Memorandum Buyback (Ticket 7).
@@ -33,16 +34,34 @@ class ShmBuybackDocument extends Model
 
     public const TYPE_KUASA_AWAL = 'kuasa_awal';
 
+    public const TYPE_KUASA_JUAL = 'kuasa_jual';
+
     public const TYPE_PPJB = 'ppjb';
 
     public const TYPE_PENGOSONGAN = 'pengosongan';
 
     /**
+     * Daftar 5 jenis dokumen wajib Buyback (Ticket 28C: Kuasa Awal diganti menjadi Kuasa Jual).
+     *
      * @var list<string>
      */
     public const REQUIRED_TYPES = [
         self::TYPE_SHM,
         self::TYPE_AKTA_BUYBACK,
+        self::TYPE_KUASA_JUAL,
+        self::TYPE_PPJB,
+        self::TYPE_PENGOSONGAN,
+    ];
+
+    /**
+     * Seluruh tipe yang diizinkan untuk upload (termasuk legacy 'kuasa_awal' untuk backward compatibility).
+     *
+     * @var list<string>
+     */
+    public const ALLOWED_UPLOAD_TYPES = [
+        self::TYPE_SHM,
+        self::TYPE_AKTA_BUYBACK,
+        self::TYPE_KUASA_JUAL,
         self::TYPE_KUASA_AWAL,
         self::TYPE_PPJB,
         self::TYPE_PENGOSONGAN,
@@ -54,10 +73,40 @@ class ShmBuybackDocument extends Model
     public const TYPE_LABELS = [
         self::TYPE_SHM => 'SHM',
         self::TYPE_AKTA_BUYBACK => 'Akta Buyback',
-        self::TYPE_KUASA_AWAL => 'Kuasa Awal',
+        self::TYPE_KUASA_JUAL => 'Kuasa Jual',
+        self::TYPE_KUASA_AWAL => 'Kuasa Jual', // Legacy compatibility display label
         self::TYPE_PPJB => 'PPJB',
         self::TYPE_PENGOSONGAN => 'Pengosongan',
     ];
+
+    /**
+     * Normalisasi tipe dokumen ke key canonical baru jika menggunakan legacy key.
+     */
+    public static function canonicalType(string $type): string
+    {
+        return $type === self::TYPE_KUASA_AWAL ? self::TYPE_KUASA_JUAL : $type;
+    }
+
+    /**
+     * Resolusi dokumen dari koleksi bertipe buyback documents dengan fallback backward compatibility.
+     * Mengambil dokumen dengan tipe canonical ($type) atau legacy fallback bila belum ada.
+     *
+     * @param  Collection<int, self>  $documents
+     */
+    public static function findMatchingDocument(Collection $documents, string $type): ?self
+    {
+        $canonical = self::canonicalType($type);
+        $found = $documents->firstWhere('document_type', $canonical);
+        if ($found !== null) {
+            return $found;
+        }
+
+        if ($canonical === self::TYPE_KUASA_JUAL) {
+            return $documents->firstWhere('document_type', self::TYPE_KUASA_AWAL);
+        }
+
+        return null;
+    }
 
     protected $fillable = [
         'shm_application_id',

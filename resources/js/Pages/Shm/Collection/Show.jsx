@@ -1140,20 +1140,11 @@ export default function Show({ collection, collection_case, timeline, today, fla
                         <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-3">
                             <p className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase text-slate-500">
                                 <Users className="h-3.5 w-3.5" />
-                                Anggota koperasi terkait
+                                Rujukan Anggota Sumber
                             </p>
-                            {loan.customer?.member ? (
-                                <p className="text-sm text-slate-700">
-                                    {loan.customer.member.name}{' '}
-                                    <span className="text-xs text-slate-400">
-                                        ({loan.customer.member.member_number})
-                                    </span>
-                                </p>
-                            ) : (
-                                <p className="text-sm text-slate-500">
-                                    Tidak terhubung ke anggota koperasi.
-                                </p>
-                            )}
+                            <p className="text-sm text-slate-500">
+                                Domain anggota koperasi telah didecommission.
+                            </p>
                         </div>
                     </section>
 

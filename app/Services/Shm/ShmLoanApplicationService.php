@@ -60,6 +60,8 @@ class ShmLoanApplicationService
 
     private const IDENTITY_PHOTO_DIRECTORY = 'shm/identity-photos';
 
+    private const MARITAL_DOCUMENT_DIRECTORY = 'shm/marital-documents';
+
     private const ATTACHMENT_DIRECTORY = 'shm/loan-attachments';
 
     public function __construct(private readonly ShmWorkflowService $workflow) {}
@@ -107,6 +109,25 @@ class ShmLoanApplicationService
                 if ($kkPath !== null) {
                     $storedPhotos[] = $kkPath;
                     $application->forceFill(['kk_photo_path' => $kkPath])->save();
+                }
+
+                // Simpan berkas pendukung pernikahan/perceraian (PDF) bila diunggah
+                $bukuNikahPath = $this->storeMaritalDocument($application, data_get($data, 'pribadi.buku_nikah'), 'buku_nikah');
+                if ($bukuNikahPath !== null) {
+                    $storedDocuments[] = $bukuNikahPath;
+                    $application->forceFill(['marriage_certificate_path' => $bukuNikahPath])->save();
+                }
+
+                $aktaCeraiPath = $this->storeMaritalDocument($application, data_get($data, 'pribadi.akta_cerai'), 'akta_cerai');
+                if ($aktaCeraiPath !== null) {
+                    $storedDocuments[] = $aktaCeraiPath;
+                    $application->forceFill(['divorce_certificate_path' => $aktaCeraiPath])->save();
+                }
+
+                $aktaKematianPath = $this->storeMaritalDocument($application, data_get($data, 'pribadi.akta_kematian'), 'akta_kematian');
+                if ($aktaKematianPath !== null) {
+                    $storedDocuments[] = $aktaKematianPath;
+                    $application->forceFill(['death_certificate_path' => $aktaKematianPath])->save();
                 }
 
                 $this->createChildren($application, $data, $storedPhotos, $storedDocuments);
@@ -205,6 +226,43 @@ class ShmLoanApplicationService
                             $retiredPhotos[] = $locked->kk_photo_path;
                         }
                         $locked->forceFill(['kk_photo_path' => $newKkPath])->save();
+                    }
+                }
+
+                // Rekonsiliasi berkas status pernikahan (Buku Nikah / Akta Cerai)
+                $newBukuNikahFile = data_get($data, 'pribadi.buku_nikah');
+                if ($newBukuNikahFile instanceof UploadedFile && $newBukuNikahFile->isValid()) {
+                    $newBukuNikahPath = $this->storeMaritalDocument($locked, $newBukuNikahFile, 'buku_nikah');
+                    if ($newBukuNikahPath !== null) {
+                        $storedDocuments[] = $newBukuNikahPath;
+                        if ($locked->marriage_certificate_path !== null) {
+                            $retiredDocuments[] = $locked->marriage_certificate_path;
+                        }
+                        $locked->forceFill(['marriage_certificate_path' => $newBukuNikahPath])->save();
+                    }
+                }
+
+                $newAktaCeraiFile = data_get($data, 'pribadi.akta_cerai');
+                if ($newAktaCeraiFile instanceof UploadedFile && $newAktaCeraiFile->isValid()) {
+                    $newAktaCeraiPath = $this->storeMaritalDocument($locked, $newAktaCeraiFile, 'akta_cerai');
+                    if ($newAktaCeraiPath !== null) {
+                        $storedDocuments[] = $newAktaCeraiPath;
+                        if ($locked->divorce_certificate_path !== null) {
+                            $retiredDocuments[] = $locked->divorce_certificate_path;
+                        }
+                        $locked->forceFill(['divorce_certificate_path' => $newAktaCeraiPath])->save();
+                    }
+                }
+
+                $newAktaKematianFile = data_get($data, 'pribadi.akta_kematian');
+                if ($newAktaKematianFile instanceof UploadedFile && $newAktaKematianFile->isValid()) {
+                    $newAktaKematianPath = $this->storeMaritalDocument($locked, $newAktaKematianFile, 'akta_kematian');
+                    if ($newAktaKematianPath !== null) {
+                        $storedDocuments[] = $newAktaKematianPath;
+                        if ($locked->death_certificate_path !== null) {
+                            $retiredDocuments[] = $locked->death_certificate_path;
+                        }
+                        $locked->forceFill(['death_certificate_path' => $newAktaKematianPath])->save();
                     }
                 }
 
@@ -355,10 +413,13 @@ class ShmLoanApplicationService
             'saldo_modal' => $this->amount($data, 'pribadi.saldo_modal'),
             'saldo_non_modal' => $this->amount($data, 'pribadi.saldo_non_modal'),
             'batas_hutang' => $this->amount($data, 'pribadi.batas_hutang'),
-            'marital_status' => data_get($data, 'pribadi.marital_status') ?: null,
-            'spouse_name' => data_get($data, 'pribadi.marital_status') === 'married' ? (data_get($data, 'pribadi.spouse_name') ?: null) : null,
-            'spouse_nik' => data_get($data, 'pribadi.marital_status') === 'married' ? (data_get($data, 'pribadi.spouse_nik') ?: null) : null,
-            'spouse_phone' => data_get($data, 'pribadi.marital_status') === 'married' ? (data_get($data, 'pribadi.spouse_phone') ?: null) : null,
+            'marital_status' => $this->normalizeMaritalStatus(data_get($data, 'pribadi.marital_status')),
+            'marital_separation_type' => in_array(data_get($data, 'pribadi.marital_status'), ['janda', 'duda'], true)
+                ? (data_get($data, 'pribadi.marital_separation_type') ?: null)
+                : null,
+            'spouse_name' => $this->isStatusMarried(data_get($data, 'pribadi.marital_status')) ? (data_get($data, 'pribadi.spouse_name') ?: null) : null,
+            'spouse_nik' => $this->isStatusMarried(data_get($data, 'pribadi.marital_status')) ? (data_get($data, 'pribadi.spouse_nik') ?: null) : null,
+            'spouse_phone' => $this->isStatusMarried(data_get($data, 'pribadi.marital_status')) ? (data_get($data, 'pribadi.spouse_phone') ?: null) : null,
             'shm_loan_product_id' => data_get($data, 'pengajuan.product_id') ?: null,
             'agent_id' => data_get($data, 'pengajuan.agent_id') ?: null,
             'principal' => data_get($data, 'pengajuan.principal'),
@@ -556,6 +617,59 @@ class ShmLoanApplicationService
         }
 
         $application->collaterals()->whereNotIn('id', $kept)->delete();
+    }
+
+    /**
+     * Simpan satu berkas dokumen status pernikahan (Buku Nikah / Akta Cerai) ke disk privat.
+     */
+    private function storeMaritalDocument(ShmLoanApplication $application, mixed $file, string $type): ?string
+    {
+        if (! $file instanceof UploadedFile || ! $file->isValid()) {
+            return null;
+        }
+
+        $extension = $file->guessExtension() ?: $file->getClientOriginalExtension() ?: 'pdf';
+        $filename = sprintf('%s_%s_%s.%s', $type, $application->id, bin2hex(random_bytes(8)), $extension);
+
+        $path = $file->storeAs(
+            self::MARITAL_DOCUMENT_DIRECTORY.'/'.$application->id,
+            $filename,
+            self::PHOTO_DISK,
+        );
+
+        if ($path === false) {
+            throw new RuntimeException(sprintf('Dokumen %s gagal disimpan.', strtoupper($type)));
+        }
+
+        return $path;
+    }
+
+    /**
+     * Normalisasi status pernikahan ke nilai kanonikal.
+     */
+    private function normalizeMaritalStatus(mixed $status): ?string
+    {
+        if ($status === null || $status === '') {
+            return null;
+        }
+
+        return match ($status) {
+            'single' => 'single',
+            'married' => 'married',
+            'belum_menikah' => 'belum_menikah',
+            'menikah' => 'menikah',
+            'janda' => 'janda',
+            'duda' => 'duda',
+            default => (string) $status,
+        };
+    }
+
+    /**
+     * Cek apakah status pernikahan tergolong menikah.
+     */
+    private function isStatusMarried(mixed $status): bool
+    {
+        return in_array($status, ['married', 'menikah'], true);
     }
 
     /**

@@ -13,6 +13,7 @@ use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanApplicationRequirement;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -55,18 +56,29 @@ class ShmLoanApplicationWorkflowTest extends TestCase
 
     private User $kasir;
 
+    private User $branchManager;
+
+    private User $director;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->superadmin = $this->userWithRole('superadmin');
         $this->admin = $this->userWithRole('admin');
         $this->marketing = $this->userWithRole('marketing');
         $this->marketing2 = $this->userWithRole('marketing');
         $this->kasir = $this->userWithRole('kasir');
+
+        $this->branchManager = User::factory()->create(['is_active' => true]);
+        $this->branchManager->roles()->attach(Role::where('name', 'branch_manager_makro')->value('id'));
+
+        $this->director = User::factory()->create(['is_active' => true]);
+        $this->director->roles()->attach(Role::where('name', 'direktur_utama_makro')->value('id'));
     }
 
     private function userWithRole(string $roleName): User
@@ -590,6 +602,10 @@ class ShmLoanApplicationWorkflowTest extends TestCase
         $this->assertNotNull($mirrorId);
 
         $this->actingAs($this->admin)
+            ->post(route('shm.applications.approve-bm', $mirrorId), ['notes' => 'BM OK'])
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($this->admin)
             ->post(route('shm.applications.approve', $mirrorId), ['notes' => 'OK'])
             ->assertSessionHasNoErrors();
 
@@ -684,8 +700,8 @@ class ShmLoanApplicationWorkflowTest extends TestCase
             ->post(route('shm.loans.pengajuan.submit-approval', $application))
             ->assertSessionHasNoErrors();
 
-        // Approval module existing (daftar) menampilkan pengajuan ini.
-        $this->actingAs($this->admin)
+        // Approval module existing (daftar) menampilkan pengajuan ini bagi yang berwenang (Director).
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.index'))
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Shm/Approvals/Index')
@@ -695,7 +711,7 @@ class ShmLoanApplicationWorkflowTest extends TestCase
 
         // Halaman keputusan existing terbuka untuk mirror.
         $application->refresh();
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->get(route('shm.approvals.show', $application->shm_application_id))
             ->assertOk();
     }
@@ -710,14 +726,18 @@ class ShmLoanApplicationWorkflowTest extends TestCase
 
         $mirrorId = $application->refresh()->shm_application_id;
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->branchManager)
+            ->post(route('shm.applications.approve-bm', $mirrorId), ['notes' => 'Disetujui BM'])
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $mirrorId), ['notes' => 'Disetujui pimpinan'])
             ->assertSessionHasNoErrors();
 
-        // ShmApproval existing yang diperbarui — bukan tabel baru.
-        $approval = ShmApproval::query()->sole();
+        // ShmApproval existing — approval final Level 2 berstatus approved.
+        $approval = ShmApproval::query()->where('status', ShmApproval::STATUS_APPROVED)->sole();
         $this->assertSame(ShmApproval::STATUS_APPROVED, $approval->status);
-        $this->assertSame($this->admin->id, $approval->decided_by);
+        $this->assertSame($this->director->id, $approval->decided_by);
         $this->assertNotNull($approval->decided_at);
         $this->assertSame('Disetujui pimpinan', $approval->notes);
 
@@ -735,7 +755,7 @@ class ShmLoanApplicationWorkflowTest extends TestCase
             ->get(route('shm.loans.pengajuan.show', $application))
             ->assertInertia(fn (Assert $page) => $page
                 ->where('application.approval.status', ShmApproval::STATUS_APPROVED)
-                ->where('application.approval.decider', $this->admin->name)
+                ->where('application.approval.decider', $this->director->name)
                 ->where('application.can_edit', false)
                 ->where('application.can_submit_approval', false),
             );
@@ -751,13 +771,13 @@ class ShmLoanApplicationWorkflowTest extends TestCase
 
         $mirrorId = $application->refresh()->shm_application_id;
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.reject', $mirrorId), ['notes' => 'Collateral kurang'])
             ->assertSessionHasNoErrors();
 
         $approval = ShmApproval::query()->sole();
         $this->assertSame(ShmApproval::STATUS_REJECTED, $approval->status);
-        $this->assertSame($this->admin->id, $approval->decided_by);
+        $this->assertSame($this->director->id, $approval->decided_by);
 
         // Tidak ada loan; pengajuan tetap 'pending' & terkunci (resubmit PENDING).
         $this->assertSame(0, ShmLoan::query()->count());

@@ -52,14 +52,10 @@ export default function Edit({ customer, flash }) {
                         <span className="text-xs text-slate-400">(otomatis, tidak berubah)</span>
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-slate-500">Anggota Sumber:</span>
-                        {customer.member ? (
-                            <span className="font-semibold text-slate-800">
-                                Member: {customer.member.member_number} - {customer.member.full_name}
-                            </span>
-                        ) : (
-                            <span className="text-xs text-slate-400">Tidak tercatat (data legacy T89C).</span>
-                        )}
+                        <span className="text-xs text-slate-500">Rujukan Member ID:</span>
+                        <span className="text-xs text-slate-400 font-mono">
+                            {customer.member_id ? `#${customer.member_id} (referensi legacy)` : 'Tidak ada rujukan'}
+                        </span>
                     </div>
                 </div>
 

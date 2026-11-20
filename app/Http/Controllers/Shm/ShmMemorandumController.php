@@ -18,9 +18,12 @@ use App\Http\Requests\Shm\UploadShmBuybackDocumentRequest;
 use App\Models\ShmApplication;
 use App\Models\ShmBuybackDocument;
 use App\Models\ShmCreditCheck;
+use App\Models\ShmCreditCheckException;
 use App\Models\ShmCustomer;
 use App\Models\ShmMemorandum;
 use App\Models\ShmMemorandumApprovalHistory;
+use App\Models\ShmMemorandumSubmission;
+use App\Services\Shm\ShmCreditCheckExceptionService;
 use App\Services\Shm\ShmMemorandumApprovalService;
 use App\Services\ShmWorkflowService;
 use Illuminate\Database\Eloquent\Builder;
@@ -55,6 +58,7 @@ class ShmMemorandumController extends Controller
     public function __construct(
         private readonly ShmWorkflowService $workflow,
         private readonly ShmMemorandumApprovalService $approvalService,
+        private readonly ShmCreditCheckExceptionService $exceptionService,
     ) {}
 
     /**
@@ -344,6 +348,14 @@ class ShmMemorandumController extends Controller
 
         $hasBeenRejected = $memorandum->approvalHistories->contains('action', ShmMemorandumApprovalHistory::ACTION_REJECTED);
 
+        $submissions = $memorandum->submissions()
+            ->reorder('revision_number', 'desc')
+            ->get()
+            ->map(fn (ShmMemorandumSubmission $sub) => $this->submissionContext($sub))
+            ->all();
+
+        $activeException = $this->activeExceptionContext($application);
+
         return Inertia::render('Shm/Memorandum/ShmShgbShow', [
             'memorandum' => [
                 'id' => $memorandum->id,
@@ -363,6 +375,7 @@ class ShmMemorandumController extends Controller
                 'rejected_at' => $memorandum->rejected_at,
                 'rejection_notes' => $memorandum->rejection_notes,
                 'has_been_rejected' => $hasBeenRejected,
+                'credit_check_snapshot' => $memorandum->credit_check_snapshot,
                 'created_at' => $memorandum->created_at,
                 'updated_at' => $memorandum->updated_at,
                 'creator' => $memorandum->creator?->name,
@@ -370,6 +383,8 @@ class ShmMemorandumController extends Controller
             'application' => $this->applicationContext($application),
             'properties' => $application->properties,
             'credit_check' => $creditCheck === null ? null : $this->creditCheckContext($creditCheck),
+            'submissions' => $submissions,
+            'active_exception' => $activeException,
             'history' => $this->auditHistory(ShmMemorandum::class, $memorandum->id),
             'approval_histories' => $approvalHistories,
             'can_edit' => Gate::allows('shm.memorandum.update') && $memorandum->isDraft(),
@@ -378,6 +393,8 @@ class ShmMemorandumController extends Controller
             'can_start_review' => Gate::allows('shm.memorandum.review') && $memorandum->isSubmitted(),
             'can_approve' => Gate::allows('shm.memorandum.approve') && $memorandum->isUnderReview(),
             'can_reject' => Gate::allows('shm.memorandum.reject') && $memorandum->isUnderReview(),
+            'can_override_fail' => Gate::allows('shm.credit_checking.override_fail'),
+            'can_bypass_completion' => Gate::allows('shm.credit_checking.bypass_completion') || $request->user()->isSuperadmin(),
             'flash' => [
                 'success' => session('success'),
                 'error' => session('error'),
@@ -590,9 +607,9 @@ class ShmMemorandumController extends Controller
             if ($application) {
                 $selectedApplication = $this->applicationContext($application);
                 $selectedApplication['properties'] = $application->properties;
-                $existingBuybackDocs = $application->buybackDocuments->keyBy('document_type');
-                $selectedApplication['buyback_documents'] = collect(ShmBuybackDocument::REQUIRED_TYPES)->map(function (string $type) use ($existingBuybackDocs): array {
-                    $doc = $existingBuybackDocs->get($type);
+                $buybackDocsColl = $application->buybackDocuments;
+                $selectedApplication['buyback_documents'] = collect(ShmBuybackDocument::REQUIRED_TYPES)->map(function (string $type) use ($buybackDocsColl): array {
+                    $doc = ShmBuybackDocument::findMatchingDocument($buybackDocsColl, $type);
 
                     return [
                         'type' => $type,
@@ -608,7 +625,7 @@ class ShmMemorandumController extends Controller
                         ],
                     ];
                 })->values()->all();
-                $uploadedBuybackCount = $existingBuybackDocs->whereIn('document_type', ShmBuybackDocument::REQUIRED_TYPES)->count();
+                $uploadedBuybackCount = collect($selectedApplication['buyback_documents'])->where('is_uploaded', true)->count();
                 $selectedApplication['is_buyback_documents_complete'] = $uploadedBuybackCount === count(ShmBuybackDocument::REQUIRED_TYPES);
                 $selectedApplication['buyback_documents_ratio'] = "{$uploadedBuybackCount}/".count(ShmBuybackDocument::REQUIRED_TYPES);
 
@@ -709,12 +726,12 @@ class ShmMemorandumController extends Controller
             'approver:id,name',
             'approvalHistories.performer:id,name',
         ]);
-        $existingDocuments = $application->buybackDocuments->isNotEmpty()
-            ? $application->buybackDocuments->keyBy('document_type')
-            : $memorandum->buybackDocuments->keyBy('document_type');
+        $docsColl = $application->buybackDocuments->isNotEmpty()
+            ? $application->buybackDocuments
+            : $memorandum->buybackDocuments;
 
-        $documentsList = collect(ShmBuybackDocument::REQUIRED_TYPES)->map(function (string $type) use ($existingDocuments): array {
-            $doc = $existingDocuments->get($type);
+        $documentsList = collect(ShmBuybackDocument::REQUIRED_TYPES)->map(function (string $type) use ($docsColl): array {
+            $doc = ShmBuybackDocument::findMatchingDocument($docsColl, $type);
 
             return [
                 'type' => $type,
@@ -731,7 +748,7 @@ class ShmMemorandumController extends Controller
             ];
         })->values()->all();
 
-        $uploadedCount = $existingDocuments->whereIn('document_type', ShmBuybackDocument::REQUIRED_TYPES)->count();
+        $uploadedCount = collect($documentsList)->where('is_uploaded', true)->count();
         $isComplete = $uploadedCount === count(ShmBuybackDocument::REQUIRED_TYPES);
 
         $approvalHistories = $memorandum->approvalHistories->map(fn ($h) => [
@@ -746,6 +763,14 @@ class ShmMemorandumController extends Controller
         ])->all();
 
         $hasBeenRejected = $memorandum->approvalHistories->contains('action', ShmMemorandumApprovalHistory::ACTION_REJECTED);
+
+        $submissions = $memorandum->submissions()
+            ->reorder('revision_number', 'desc')
+            ->get()
+            ->map(fn (ShmMemorandumSubmission $sub) => $this->submissionContext($sub))
+            ->all();
+
+        $activeException = $this->activeExceptionContext($application);
 
         return Inertia::render('Shm/Memorandum/BuybackShow', [
             'memorandum' => [
@@ -764,6 +789,7 @@ class ShmMemorandumController extends Controller
                 'rejected_at' => $memorandum->rejected_at,
                 'rejection_notes' => $memorandum->rejection_notes,
                 'has_been_rejected' => $hasBeenRejected,
+                'credit_check_snapshot' => $memorandum->credit_check_snapshot,
                 'created_at' => $memorandum->created_at,
                 'updated_at' => $memorandum->updated_at,
                 'creator' => $memorandum->creator?->name,
@@ -775,6 +801,8 @@ class ShmMemorandumController extends Controller
             'application' => $this->applicationContext($application),
             'properties' => $application->properties,
             'credit_check' => $creditCheck === null ? null : $this->creditCheckContext($creditCheck),
+            'submissions' => $submissions,
+            'active_exception' => $activeException,
             'history' => $this->auditHistory(ShmMemorandum::class, $memorandum->id),
             'approval_histories' => $approvalHistories,
             'can_edit' => Gate::allows('shm.memorandum.update') && $memorandum->isDraft(),
@@ -783,6 +811,8 @@ class ShmMemorandumController extends Controller
             'can_start_review' => Gate::allows('shm.memorandum.review') && $memorandum->isSubmitted(),
             'can_approve' => Gate::allows('shm.memorandum.approve') && $memorandum->isUnderReview(),
             'can_reject' => Gate::allows('shm.memorandum.reject') && $memorandum->isUnderReview(),
+            'can_override_fail' => Gate::allows('shm.credit_checking.override_fail'),
+            'can_bypass_completion' => Gate::allows('shm.credit_checking.bypass_completion') || $request->user()->isSuperadmin(),
             'flash' => [
                 'success' => session('success'),
                 'error' => session('error'),
@@ -816,12 +846,12 @@ class ShmMemorandumController extends Controller
         // Muat 5 dokumen legalitas buyback (Ticket 7 & 14)
         $application->load(['buybackDocuments.uploader:id,name']);
         $memorandum->load(['buybackDocuments.uploader:id,name']);
-        $existingDocuments = $application->buybackDocuments->isNotEmpty()
-            ? $application->buybackDocuments->keyBy('document_type')
-            : $memorandum->buybackDocuments->keyBy('document_type');
+        $docsColl = $application->buybackDocuments->isNotEmpty()
+            ? $application->buybackDocuments
+            : $memorandum->buybackDocuments;
 
-        $documentsList = collect(ShmBuybackDocument::REQUIRED_TYPES)->map(function (string $type) use ($existingDocuments): array {
-            $doc = $existingDocuments->get($type);
+        $documentsList = collect(ShmBuybackDocument::REQUIRED_TYPES)->map(function (string $type) use ($docsColl): array {
+            $doc = ShmBuybackDocument::findMatchingDocument($docsColl, $type);
 
             return [
                 'type' => $type,
@@ -838,7 +868,7 @@ class ShmMemorandumController extends Controller
             ];
         })->values()->all();
 
-        $uploadedCount = $existingDocuments->whereIn('document_type', ShmBuybackDocument::REQUIRED_TYPES)->count();
+        $uploadedCount = collect($documentsList)->where('is_uploaded', true)->count();
         $isComplete = $uploadedCount === count(ShmBuybackDocument::REQUIRED_TYPES);
 
         return Inertia::render('Shm/Memorandum/BuybackEdit', [
@@ -971,8 +1001,9 @@ class ShmMemorandumController extends Controller
                 }
             });
 
-            // Hapus berkas lama hanya setelah transaksi database berhasil
-            if ($oldFilePathToDelete && Storage::disk('local')->exists($oldFilePathToDelete)) {
+            // Hapus berkas lama hanya setelah transaksi database berhasil,
+            // dan hanya jika berkas tidak direferensikan dalam riwayat revisi pengajuan (Ticket CC-05)
+            if ($oldFilePathToDelete && ! ShmMemorandumSubmission::isFilePathReferenced($oldFilePathToDelete) && Storage::disk('local')->exists($oldFilePathToDelete)) {
                 Storage::disk('local')->delete($oldFilePathToDelete);
             }
         } catch (\Throwable $e) {
@@ -1056,7 +1087,7 @@ class ShmMemorandumController extends Controller
         $filePath = $document->file_path;
         $document->delete();
 
-        if ($filePath && Storage::disk('local')->exists($filePath)) {
+        if ($filePath && ! ShmMemorandumSubmission::isFilePathReferenced($filePath) && Storage::disk('local')->exists($filePath)) {
             Storage::disk('local')->delete($filePath);
         }
 
@@ -1086,10 +1117,10 @@ class ShmMemorandumController extends Controller
             'Memorandum Buyback yang sedang dalam peninjauan atau telah disetujui tidak dapat dihapus.'
         );
 
-        // Bersihkan berkas-berkas fisik dokumen buyback dari storage
+        // Bersihkan berkas-berkas fisik dokumen buyback dari storage jika tidak direferensikan di riwayat revisi (Ticket CC-05A)
         $memorandum->load('buybackDocuments');
         foreach ($memorandum->buybackDocuments as $doc) {
-            if ($doc->file_path && Storage::disk('local')->exists($doc->file_path)) {
+            if ($doc->file_path && ! ShmMemorandumSubmission::isFilePathReferenced($doc->file_path) && Storage::disk('local')->exists($doc->file_path)) {
                 Storage::disk('local')->delete($doc->file_path);
             }
         }
@@ -1225,7 +1256,7 @@ class ShmMemorandumController extends Controller
                         'created_at' => $memo->created_at,
                         'submitted_at' => $memo->submitted_at,
                         'buyback_documents_ratio' => $memo->type === ShmMemorandum::TYPE_BUYBACK
-                            ? ($memo->buybackDocuments->whereIn('document_type', ShmBuybackDocument::REQUIRED_TYPES)->count().'/'.count(ShmBuybackDocument::REQUIRED_TYPES))
+                            ? $memo->buybackDocumentsRatio()
                             : null,
                     ],
                 ];
@@ -1620,8 +1651,94 @@ class ShmMemorandumController extends Controller
     }
 
     /**
-     * Query pengajuan yang boleh dilihat pengguna ini.
+     * Serialisasi riwayat revisi pengajuan memorandum (Ticket CC-06).
+     *
+     * @return array<string, mixed>
      */
+    private function submissionContext(ShmMemorandumSubmission $sub): array
+    {
+        return [
+            'id' => $sub->id,
+            'revision_number' => $sub->revision_number,
+            'memorandum_type' => $sub->memorandum_type,
+            'submitted_by' => $sub->submitted_by,
+            'submitted_by_name' => $sub->submitted_by_name,
+            'submitted_at' => $sub->submitted_at?->toIso8601String(),
+            'narrative_notes' => $sub->narrative_notes,
+            'risk_mitigation_notes' => $sub->risk_mitigation_notes,
+            'shgb_start_date' => $sub->shgb_start_date?->toDateString(),
+            'shgb_end_date' => $sub->shgb_end_date?->toDateString(),
+            'borrower_snapshot' => $sub->borrower_snapshot,
+            'collateral_snapshot' => $sub->collateral_snapshot,
+            'buyback_documents' => $sub->buyback_documents,
+            'credit_check_snapshot' => $sub->credit_check_snapshot,
+            'exception_snapshot' => $sub->exception_snapshot,
+            'template_version' => $sub->template_version,
+            'content_hash' => $sub->content_hash,
+        ];
+    }
+
+    /**
+     * Konteks dispensasi credit checking aktif (authorized) pada pengajuan (Ticket CC-06).
+     *
+     * CATATAN PRIVASI (Invariant CC-03A):
+     * internal_justification TIDAK diekspos ke klien. Hanya official_disclosure_summary
+     * dan metadata otorisasi yang disertakan.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function activeExceptionContext(ShmApplication $application): ?array
+    {
+        $exception = $application->creditCheckExceptions()
+            ->where('status', ShmCreditCheckException::STATUS_AUTHORIZED)
+            ->latest('id')
+            ->first();
+
+        if ($exception === null) {
+            return null;
+        }
+
+        return [
+            'id' => $exception->id,
+            'exception_number' => $exception->exception_number,
+            'exception_type' => $exception->exception_type,
+            'exception_type_label' => $exception->exception_type === ShmCreditCheckException::TYPE_FAIL_OVERRIDE
+                ? 'FAIL Override'
+                : 'Completion Bypass',
+            'status' => $exception->status,
+            'authorized_by_id' => $exception->authorized_by,
+            'authorized_by_name' => $exception->authorized_by_name,
+            'authorized_at' => $exception->authorized_at?->toIso8601String(),
+            'blocking_condition' => $exception->blocking_condition,
+            'official_disclosure_summary' => $exception->official_disclosure_summary,
+        ];
+    }
+
+    /**
+     * Berikan dispensasi Completion Bypass untuk Memorandum (Ticket CC-11 D-01).
+     */
+    public function authorizeCompletionBypass(Request $request, ShmMemorandum $memorandum): RedirectResponse
+    {
+        $application = $memorandum->application;
+        abort_unless($application !== null, 404, 'Pengajuan tidak ditemukan.');
+
+        $request->validate([
+            'internal_justification' => ['required', 'string', 'min:20'],
+            'official_disclosure_summary' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $this->exceptionService->authorizeException(
+            $application,
+            ShmCreditCheckException::TYPE_COMPLETION_BYPASS,
+            $request->user(),
+            $request->input('internal_justification'),
+            $request->input('official_disclosure_summary'),
+            'Credit checking belum completed pada pengajuan memorandum'
+        );
+
+        return back()->with('success', 'Dispensasi Completion Bypass berhasil diterbitkan.');
+    }
+
     private function scopedApplicationQuery(): Builder
     {
         $query = ShmApplication::query()->with(['customer:id,customer_number,name']);

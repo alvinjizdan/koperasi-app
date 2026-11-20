@@ -11,6 +11,7 @@ use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
 use App\Services\Shm\ShmDisbursementCostService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -39,15 +40,22 @@ class ShmDisbursementCostPersistenceTest extends TestCase
 
     private User $marketing;
 
+    private User $direktur;
+
+    private User $bm;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->direktur = $this->userWithRole('direktur_utama_makro');
+        $this->bm = $this->userWithRole('branch_manager_makro');
 
         // T002C — prasyarat pencairan fail-closed: produk simpanan aktif +
         // sesi kasir aktif milik pelaku pencairan (admin) dengan saldo cukup
@@ -178,7 +186,13 @@ class ShmDisbursementCostPersistenceTest extends TestCase
     {
         $mirrorId = $application->refresh()->shm_application_id;
 
-        $this->actingAs($this->admin)
+        if ($decision === 'approve') {
+            $this->actingAs($this->bm)
+                ->post(route('shm.applications.approve-bm', $mirrorId), ['notes' => 'Persetujuan BM Level 1'])
+                ->assertSessionHasNoErrors();
+        }
+
+        $this->actingAs($this->direktur)
             ->post(route('shm.applications.'.$decision, $mirrorId), ['notes' => 'Keputusan uji T85'])
             ->assertSessionHasNoErrors();
     }

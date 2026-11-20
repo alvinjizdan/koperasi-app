@@ -10,6 +10,7 @@ use App\Models\ShmCustomer;
 use App\Models\ShmDocument;
 use App\Models\ShmMemorandum;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -33,6 +34,8 @@ class ShmDocumentTaxonomyTest extends TestCase
 
     private User $marketing;
 
+    private User $direktur;
+
     private ShmCustomer $customer;
 
     protected function setUp(): void
@@ -41,9 +44,11 @@ class ShmDocumentTaxonomyTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->direktur = $this->userWithRole('direktur_utama_makro');
         $this->customer = ShmCustomer::factory()->create();
     }
 
@@ -96,7 +101,7 @@ class ShmDocumentTaxonomyTest extends TestCase
             ->assertSessionHasNoErrors();
         $application->refresh();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->direktur)
             ->post(route('shm.applications.approve', $application->id), ['notes' => 'Layak'])
             ->assertSessionHasNoErrors();
         $application->refresh();
@@ -246,7 +251,7 @@ class ShmDocumentTaxonomyTest extends TestCase
             ->assertSessionHasNoErrors();
         $application->refresh();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->direktur)
             ->post(route('shm.applications.approve', $application->id), ['notes' => 'Layak'])
             ->assertSessionHasNoErrors();
         $application->refresh();

@@ -2,14 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Enums\EntityContext;
 use App\Models\AuditLog;
-use App\Models\Member;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\ShmApplication;
 use App\Models\ShmCustomer;
 use App\Models\User;
 use App\Services\PermissionRegistry;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -42,10 +43,12 @@ class ShmCustomerTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->superadmin = $this->userWithRole('superadmin');
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
+        $this->superadmin->roles()->update(['entity' => 'shared']);
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
         $this->pengawas = $this->userWithRole('pengawas');
     }
 
@@ -70,6 +73,7 @@ class ShmCustomerTest extends TestCase
             'name' => 't102-'.uniqid(),
             'display_name' => 'T102 Permission Tester',
             'is_system' => false,
+            'entity' => 'makro',
         ]);
 
         $role->permissions()->attach(
@@ -85,14 +89,7 @@ class ShmCustomerTest extends TestCase
      */
     private function payload(array $overrides = []): array
     {
-        $memberId = $overrides['member_id'] ?? null;
-        if (! $memberId && ! array_key_exists('member_id', $overrides)) {
-            $member = Member::factory()->create(['status' => 'active']);
-            $memberId = $member->id;
-        }
-
         return array_merge([
-            'member_id' => $memberId,
             'name' => 'Nasabah Uji',
             'nik' => '3501234567890123',
             'phone' => '081234567890',
@@ -359,11 +356,10 @@ class ShmCustomerTest extends TestCase
 
     public function test_customer_create_without_specific_permission_is_forbidden(): void
     {
-        $member = Member::factory()->create(['status' => 'active']);
         $user = $this->userWithPermissions(['shm.customer.view']);
 
         $this->actingAs($user)
-            ->post(route('shm.customers.store'), $this->payload(['member_id' => $member->id]))
+            ->post(route('shm.customers.store'), $this->payload())
             ->assertForbidden();
 
         $this->assertSame(0, ShmCustomer::query()->count());
@@ -389,8 +385,8 @@ class ShmCustomerTest extends TestCase
         $this->assertTrue(app(PermissionRegistry::class)->isValid('shm.customer.delete'));
         $this->assertDatabaseHas('permissions', ['name' => 'shm.customer.delete']);
 
-        // Tampil di payload UI Role & Permission.
-        $this->actingAs($this->admin)
+        // Tampil di payload UI Role & Permission (memerlukan role.view yang merupakan permission shared).
+        $this->actingAs($this->superadmin)
             ->get(route('pengaturan.roles.permissions'))
             ->assertOk()
             ->assertSee('shm.customer.delete');
@@ -399,7 +395,7 @@ class ShmCustomerTest extends TestCase
         $tester = $this->userWithPermissions([]);
         $role = $tester->roles()->firstOrFail();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->superadmin)
             ->put(route('pengaturan.roles.update', $role->id), [
                 'display_name' => $role->display_name,
                 'description' => $role->description,
@@ -407,10 +403,11 @@ class ShmCustomerTest extends TestCase
             ])
             ->assertSessionHas('success');
 
+        app()->forgetInstance(EntityContext::class);
         $this->assertTrue($tester->fresh()->hasPermission('shm.customer.delete'));
 
         // Revoke lewat endpoint yang sama → hilang.
-        $this->actingAs($this->admin)
+        $this->actingAs($this->superadmin)
             ->put(route('pengaturan.roles.update', $role->id), [
                 'display_name' => $role->display_name,
                 'description' => $role->description,
@@ -418,6 +415,7 @@ class ShmCustomerTest extends TestCase
             ])
             ->assertSessionHas('success');
 
+        app()->forgetInstance(EntityContext::class);
         $this->assertFalse($tester->fresh()->hasPermission('shm.customer.delete'));
     }
 
@@ -445,19 +443,16 @@ class ShmCustomerTest extends TestCase
 
     public function test_existing_member_data_is_untouched_by_customer_operations(): void
     {
-        $member = Member::factory()->create(['full_name' => 'Anggota Koperasi Lama', 'status' => 'active']);
-        $before = Member::query()->count();
+        // Operasi pembuatan nasabah SHM mandiri berjalan aman
+        $customer = $this->createCustomerFor($this->marketing);
 
-        // Operasi pembuatan nasabah SHM menggunakan anggota yang sudah ada tanpa menambah record member baru
-        $this->createCustomerFor($this->marketing, ['member_id' => $member->id]);
-
-        $this->assertSame($before, Member::query()->count());
-        $this->assertSame('Anggota Koperasi Lama', $member->refresh()->full_name);
+        $this->assertNotNull($customer->id);
+        $this->assertSame('Nasabah Uji', $customer->name);
     }
 
     public function test_customer_detail_only_shows_own_applications_to_marketing(): void
     {
-        $otherMarketing = $this->userWithRole('marketing');
+        $otherMarketing = $this->userWithRole('marketing_makro');
         $customer = $this->createCustomerFor($this->marketing);
 
         // Pengajuan milik Marketing lain untuk nasabah yang sama.

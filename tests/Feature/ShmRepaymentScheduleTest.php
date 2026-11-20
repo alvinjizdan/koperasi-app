@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\InstallmentPayment;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanInstallment;
@@ -644,17 +643,15 @@ class ShmRepaymentScheduleTest extends TestCase
         $this->assertSame(ShmLoanInstallment::STATUS_SCHEDULED, $schedule->first()->status);
     }
 
-    /** #22 — Tidak ada record pembayaran yang dibuat (SHM maupun koperasi). */
+    /** #22 — Tidak ada record pembayaran yang dibuat. */
     public function test_t80_no_payment_records_are_created(): void
     {
         $loan = $this->createEligibleLoan('2026-10-12');
 
         app(ShmRepaymentScheduleService::class)->generate($loan);
 
-        // Tabel pembayaran SHM tidak ada (ticket Payment belum ada)…
+        // Tabel pembayaran SHM tidak ada (ticket Payment belum ada)
         $this->assertFalse(Schema::hasTable('shm_payments'));
-        // …dan tabel pembayaran koperasi tidak tersentuh.
-        $this->assertSame(0, InstallmentPayment::query()->count());
         // Seluruh baris angsuran tetap berstatus scheduled (belum dibayar).
         $this->assertSame(
             0,

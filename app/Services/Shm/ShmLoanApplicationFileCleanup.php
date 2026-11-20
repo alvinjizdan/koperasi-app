@@ -34,6 +34,9 @@ class ShmLoanApplicationFileCleanup
         $paths = [
             $application->ktp_photo_path,
             $application->kk_photo_path,
+            $application->marriage_certificate_path,
+            $application->divorce_certificate_path,
+            $application->death_certificate_path,
         ];
 
         foreach ($application->collaterals as $collateral) {

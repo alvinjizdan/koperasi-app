@@ -8,6 +8,7 @@ use App\Models\ShmLoan;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
 use App\Services\Shm\ShmProductRateService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Database\Seeders\ShmLoanProductSeeder;
@@ -44,6 +45,7 @@ class ShmLoanProductCrudTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
         $this->seed(ShmLoanProductSeeder::class);
     }
 
@@ -65,6 +67,7 @@ class ShmLoanProductCrudTest extends TestCase
         $role = Role::query()->create([
             'name' => 'product-crud-tester-'.Str::uuid(),
             'display_name' => 'Product CRUD Tester',
+            'entity' => 'makro',
             'is_system' => false,
         ]);
 
@@ -79,7 +82,7 @@ class ShmLoanProductCrudTest extends TestCase
 
     private function admin(): User
     {
-        return $this->userWithRole('admin');
+        return $this->userWithRole('admin_makro');
     }
 
     /**
@@ -303,7 +306,7 @@ class ShmLoanProductCrudTest extends TestCase
     {
         // Marketing memiliki shm.update/shm.customer.* tetapi TIDAK
         // shm.product.manage — master produk tetap tertutup baginya.
-        $marketing = $this->userWithRole('marketing');
+        $marketing = $this->userWithRole('marketing_makro');
         $product = ShmLoanProduct::query()->where('code', 'BSM-PRIORITAS')->firstOrFail();
 
         $this->assertFalse($marketing->hasPermission('shm.product.manage'));

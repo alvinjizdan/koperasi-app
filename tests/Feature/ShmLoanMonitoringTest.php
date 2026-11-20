@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Member;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\ShmAgent;
@@ -13,6 +12,7 @@ use App\Models\ShmLoanApplicationAsset;
 use App\Models\ShmLoanApplicationCollateral;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -54,6 +54,12 @@ class ShmLoanMonitoringTest extends TestCase
 
     private User $kasir;
 
+    private User $branchManager;
+
+    private User $director;
+
+    private User $finance;
+
     private ShmLoanProduct $product;
 
     protected function setUp(): void
@@ -62,18 +68,28 @@ class ShmLoanMonitoringTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->admin = $this->userWithRole('admin');
         $this->marketing = $this->userWithRole('marketing');
         $this->marketing2 = $this->userWithRole('marketing');
         $this->kasir = $this->userWithRole('kasir');
 
+        $this->branchManager = User::factory()->create(['is_active' => true]);
+        $this->branchManager->roles()->attach(Role::where('name', 'branch_manager_makro')->value('id'));
+
+        $this->director = User::factory()->create(['is_active' => true]);
+        $this->director->roles()->attach(Role::where('name', 'direktur_utama_makro')->value('id'));
+
+        $this->finance = User::factory()->create(['is_active' => true]);
+        $this->finance->roles()->attach(Role::where('name', 'finance_operational_makro')->value('id'));
+
         $this->product = ShmLoanProduct::factory()->create();
 
         // T002C — prasyarat pencairan fail-closed: produk simpanan aktif +
-        // sesi kasir aktif milik pelaku pencairan (admin).
+        // sesi kasir aktif milik pelaku pencairan (finance).
         $this->seedShmSavingsProducts();
-        $this->openCashierSessionFor($this->admin);
+        $this->openCashierSessionFor($this->finance);
     }
 
     private function userWithRole(string $roleName): User
@@ -342,10 +358,7 @@ class ShmLoanMonitoringTest extends TestCase
 
     public function test_search_never_matches_cooperative_member(): void
     {
-        // Member koperasi dengan nomor yang sama sekali berbeda tidak boleh
-        // pernah cocok dengan pinjaman SHM.
-        Member::factory()->create(['full_name' => 'Pak Koperasi']);
-
+        // Pinjaman SHM dengan keyword berbeda tidak boleh cocok dengan query pencarian 'Koperasi'
         $this->makeLoan(
             $this->makeApplication($this->marketing),
             [
@@ -482,7 +495,6 @@ class ShmLoanMonitoringTest extends TestCase
 
     public function test_detail_shows_shm_customer_not_cooperative_member(): void
     {
-        $member = Member::factory()->create(['full_name' => 'Bukan Nasabah SHM']);
         $customer = ShmCustomer::factory()->create([
             'name' => 'Nasabah SHM Sah',
             'customer_number' => 'NAS-SHM-001',
@@ -506,16 +518,15 @@ class ShmLoanMonitoringTest extends TestCase
 
         $props = $response->original->getData()['page']['props'];
 
-        // Customer yang dirender adalah baris shm_customers — bukan member.
+        // Customer yang dirender adalah baris shm_customers.
         $this->assertSame(
             $customer->id,
             $props['loan']['customer']['id'],
         );
-        $this->assertNotSame(
-            $member->full_name,
+        $this->assertSame(
+            'Nasabah SHM Sah',
             $props['loan']['customer']['name'],
         );
-        $this->assertStringNotContainsString('Bukan Nasabah SHM', $response->getContent());
     }
 
     public function test_detail_shows_origin_application(): void
@@ -836,7 +847,11 @@ class ShmLoanMonitoringTest extends TestCase
 
         $mirrorId = $application->refresh()->shm_application_id;
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->branchManager)
+            ->post(route('shm.applications.approve-bm', $mirrorId), ['notes' => 'Persetujuan BM Level 1 uji T70'])
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $mirrorId), ['notes' => 'Keputusan uji T70'])
             ->assertSessionHasNoErrors();
 
@@ -845,7 +860,7 @@ class ShmLoanMonitoringTest extends TestCase
 
     private function disburse(ShmLoanApplication $application): TestResponse
     {
-        return $this->actingAs($this->admin)
+        return $this->actingAs($this->finance)
             ->post(route('shm.loans.pengajuan.disburse', $application));
     }
 }

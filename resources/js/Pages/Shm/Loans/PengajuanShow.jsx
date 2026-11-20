@@ -386,14 +386,30 @@ export default function PengajuanShow({ application, flash }) {
                         <Row
                             label="Status Pernikahan"
                             value={
-                                pribadi.marital_status === 'married'
-                                    ? 'Sudah Menikah'
-                                    : pribadi.marital_status === 'single'
+                                ['married', 'menikah'].includes(pribadi.marital_status)
+                                    ? 'Menikah'
+                                    : ['single', 'belum_menikah'].includes(pribadi.marital_status)
                                     ? 'Belum Menikah'
+                                    : pribadi.marital_status === 'janda'
+                                    ? 'Janda'
+                                    : pribadi.marital_status === 'duda'
+                                    ? 'Duda'
                                     : '—'
                             }
                         />
-                        {pribadi.marital_status === 'married' && (
+                        {['janda', 'duda'].includes(pribadi.marital_status) && (
+                            <Row
+                                label="Penyebab Berpisah"
+                                value={
+                                    pribadi.marital_separation_type === 'cerai_hidup'
+                                        ? 'Cerai Hidup'
+                                        : pribadi.marital_separation_type === 'cerai_mati'
+                                        ? 'Cerai Mati'
+                                        : '—'
+                                }
+                            />
+                        )}
+                        {['married', 'menikah'].includes(pribadi.marital_status) && (
                             <>
                                 <Row label="Nama Pasangan" value={pribadi.spouse_name ?? '—'} />
                                 <Row label="NIK Pasangan" value={pribadi.spouse_nik ?? '—'} />
@@ -402,10 +418,10 @@ export default function PengajuanShow({ application, flash }) {
                         )}
                     </dl>
 
-                    {/* Dokumen Identitas Pemohon (Foto KTP & KK) */}
+                    {/* Dokumen Identitas & Dokumen Status Pernikahan */}
                     <div className="mt-4 pt-4 border-t border-slate-100">
                         <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                            Dokumen Identitas Pemohon
+                            Dokumen Pendukung Pemohon
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
@@ -461,6 +477,104 @@ export default function PengajuanShow({ application, flash }) {
                                     </p>
                                 )}
                             </div>
+
+                            {/* Dokumen Buku Nikah (Menikah) */}
+                            {['married', 'menikah'].includes(pribadi.marital_status) && (
+                                <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
+                                    <span className="text-xs font-semibold text-slate-700 block mb-2">
+                                        Buku Nikah (PDF)
+                                    </span>
+                                    {pribadi.buku_nikah_url ? (
+                                        <div className="flex items-center justify-between gap-3 p-2.5 rounded border border-slate-200 bg-white">
+                                            <div className="flex items-center gap-2">
+                                                <FileText className="h-5 w-5 text-rose-600 shrink-0" />
+                                                <span className="text-xs font-medium text-slate-700">
+                                                    Dokumen Buku Nikah
+                                                </span>
+                                            </div>
+                                            <a
+                                                href={pribadi.buku_nikah_url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                                            >
+                                                <FileDown className="h-3.5 w-3.5 text-slate-500" />
+                                                Buka Dokumen
+                                            </a>
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-slate-400">
+                                            Belum ada Buku Nikah yang diunggah.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Dokumen Akta Cerai (Janda / Duda + Cerai Hidup) */}
+                            {['janda', 'duda'].includes(pribadi.marital_status) &&
+                                pribadi.marital_separation_type === 'cerai_hidup' && (
+                                    <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
+                                        <span className="text-xs font-semibold text-slate-700 block mb-2">
+                                            Akta Cerai (PDF)
+                                        </span>
+                                        {pribadi.akta_cerai_url ? (
+                                            <div className="flex items-center justify-between gap-3 p-2.5 rounded border border-slate-200 bg-white">
+                                                <div className="flex items-center gap-2">
+                                                    <FileText className="h-5 w-5 text-rose-600 shrink-0" />
+                                                    <span className="text-xs font-medium text-slate-700">
+                                                        Dokumen Akta Cerai
+                                                    </span>
+                                                </div>
+                                                <a
+                                                    href={pribadi.akta_cerai_url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                                                >
+                                                    <FileDown className="h-3.5 w-3.5 text-slate-500" />
+                                                    Buka Dokumen
+                                                </a>
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-slate-400">
+                                                Belum ada Akta Cerai yang diunggah.
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+
+                            {/* Dokumen Akta Kematian (Janda / Duda + Cerai Mati) */}
+                            {['janda', 'duda'].includes(pribadi.marital_status) &&
+                                pribadi.marital_separation_type === 'cerai_mati' && (
+                                    <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
+                                        <span className="text-xs font-semibold text-slate-700 block mb-2">
+                                            Akta Kematian (PDF)
+                                        </span>
+                                        {pribadi.akta_kematian_url ? (
+                                            <div className="flex items-center justify-between gap-3 p-2.5 rounded border border-slate-200 bg-white">
+                                                <div className="flex items-center gap-2">
+                                                    <FileText className="h-5 w-5 text-rose-600 shrink-0" />
+                                                    <span className="text-xs font-medium text-slate-700">
+                                                        Dokumen Akta Kematian
+                                                    </span>
+                                                </div>
+                                                <a
+                                                    href={pribadi.akta_kematian_url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                                                >
+                                                    <FileDown className="h-3.5 w-3.5 text-slate-500" />
+                                                    Buka Dokumen
+                                                </a>
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-slate-400">
+                                                Belum ada Akta Kematian yang diunggah.
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
                         </div>
                     </div>
                 </DetailSection>

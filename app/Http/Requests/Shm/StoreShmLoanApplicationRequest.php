@@ -71,25 +71,63 @@ class StoreShmLoanApplicationRequest extends FormRequest
             'pribadi.saldo_non_modal' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
             'pribadi.batas_hutang' => ['nullable', 'numeric', 'min:0', 'max:'.$maxAmount],
             // Status pernikahan & informasi pasangan
-            'pribadi.marital_status' => ['nullable', 'string', Rule::in(['single', 'married'])],
+            'pribadi.marital_status' => [
+                'nullable',
+                'string',
+                Rule::in(['single', 'married', 'belum_menikah', 'menikah', 'janda', 'duda']),
+            ],
+            // Ticket 30A — Tipe pemisahan (Cerai Hidup vs Cerai Mati) untuk Janda/Duda
+            'pribadi.marital_separation_type' => [
+                Rule::requiredIf(fn () => in_array($this->input('pribadi.marital_status'), ['janda', 'duda'], true)),
+                'nullable',
+                'string',
+                Rule::in(['cerai_hidup', 'cerai_mati']),
+            ],
             'pribadi.spouse_name' => [
-                Rule::requiredIf(fn () => $this->input('pribadi.marital_status') === 'married'),
+                Rule::requiredIf(fn () => in_array($this->input('pribadi.marital_status'), ['married', 'menikah'], true)),
                 'nullable',
                 'string',
                 'max:150',
             ],
             'pribadi.spouse_nik' => [
-                Rule::requiredIf(fn () => $this->input('pribadi.marital_status') === 'married'),
+                Rule::requiredIf(fn () => in_array($this->input('pribadi.marital_status'), ['married', 'menikah'], true)),
                 'nullable',
                 'string',
                 'regex:/^[0-9]{16}$/',
             ],
             'pribadi.spouse_phone' => [
-                Rule::requiredIf(fn () => $this->input('pribadi.marital_status') === 'married'),
+                Rule::requiredIf(fn () => in_array($this->input('pribadi.marital_status'), ['married', 'menikah'], true)),
                 'nullable',
                 'string',
                 'max:30',
                 'regex:/^[0-9+\-\s()]{7,30}$/',
+            ],
+            // Upload Dokumen Pendukung Status Pernikahan:
+            // - Buku Nikah: wajib jika menikah (PDF, maks 10 MB)
+            // - Akta Cerai: wajib jika janda/duda dengan cerai hidup (PDF, maks 10 MB)
+            // - Akta Kematian: wajib jika janda/duda dengan cerai mati (PDF, maks 10 MB)
+            'pribadi.buku_nikah' => [
+                Rule::requiredIf(fn () => in_array($this->input('pribadi.marital_status'), ['married', 'menikah'], true)),
+                'nullable',
+                'file',
+                'mimes:pdf',
+                'max:10240',
+            ],
+            'pribadi.akta_cerai' => [
+                Rule::requiredIf(fn () => in_array($this->input('pribadi.marital_status'), ['janda', 'duda'], true)
+                    && $this->input('pribadi.marital_separation_type') === 'cerai_hidup'),
+                'nullable',
+                'file',
+                'mimes:pdf',
+                'max:10240',
+            ],
+            'pribadi.akta_kematian' => [
+                Rule::requiredIf(fn () => in_array($this->input('pribadi.marital_status'), ['janda', 'duda'], true)
+                    && $this->input('pribadi.marital_separation_type') === 'cerai_mati'),
+                'nullable',
+                'file',
+                'mimes:pdf',
+                'max:10240',
             ],
             // Upload Foto KTP & Kartu Keluarga (KK) — maks 2 MB, format JPG, JPEG, PNG
             'pribadi.ktp_photo' => ['nullable', 'file', 'mimes:jpg,jpeg,png', 'max:2048'],

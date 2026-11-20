@@ -69,20 +69,6 @@ export default function Index({ customers, sort, filters, permissions, flash }) 
         },
         { key: 'name', label: 'Nama', sortable: true },
         {
-            key: 'member',
-            label: 'Anggota Sumber',
-            render: (row) =>
-                row.member ? (
-                    <span className="text-xs text-slate-600">
-                        <span className="font-medium text-slate-700">{row.member.member_number}</span>
-                        {' - '}
-                        {row.member.full_name}
-                    </span>
-                ) : (
-                    <span className="text-xs text-slate-400">-</span>
-                ),
-        },
-        {
             key: 'nik',
             label: 'NIK',
             sortable: true,

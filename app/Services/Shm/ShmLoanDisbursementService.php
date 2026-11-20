@@ -4,6 +4,7 @@ namespace App\Services\Shm;
 
 use App\Models\CashTransaction;
 use App\Models\Shm\ShmSavingProduct;
+use App\Models\ShmApproval;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Services\Accounting\ShmAutomaticJournalService;
@@ -77,9 +78,15 @@ class ShmLoanDisbursementService
     public function disburse(ShmLoanApplication $application, int $actorId): ShmLoan
     {
         return DB::transaction(function () use ($application, $actorId): ShmLoan {
+            // T15I Financial Actor Row Locking: kunci baris user actor dan pastikan akun aktif
+            $actor = DB::table('users')->where('id', $actorId)->lockForUpdate()->first();
+            if (! $actor || ! $actor->is_active) {
+                abort(403, 'Aktor tidak aktif atau tidak ditemukan.');
+            }
+
             // 1. Lock baris pengajuan — state dibaca di dalam transaksi,
             //    bukan dari state UI yang mungkin sudah basi.
-            $locked = ShmLoanApplication::query()->lockForUpdate()->with(['customer.member', 'product'])->findOrFail($application->id);
+            $locked = ShmLoanApplication::query()->lockForUpdate()->with(['customer', 'product'])->findOrFail($application->id);
 
             // 2. Ownership (aturan identik AuthorizesShmOwnership) — ditegakkan
             //    di server, bukan hanya tombol frontend.
@@ -101,22 +108,28 @@ class ShmLoanDisbursementService
                 ]);
             }
 
-            // 4. Approval guard: keputusan hidup di baris ShmApproval existing
-            //    (T68 §6) — bukan di kolom status pengajuan.
-            $approval = $locked->approval();
+            // 4. Two-Level Approval guard: pencairan HANYA boleh bila KEDUA level
+            //    approval (Level 1 BM dan Level 2 Direktur) telah disetujui.
+            $mirror = $locked->shmApplication;
 
-            if ($approval === null) {
+            if ($mirror === null) {
                 throw ValidationException::withMessages([
                     'application' => 'Pengajuan belum diajukan approval sehingga tidak dapat dicairkan.',
                 ]);
             }
 
-            if ($approval->status !== 'approved') {
+            $hasBmApproval = $mirror->approvals()->where('status', ShmApproval::STATUS_APPROVED_BM)->exists();
+            $hasDirectorApproval = $mirror->approvals()->where('status', ShmApproval::STATUS_APPROVED)->exists();
+
+            if (! $hasBmApproval) {
                 throw ValidationException::withMessages([
-                    'application' => sprintf(
-                        'Hanya pengajuan dengan approval DISETUJUI yang dapat dicairkan. Status approval saat ini: %s.',
-                        $approval->status,
-                    ),
+                    'application' => 'Pencairan ditolak: Pengajuan belum memperoleh persetujuan Level 1 dari Branch Manager.',
+                ]);
+            }
+
+            if (! $hasDirectorApproval) {
+                throw ValidationException::withMessages([
+                    'application' => 'Pencairan ditolak: Pengajuan belum memperoleh persetujuan final (Level 2) dari Presiden Direktur.',
                 ]);
             }
 

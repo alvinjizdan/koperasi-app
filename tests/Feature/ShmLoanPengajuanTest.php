@@ -6,6 +6,7 @@ use App\Models\Role;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -51,10 +52,11 @@ class ShmLoanPengajuanTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->superadmin = $this->userWithRole('superadmin');
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
         $this->kasir = $this->userWithRole('kasir');
     }
 
@@ -363,6 +365,7 @@ class ShmLoanPengajuanTest extends TestCase
             'shm.loans.pengajuan',
             'shm.loans.pengajuan.daftar',
             'shm.loans.pengajuan.disburse',
+            'shm.loans.pengajuan.dokumen-pernikahan',
             'shm.loans.pengajuan.edit',
             'shm.loans.pengajuan.identitas.foto',
             // Dokumen PDF jaminan (ticket upload-dokumen-jaminan).
@@ -380,6 +383,15 @@ class ShmLoanPengajuanTest extends TestCase
             'shm.loans.products.index',
             'shm.loans.products.store',
             'shm.loans.products.update',
+            'shm.loans.refunds.approve',
+            'shm.loans.refunds.cancel',
+            'shm.loans.refunds.confirm_recovery',
+            'shm.loans.refunds.index',
+            'shm.loans.refunds.payout',
+            'shm.loans.refunds.reject',
+            'shm.loans.refunds.reverse',
+            'shm.loans.refunds.show',
+            'shm.loans.refunds.store',
             'shm.loans.report.index',
             'shm.loans.report.pdf',
             // T83 — action eksplisit pembangkitan jadwal angsuran.

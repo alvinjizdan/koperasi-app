@@ -10,6 +10,7 @@ use App\Models\ShmCustomer;
 use App\Models\ShmMemorandum;
 use App\Models\ShmProperty;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -59,15 +60,16 @@ class ShmMemorandumLegalAndBuybackDocumentTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->admin = User::factory()->create();
-        $adminRole = Role::where('name', 'admin')->first();
+        $adminRole = Role::where('name', 'admin_makro')->first();
         if ($adminRole) {
             $this->admin->roles()->attach($adminRole->id);
         }
 
         $this->marketing = User::factory()->create();
-        $marketingRole = Role::where('name', 'marketing')->first();
+        $marketingRole = Role::where('name', 'marketing_makro')->first();
         if ($marketingRole) {
             $this->marketing->roles()->attach($marketingRole->id);
         }
@@ -242,6 +244,48 @@ class ShmMemorandumLegalAndBuybackDocumentTest extends TestCase
         $this->assertCount(5, $memo->buybackDocuments);
         $this->assertTrue($memo->isBuybackDocumentsComplete());
         $this->assertSame('5/5', $memo->buybackDocumentsRatio());
+    }
+
+    /** Ticket 28C: Verifikasi upload menggunakan key baru 'kuasa_jual' */
+    public function test_can_upload_using_new_kuasa_jual_document_type(): void
+    {
+        $app = $this->createCompletedApp(ShmApplication::TYPE_BUYBACK);
+        $memo = ShmMemorandum::create([
+            'shm_application_id' => $app->id,
+            'type' => ShmMemorandum::TYPE_BUYBACK,
+            'status' => 'draft',
+            'created_by' => $this->admin->id,
+        ]);
+
+        $documentTypes = [
+            ShmBuybackDocument::TYPE_SHM,
+            ShmBuybackDocument::TYPE_AKTA_BUYBACK,
+            ShmBuybackDocument::TYPE_KUASA_JUAL,
+            ShmBuybackDocument::TYPE_PPJB,
+            ShmBuybackDocument::TYPE_PENGOSONGAN,
+        ];
+
+        foreach ($documentTypes as $type) {
+            $pdf = UploadedFile::fake()->create("{$type}.pdf", 1000, 'application/pdf');
+
+            $response = $this->actingAs($this->admin)->post(
+                route('shm.memorandums.buyback.documents.upload', $memo->id),
+                [
+                    'document_type' => $type,
+                    'file' => $pdf,
+                ]
+            );
+
+            $response->assertSessionHasNoErrors();
+            $response->assertRedirect();
+        }
+
+        $this->assertCount(5, $memo->buybackDocuments);
+        $this->assertTrue($memo->isBuybackDocumentsComplete());
+        $this->assertSame('5/5', $memo->buybackDocumentsRatio());
+
+        $kjDoc = $memo->buybackDocuments()->where('document_type', ShmBuybackDocument::TYPE_KUASA_JUAL)->first();
+        $this->assertNotNull($kjDoc);
     }
 
     public function test_rejects_non_pdf_and_oversized_files(): void

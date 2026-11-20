@@ -32,7 +32,7 @@ class UploadShmBuybackDocumentRequest extends FormRequest
             'document_type' => [
                 'required',
                 'string',
-                Rule::in(ShmBuybackDocument::REQUIRED_TYPES),
+                Rule::in(ShmBuybackDocument::ALLOWED_UPLOAD_TYPES),
             ],
             'file' => [
                 'required',

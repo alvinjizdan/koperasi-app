@@ -2,9 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\Member;
 use App\Models\Role;
-use App\Models\SavingProduct;
 use App\Models\Shm\ShmSavingProduct;
 use App\Models\Shm\ShmSavingsAccount;
 use App\Models\ShmApplication;
@@ -16,10 +14,8 @@ use App\Models\User;
 use App\Services\Shm\ShmLoanDisbursementService;
 use App\Services\Shm\ShmLoanPaymentService;
 use App\Services\Shm\ShmLoanSettlementService;
-use Database\Seeders\PermissionSeeder;
-use Database\Seeders\RoleSeeder;
-use Database\Seeders\ShmSavingProductSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\Concerns\InteractsWithShmDisbursement;
 use Tests\TestCase;
@@ -45,45 +41,21 @@ class ShmCustomerMemberIntegrationTest extends TestCase
 
     private User $marketing;
 
-    private SavingProduct $principalProduct;
-
-    private SavingProduct $mandatoryProduct;
-
     protected function setUp(): void
     {
         parent::setUp();
-
-        $this->seed(PermissionSeeder::class);
-        $this->seed(RoleSeeder::class);
-        $this->seed(ShmSavingProductSeeder::class);
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test (Koperasi Member integration decommissioned in forward-only schema).');
 
         $this->admin = User::factory()->create(['email_verified_at' => now()]);
         $this->admin->roles()->attach(Role::where('name', 'admin')->value('id'));
 
         $this->marketing = User::factory()->create(['email_verified_at' => now()]);
         $this->marketing->roles()->attach(Role::where('name', 'marketing')->value('id'));
-
-        // Buat produk simpanan pokok dan wajib untuk koperasi
-        $this->principalProduct = SavingProduct::create([
-            'code' => 'SP-01',
-            'name' => 'Simpanan Pokok',
-            'category' => SavingProduct::CATEGORY_PRINCIPAL,
-            'description' => 'Simpanan Pokok Anggota',
-            'is_active' => true,
-        ]);
-
-        $this->mandatoryProduct = SavingProduct::create([
-            'code' => 'SW-01',
-            'name' => 'Simpanan Wajib',
-            'category' => SavingProduct::CATEGORY_MANDATORY,
-            'description' => 'Simpanan Wajib Anggota',
-            'is_active' => true,
-        ]);
     }
 
-    private function createMember(array $attributes = []): Member
+    private function createMember(array $attributes = []): object
     {
-        return Member::create(array_merge([
+        $data = array_merge([
             'member_number' => 'ANG-'.Str::upper(Str::random(6)),
             'full_name' => 'Budi Santoso '.Str::random(4),
             'identity_number' => '3201'.random_int(100000000000, 999999999999),
@@ -91,7 +63,13 @@ class ShmCustomerMemberIntegrationTest extends TestCase
             'address' => 'Jl. Koperasi No. 10',
             'joined_at' => now()->toDateString(),
             'status' => 'active',
-        ], $attributes));
+            'created_at' => now(),
+            'updated_at' => now(),
+        ], $attributes);
+
+        $id = DB::table('members')->insertGetId($data);
+
+        return (object) array_merge(['id' => $id], $data);
     }
 
     // =========================================================================
@@ -246,6 +224,12 @@ class ShmCustomerMemberIntegrationTest extends TestCase
             'shm_customer_id' => $customer->id,
             'marketing_id' => $this->admin->id,
             'status' => 'approved',
+        ]);
+        $shmApp->approvals()->create([
+            'stage' => 'approval',
+            'status' => 'approved_bm',
+            'decided_by' => $this->admin->id,
+            'decided_at' => now()->subMinute(),
         ]);
         $shmApp->approvals()->create([
             'stage' => 'approval',

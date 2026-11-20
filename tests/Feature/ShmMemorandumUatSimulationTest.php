@@ -13,6 +13,9 @@ use App\Models\ShmLoan;
 use App\Models\ShmMemorandum;
 use App\Models\ShmMemorandumApprovalHistory;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -56,7 +59,9 @@ class ShmMemorandumUatSimulationTest extends TestCase
         parent::setUp();
         Storage::fake('local');
 
-        $this->seedPermissions();
+        $this->seed(PermissionSeeder::class);
+        $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         // 1. Setup Actors with discrete permissions according to matrix
         $this->marketingUser = $this->createUserWithRoleAndPermissions('marketing_uat', [
@@ -128,6 +133,9 @@ class ShmMemorandumUatSimulationTest extends TestCase
         $role = Role::create([
             'name' => $roleName,
             'display_name' => ucwords(str_replace('_', ' ', $roleName)),
+            'entity' => 'makro',
+            'is_system' => false,
+            'is_active' => true,
         ]);
 
         foreach ($permissionNames as $permName) {

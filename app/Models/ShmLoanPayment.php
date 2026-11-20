@@ -121,6 +121,31 @@ class ShmLoanPayment extends Model
     }
 
     /**
+     * Penggunaan dana titipan pembayaran ini pada settlement (Ticket 41).
+     *
+     * @return HasMany<ShmLoanSettlementUnallocatedUsage, $this>
+     */
+    public function settlementUsages(): HasMany
+    {
+        return $this->hasMany(ShmLoanSettlementUnallocatedUsage::class, 'shm_loan_payment_id');
+    }
+
+    /**
+     * Nominal titipan dari pembayaran ini yang aktif digunakan pada settlement.
+     */
+    public function consumedInSettlementAmount(): string
+    {
+        return number_format(
+            (float) $this->settlementUsages()
+                ->where('status', ShmLoanSettlementUnallocatedUsage::STATUS_ACTIVE)
+                ->sum('amount'),
+            2,
+            '.',
+            '',
+        );
+    }
+
+    /**
      * Total nominal yang sudah teralokasi ke angsuran (Σ total_amount).
      */
     public function allocatedAmount(): string
@@ -134,13 +159,15 @@ class ShmLoanPayment extends Model
     }
 
     /**
-     * Nominal yang belum teralokasi (amount − allocated). Negatif tidak
-     * mungkin: alokasi tidak pernah melebihi amount pembayaran.
+     * Nominal yang belum teralokasi (amount − allocated − consumedInSettlement). Negatif tidak
+     * mungkin.
      */
     public function unallocatedAmount(): string
     {
+        $available = (float) $this->amount - (float) $this->allocatedAmount() - (float) $this->consumedInSettlementAmount();
+
         return number_format(
-            (float) $this->amount - (float) $this->allocatedAmount(),
+            max(0.0, $available),
             2,
             '.',
             '',

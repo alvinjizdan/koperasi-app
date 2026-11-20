@@ -9,6 +9,7 @@ use App\Models\ShmCreditCheck;
 use App\Models\ShmCustomer;
 use App\Models\ShmMemorandum;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -46,11 +47,12 @@ class ShmMemorandumTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->superadmin = $this->userWithRole('superadmin');
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
-        $this->otherMarketing = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->otherMarketing = $this->userWithRole('marketing_makro');
         $this->pengawas = $this->userWithRole('pengawas');
     }
 

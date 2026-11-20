@@ -9,6 +9,7 @@ use App\Models\ShmCustomer;
 use App\Models\ShmMemorandum;
 use App\Models\ShmProperty;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -43,15 +44,16 @@ class ShmMemorandumShmShgbManagementTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->admin = User::factory()->create();
-        $adminRole = Role::where('name', 'admin')->first();
+        $adminRole = Role::where('name', 'admin_makro')->first();
         if ($adminRole) {
             $this->admin->roles()->attach($adminRole->id);
         }
 
         $this->marketing = User::factory()->create();
-        $marketingRole = Role::where('name', 'marketing')->first();
+        $marketingRole = Role::where('name', 'marketing_makro')->first();
         if ($marketingRole) {
             $this->marketing->roles()->attach($marketingRole->id);
         }

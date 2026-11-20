@@ -7,10 +7,14 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\ShmApplication;
 use App\Models\ShmBuybackDocument;
+use App\Models\ShmCreditCheck;
 use App\Models\ShmCustomer;
 use App\Models\ShmMemorandum;
 use App\Models\ShmMemorandumApprovalHistory;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -31,6 +35,10 @@ class ShmMemorandumApprovalWorkflowTest extends TestCase
     {
         parent::setUp();
         Storage::fake('local');
+
+        $this->seed(PermissionSeeder::class);
+        $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->seedPermissions();
 
@@ -67,6 +75,8 @@ class ShmMemorandumApprovalWorkflowTest extends TestCase
         $role = Role::create([
             'name' => 'role_'.uniqid(),
             'display_name' => 'Test Role',
+            'entity' => 'makro',
+            'is_active' => true,
         ]);
 
         foreach ($permissions as $permName) {
@@ -85,7 +95,7 @@ class ShmMemorandumApprovalWorkflowTest extends TestCase
     {
         $customer = ShmCustomer::factory()->create();
 
-        return ShmApplication::create([
+        $app = ShmApplication::create([
             'application_number' => 'APP-'.uniqid(),
             'shm_customer_id' => $customer->id,
             'marketing_id' => $marketing->id,
@@ -93,6 +103,19 @@ class ShmMemorandumApprovalWorkflowTest extends TestCase
             'status' => ShmApplicationStatus::Completed,
             'completed_at' => now(),
         ]);
+
+        // Sediakan Credit Check status completed / pass agar memenuhi prasyarat CC-05
+        ShmCreditCheck::create([
+            'shm_application_id' => $app->id,
+            'filled_by' => $marketing->id,
+            'status' => 'completed',
+            'outcome' => 'pass',
+            'result' => 'Lulus pemeriksaan kelayakan.',
+            'started_at' => now()->subDay(),
+            'checked_at' => now(),
+        ]);
+
+        return $app;
     }
 
     public function test_shm_shgb_approval_lifecycle_draft_to_approved(): void

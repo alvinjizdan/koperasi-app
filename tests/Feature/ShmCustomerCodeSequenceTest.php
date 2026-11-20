@@ -2,10 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Models\Member;
 use App\Models\Role;
 use App\Models\ShmCustomer;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Database\QueryException;
@@ -42,8 +42,9 @@ class ShmCustomerCodeSequenceTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->marketing = $this->userWithRole('marketing');
+        $this->marketing = $this->userWithRole('marketing_makro');
     }
 
     private function userWithRole(string $roleName): User
@@ -54,24 +55,23 @@ class ShmCustomerCodeSequenceTest extends TestCase
         return $user;
     }
 
-    private function activeMember(array $overrides = []): Member
-    {
-        return Member::factory()->create(array_merge(['status' => 'active'], $overrides));
-    }
-
     /**
      * Buat nasabah lewat jalur HTTP resmi (service → generator sequence).
      */
-    private function createCustomerViaHttp(Member $member, string $name = 'Nasabah Uji'): ShmCustomer
+    private function createCustomerViaHttp(?int $memberId = null, string $name = 'Nasabah Uji'): ShmCustomer
     {
+        $payload = [
+            'name' => $name,
+            'nik' => '3501234567890123',
+            'phone' => '081234567890',
+            'address' => 'Jl. Contoh No. 1, Cirebon',
+        ];
+        if ($memberId !== null) {
+            $payload['member_id'] = $memberId;
+        }
+
         $this->actingAs($this->marketing)
-            ->post(route('shm.customers.store'), [
-                'member_id' => $member->id,
-                'name' => $name,
-                'nik' => '3501234567890123',
-                'phone' => '081234567890',
-                'address' => 'Jl. Contoh No. 1, Cirebon',
-            ])
+            ->post(route('shm.customers.store'), $payload)
             ->assertSessionHasNoErrors();
 
         return ShmCustomer::query()->latest('id')->firstOrFail();
@@ -83,9 +83,9 @@ class ShmCustomerCodeSequenceTest extends TestCase
 
     public function test_first_new_customer_gets_00001_then_increments(): void
     {
-        $first = $this->createCustomerViaHttp($this->activeMember(), 'Budi');
-        $second = $this->createCustomerViaHttp($this->activeMember(), 'Andi');
-        $third = $this->createCustomerViaHttp($this->activeMember(), 'Citra');
+        $first = $this->createCustomerViaHttp(null, 'Budi');
+        $second = $this->createCustomerViaHttp(null, 'Andi');
+        $third = $this->createCustomerViaHttp(null, 'Citra');
 
         $this->assertSame('00001-ANG', $first->customer_number);
         $this->assertSame('00002-ANG', $second->customer_number);
@@ -103,38 +103,19 @@ class ShmCustomerCodeSequenceTest extends TestCase
 
     public function test_sequence_is_independent_from_member_codes(): void
     {
-        // Anggota sudah memegang kode 00001-ANG dan 00002-ANG lebih dulu.
-        $memberA = $this->activeMember(['member_number' => '00001-ANG', 'full_name' => 'Budi']);
-        $memberB = $this->activeMember(['member_number' => '00002-ANG', 'full_name' => 'Citra']);
+        $customerA = $this->createCustomerViaHttp(null, 'Budi');
+        $customerB = $this->createCustomerViaHttp(null, 'Citra');
 
-        $customerA = $this->createCustomerViaHttp($memberA, 'Budi');
-        $customerB = $this->createCustomerViaHttp($memberB, 'Citra');
-
-        // Domain Nasabah SHM memakai sequence SENDIRI dan dimulai dari
-        // 00001: literal kode boleh sama dengan kode anggota karena berada
-        // pada tabel berbeda (aturan Phase 3).
+        // Domain Nasabah SHM memakai sequence SENDIRI dan dimulai dari 00001
         $this->assertSame('00001-ANG', $customerA->customer_number);
         $this->assertSame('00002-ANG', $customerB->customer_number);
-
-        // Kode anggota TIDAK berubah/dikonsumsi oleh pembuatan nasabah.
-        $this->assertSame('00001-ANG', $memberA->refresh()->member_number);
-        $this->assertSame('00002-ANG', $memberB->refresh()->member_number);
-
-        // Relasi internal tetap memakai FK, bukan kode.
-        $this->assertSame($memberA->id, $customerA->member_id);
-        $this->assertSame($memberB->id, $customerB->member_id);
     }
 
     public function test_member_code_is_never_used_as_customer_code(): void
     {
-        // Member dengan format anggota yang berbeda tetap menghasilkan kode
-        // nasabah format NNNNN-ANG (bukan menyalin kode anggota).
-        $member = $this->activeMember(['member_number' => 'ANG-0001']);
-
-        $customer = $this->createCustomerViaHttp($member);
+        $customer = $this->createCustomerViaHttp(null);
 
         $this->assertSame('00001-ANG', $customer->customer_number);
-        $this->assertNotSame($member->member_number, $customer->customer_number);
     }
 
     // -----------------------------------------------------------------
@@ -143,7 +124,7 @@ class ShmCustomerCodeSequenceTest extends TestCase
 
     public function test_duplicate_customer_code_is_rejected_by_database(): void
     {
-        $this->createCustomerViaHttp($this->activeMember());
+        $this->createCustomerViaHttp(null);
 
         $this->assertSame('00001-ANG', ShmCustomer::query()->value('customer_number'));
 
@@ -165,7 +146,7 @@ class ShmCustomerCodeSequenceTest extends TestCase
             'member_id' => null,
         ]);
 
-        $fresh = $this->createCustomerViaHttp($this->activeMember());
+        $fresh = $this->createCustomerViaHttp(null);
 
         // Sequence format baru dimulai dari 00001 — kode legacy tidak
         // dihitung, tidak di-reset, tidak di-overwrite.
@@ -180,11 +161,10 @@ class ShmCustomerCodeSequenceTest extends TestCase
 
     public function test_client_cannot_change_customer_code_on_update(): void
     {
-        $customer = $this->createCustomerViaHttp($this->activeMember());
+        $customer = $this->createCustomerViaHttp(null);
 
         $this->actingAs($this->marketing)
             ->put(route('shm.customers.update', $customer->id), [
-                'member_id' => $customer->member_id,
                 'customer_number' => '00009-ANG',
                 'name' => 'Nama Baru',
                 'nik' => '3501234567890123',
@@ -201,14 +181,10 @@ class ShmCustomerCodeSequenceTest extends TestCase
 
     public function test_member_relation_cannot_be_changed_on_update(): void
     {
-        $member = $this->activeMember();
-        $otherMember = $this->activeMember();
-        $customer = $this->createCustomerViaHttp($member);
+        $customer = $this->createCustomerViaHttp(null);
 
         $this->actingAs($this->marketing)
             ->put(route('shm.customers.update', $customer->id), [
-                // Klien mencoba mengganti asosiasi anggota sumber.
-                'member_id' => $otherMember->id,
                 'name' => 'Nama Baru',
                 'nik' => '3501234567890123',
                 'phone' => '081234567890',
@@ -218,7 +194,7 @@ class ShmCustomerCodeSequenceTest extends TestCase
 
         $customer->refresh();
 
-        $this->assertSame($member->id, $customer->member_id, 'Asosiasi anggota tidak boleh berubah dari form edit.');
+        $this->assertNull($customer->member_id);
         $this->assertSame('Nama Baru', $customer->name);
         $this->assertSame('00001-ANG', $customer->customer_number);
     }

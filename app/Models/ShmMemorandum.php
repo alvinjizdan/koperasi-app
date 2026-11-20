@@ -21,6 +21,9 @@ use Illuminate\Support\Carbon;
  * @property int $shm_application_id
  * @property int $created_by
  * @property Carbon|null $submitted_at
+ * @property Carbon|null $first_submitted_at
+ * @property int|null $shm_credit_check_id
+ * @property array|null $credit_check_snapshot
  * @property string $status
  * @property string|null $notes
  * @property Carbon|null $shgb_start_date
@@ -68,6 +71,9 @@ class ShmMemorandum extends Model
         'shm_application_id',
         'created_by',
         'submitted_at',
+        'first_submitted_at',
+        'shm_credit_check_id',
+        'credit_check_snapshot',
         'status',
         'notes',
         'shgb_start_date',
@@ -85,6 +91,8 @@ class ShmMemorandum extends Model
     {
         return [
             'submitted_at' => 'datetime',
+            'first_submitted_at' => 'datetime',
+            'credit_check_snapshot' => 'array',
             'shgb_start_date' => 'date',
             'shgb_end_date' => 'date',
             'reviewed_at' => 'datetime',
@@ -119,6 +127,26 @@ class ShmMemorandum extends Model
     }
 
     /**
+     * Catatan credit checking sumber yang diasosiasikan (Ticket CC-04).
+     *
+     * @return BelongsTo<ShmCreditCheck, $this>
+     */
+    public function creditCheck(): BelongsTo
+    {
+        return $this->belongsTo(ShmCreditCheck::class, 'shm_credit_check_id');
+    }
+
+    /**
+     * Riwayat revisi pengajuan memorandum (Ticket CC-04, Option A).
+     *
+     * @return HasMany<ShmMemorandumSubmission, $this>
+     */
+    public function submissions(): HasMany
+    {
+        return $this->hasMany(ShmMemorandumSubmission::class, 'shm_memorandum_id')->orderBy('revision_number', 'asc');
+    }
+
+    /**
      * Riwayat persetujuan workflow memorandum (Ticket 8).
      */
     public function approvalHistories(): HasMany
@@ -148,7 +176,10 @@ class ShmMemorandum extends Model
             return true;
         }
 
-        $existingTypes = $this->buybackDocuments()->pluck('document_type')->all();
+        $existingTypes = collect($this->buybackDocuments()->pluck('document_type')->all())
+            ->map(fn (string $t): string => ShmBuybackDocument::canonicalType($t))
+            ->unique()
+            ->all();
 
         foreach (ShmBuybackDocument::REQUIRED_TYPES as $requiredType) {
             if (! in_array($requiredType, $existingTypes, true)) {
@@ -170,13 +201,21 @@ class ShmMemorandum extends Model
 
         // Ambil dari pengajuan sumber jika ada (Ticket 14)
         if ($this->application) {
-            $count = $this->application->buybackDocuments()->whereIn('document_type', ShmBuybackDocument::REQUIRED_TYPES)->count();
-            if ($count > 0) {
-                return "{$count}/".count(ShmBuybackDocument::REQUIRED_TYPES);
+            $appCount = collect($this->application->buybackDocuments()->pluck('document_type')->all())
+                ->map(fn (string $t): string => ShmBuybackDocument::canonicalType($t))
+                ->unique()
+                ->intersect(ShmBuybackDocument::REQUIRED_TYPES)
+                ->count();
+            if ($appCount > 0) {
+                return "{$appCount}/".count(ShmBuybackDocument::REQUIRED_TYPES);
             }
         }
 
-        $count = $this->buybackDocuments()->whereIn('document_type', ShmBuybackDocument::REQUIRED_TYPES)->count();
+        $count = collect($this->buybackDocuments()->pluck('document_type')->all())
+            ->map(fn (string $t): string => ShmBuybackDocument::canonicalType($t))
+            ->unique()
+            ->intersect(ShmBuybackDocument::REQUIRED_TYPES)
+            ->count();
 
         return "{$count}/".count(ShmBuybackDocument::REQUIRED_TYPES);
     }
@@ -199,6 +238,26 @@ class ShmMemorandum extends Model
     public function isDraft(): bool
     {
         return $this->status === self::STATUS_DRAFT;
+    }
+
+    /**
+     * Apakah snapshot credit checking pada memorandum ini sudah terkunci permanen?
+     *
+     * Snapshot terkunci permanen apabila memorandum sudah pernah diajukan (first_submitted_at terisi).
+     */
+    public function isSnapshotFrozen(): bool
+    {
+        return $this->first_submitted_at !== null;
+    }
+
+    /**
+     * Apakah draf memorandum ini berhak memperbarui snapshot credit checking?
+     *
+     * Hanya berhak jika masih berstatus Draft DAN belum pernah diajukan sama sekali.
+     */
+    public function canRefreshSnapshot(): bool
+    {
+        return $this->isDraft() && ! $this->isSnapshotFrozen();
     }
 
     /**

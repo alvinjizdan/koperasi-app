@@ -6,9 +6,9 @@ use App\Models\AuditLog;
 use App\Models\CashTransaction;
 use App\Models\Permission;
 use App\Models\Role;
-use App\Models\SavingsTransaction;
 use App\Models\Shm\ShmSavingProduct;
 use App\Models\Shm\ShmSavingsAccount;
+use App\Models\Shm\ShmSavingsTransaction;
 use App\Models\ShmAgent;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
@@ -60,6 +60,12 @@ class ShmLoanDisbursementTest extends TestCase
 
     private User $admin;
 
+    private User $director;
+
+    private User $branchManager;
+
+    private User $finance;
+
     private User $marketing;
 
     private User $marketing2;
@@ -74,14 +80,18 @@ class ShmLoanDisbursementTest extends TestCase
         $this->seed(RoleSeeder::class);
 
         $this->admin = $this->userWithRole('admin');
+        $this->director = $this->userWithRole('direktur_utama');
+        $this->branchManager = $this->userWithRole('branch_manager');
+        $this->finance = $this->userWithRole('finance_operational');
         $this->marketing = $this->userWithRole('marketing');
         $this->marketing2 = $this->userWithRole('marketing');
         $this->kasir = $this->userWithRole('kasir');
 
         // T002C — prasyarat pencairan fail-closed: produk simpanan aktif +
-        // sesi kasir aktif milik pelaku pencairan (admin) dengan saldo cukup
+        // sesi kasir aktif milik pelaku pencairan (finance) dengan saldo cukup
         // untuk kas keluar net.
         $this->seedShmSavingsProducts();
+        $this->openCashierSessionFor($this->finance);
         $this->openCashierSessionFor($this->admin);
     }
 
@@ -264,14 +274,24 @@ class ShmLoanDisbursementTest extends TestCase
             ->assertSessionHasNoErrors();
     }
 
-    /** Keputusan lewat modul Approval SHM existing (T68). */
+    /** Keputusan lewat modul Approval SHM existing (T68 / T29A two-level). */
     private function decide(ShmLoanApplication $application, string $decision): void
     {
         $mirrorId = $application->refresh()->shm_application_id;
 
-        $this->actingAs($this->admin)
-            ->post(route('shm.applications.'.$decision, $mirrorId), ['notes' => 'Keputusan uji T69'])
-            ->assertSessionHasNoErrors();
+        if ($decision === 'approve') {
+            $this->actingAs($this->branchManager)
+                ->post(route('shm.applications.approve-bm', $mirrorId), ['notes' => 'Persetujuan BM Level 1 uji T69'])
+                ->assertSessionHasNoErrors();
+
+            $this->actingAs($this->director)
+                ->post(route('shm.applications.approve', $mirrorId), ['notes' => 'Keputusan uji T69'])
+                ->assertSessionHasNoErrors();
+        } else {
+            $this->actingAs($this->director)
+                ->post(route('shm.applications.'.$decision, $mirrorId), ['notes' => 'Keputusan uji T69'])
+                ->assertSessionHasNoErrors();
+        }
     }
 
     private function approvedApplication(): ShmLoanApplication
@@ -285,7 +305,7 @@ class ShmLoanDisbursementTest extends TestCase
 
     private function disburse(ShmLoanApplication $application, ?User $as = null): TestResponse
     {
-        return $this->actingAs($as ?? $this->admin)
+        return $this->actingAs($as ?? $this->finance)
             ->post(route('shm.loans.pengajuan.disburse', $application));
     }
 
@@ -506,12 +526,12 @@ class ShmLoanDisbursementTest extends TestCase
     {
         $application = $this->approvedApplication();
 
-        $this->disburse($application, $this->admin)->assertSessionHasNoErrors();
+        $this->disburse($application, $this->finance)->assertSessionHasNoErrors();
 
         $logs = AuditLog::query()->where('action', self::AUDIT_ACTION)->get();
 
         $this->assertCount(1, $logs, 'Pencairan harus menulis tepat satu audit.');
-        $this->assertSame($this->admin->id, $logs->first()->actor_id, 'Actor = pelaku pencairan.');
+        $this->assertSame($this->finance->id, $logs->first()->actor_id, 'Actor = pelaku pencairan.');
         $this->assertSame(ShmLoanApplication::class, $logs->first()->object_type);
         $this->assertSame($application->id, $logs->first()->object_id);
         $this->assertSame($application->application_number, $logs->first()->object_label);
@@ -784,20 +804,20 @@ class ShmLoanDisbursementTest extends TestCase
     {
         $application = $this->approvedApplication();
 
-        // Tutup sesi kasir admin sehingga pelaku tidak memiliki sesi aktif.
+        // Tutup sesi kasir finance sehingga pelaku tidak memiliki sesi aktif.
         $cashierService = app(CashierService::class);
-        $session = $cashierService->activeSessionFor($this->admin->id);
+        $session = $cashierService->activeSessionFor($this->finance->id);
         $this->assertNotNull($session);
         $cashierService->closeSession($session, [
             'physical_closing_balance' => 5_000_000_000,
             'closing_notes' => null,
-        ], $this->admin->id);
+        ], $this->finance->id);
 
         $this->disburse($application)
             ->assertSessionHasErrors('application');
 
         $this->assertSame(0, ShmLoan::query()->count(), 'Tanpa sesi kasir aktif tidak boleh ada loan.');
-        $this->assertSame(0, SavingsTransaction::query()->count(), 'Tanpa sesi kasir aktif tidak boleh ada posting simpanan.');
+        $this->assertSame(0, ShmSavingsTransaction::query()->count(), 'Tanpa sesi kasir aktif tidak boleh ada posting simpanan.');
         $this->assertSame(0, CashTransaction::query()->where('source_type', ShmLoan::class)->count(), 'Tanpa sesi kasir aktif tidak boleh ada kas keluar.');
         $this->assertSame(0, $this->disburseAuditCount(), 'Tanpa sesi kasir aktif tidak boleh ada audit sukses.');
     }
@@ -834,18 +854,18 @@ class ShmLoanDisbursementTest extends TestCase
         // Ganti sesi admin menjadi saldo kas kecil (Rp1.000) sehingga kas
         // keluar net (Rp431.100.000) gagal pada tahap akhir.
         $cashierService = app(CashierService::class);
-        $session = $cashierService->activeSessionFor($this->admin->id);
+        $session = $cashierService->activeSessionFor($this->finance->id);
         $cashierService->closeSession($session, [
             'physical_closing_balance' => 5_000_000_000,
             'closing_notes' => null,
-        ], $this->admin->id);
-        $this->openCashierSessionFor($this->admin, 1_000);
+        ], $this->finance->id);
+        $this->openCashierSessionFor($this->finance, 1_000);
 
         $this->disburse($application)
             ->assertSessionHasErrors();
 
         $this->assertSame(0, ShmLoan::query()->count(), 'Loan harus ikut rollback saat kas keluar gagal.');
-        $this->assertSame(0, SavingsTransaction::query()->count(), 'Posting simpanan harus ikut rollback.');
+        $this->assertSame(0, ShmSavingsTransaction::query()->count(), 'Posting simpanan harus ikut rollback.');
         $this->assertSame(0, CashTransaction::query()->where('source_type', ShmLoan::class)->count(), 'Tidak boleh ada kas keluar tersisa.');
         $this->assertSame(0, $this->disburseAuditCount(), 'Tidak boleh ada audit sukses pencairan.');
     }
@@ -953,7 +973,7 @@ class ShmLoanDisbursementTest extends TestCase
 
         // Verifikasi atomisitas: seluruh efek finansial tetap nol.
         $this->assertSame(0, ShmLoan::query()->count(), 'Loan tidak boleh dibuat saat approved_amount NULL.');
-        $this->assertSame(0, SavingsTransaction::query()->count(), 'Simpanan Pokok & Wajib tidak boleh diposting saat approved_amount NULL.');
+        $this->assertSame(0, ShmSavingsTransaction::query()->count(), 'Simpanan Pokok & Wajib tidak boleh diposting saat approved_amount NULL.');
         $this->assertSame(0, CashTransaction::query()->where('source_type', ShmLoan::class)->count(), 'Kas keluar kasir tidak boleh dicatat saat approved_amount NULL.');
         $this->assertSame(0, $this->disburseAuditCount(), 'Audit sukses pencairan tidak boleh dicatat saat approved_amount NULL.');
     }
@@ -1036,7 +1056,7 @@ class ShmLoanDisbursementTest extends TestCase
 
         // Verifikasi atomisitas: tidak ada side effect finansial tersisa
         $this->assertSame(0, ShmLoan::query()->count(), 'Loan tidak boleh dibuat saat net disbursement = 0.');
-        $this->assertSame(0, SavingsTransaction::query()->count(), 'Posting simpanan tidak boleh ada saat net disbursement = 0.');
+        $this->assertSame(0, ShmSavingsTransaction::query()->count(), 'Posting simpanan tidak boleh ada saat net disbursement = 0.');
         $this->assertSame(0, CashTransaction::query()->where('source_type', ShmLoan::class)->count(), 'Kas keluar kasir tidak boleh dicatat saat net disbursement = 0.');
         $this->assertSame(0, $this->disburseAuditCount(), 'Audit sukses tidak boleh dicatat saat net disbursement = 0.');
     }
@@ -1069,7 +1089,7 @@ class ShmLoanDisbursementTest extends TestCase
             ->assertSessionHasErrors('application');
 
         $this->assertSame(0, ShmLoan::query()->count(), 'Loan tidak boleh dibuat saat net disbursement < 0.');
-        $this->assertSame(0, SavingsTransaction::query()->count(), 'Posting simpanan tidak boleh ada saat net disbursement < 0.');
+        $this->assertSame(0, ShmSavingsTransaction::query()->count(), 'Posting simpanan tidak boleh ada saat net disbursement < 0.');
         $this->assertSame(0, CashTransaction::query()->where('source_type', ShmLoan::class)->count(), 'Kas keluar kasir tidak boleh dicatat saat net disbursement < 0.');
         $this->assertSame(0, $this->disburseAuditCount(), 'Audit sukses tidak boleh dicatat saat net disbursement < 0.');
     }

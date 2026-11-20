@@ -9,6 +9,7 @@ use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanApplicationCollateral;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -31,10 +32,11 @@ class ShmLoanCollateralAndReportTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->admin = $this->createUserWithRole('admin');
-        $this->marketing1 = $this->createUserWithRole('marketing');
-        $this->marketing2 = $this->createUserWithRole('marketing');
+        $this->admin = $this->createUserWithRole('admin_makro');
+        $this->marketing1 = $this->createUserWithRole('marketing_makro');
+        $this->marketing2 = $this->createUserWithRole('marketing_makro');
     }
 
     private function createUserWithRole(string $role): User

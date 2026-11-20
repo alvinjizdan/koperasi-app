@@ -6,7 +6,6 @@ use App\Http\Controllers\Concerns\InteractsWithSorting;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Shm\StoreShmCustomerRequest;
 use App\Http\Requests\Shm\UpdateShmCustomerRequest;
-use App\Models\Member;
 use App\Models\ShmApplication;
 use App\Models\ShmCustomer;
 use App\Services\ShmCustomerService;
@@ -54,7 +53,6 @@ class ShmCustomerController extends Controller
         ];
 
         $query = ShmCustomer::query()
-            ->with('member:id,member_number,full_name')
             ->search($filters['search'])
             ->status($filters['status']);
 
@@ -82,11 +80,8 @@ class ShmCustomerController extends Controller
                 'is_active' => $customer->is_active,
                 // Kode anggota sumber ditampilkan TERPISAH dari kode nasabah
                 // (domain berbeda, sequence berbeda — T102).
-                'member' => $customer->member ? [
-                    'id' => $customer->member->id,
-                    'member_number' => $customer->member->member_number,
-                    'full_name' => $customer->member->full_name,
-                ] : null,
+                'member' => null,
+                'member_id' => $customer->member_id,
                 'applications_count' => $customer->applications_count,
                 'created_at' => $customer->created_at,
             ]);
@@ -111,36 +106,11 @@ class ShmCustomerController extends Controller
     }
 
     /**
-     * Form pembuatan nasabah SHM.
+     * Form pembuatan nasabah BSM Makro (Pendaftaran Mandiri).
      */
     public function create(Request $request): Response
     {
-        $search = $request->input('search');
-
-        // Daftar anggota koperasi eligible untuk dipilih sebagai sumber Nasabah SHM
-        $members = Member::query()
-            ->where('status', 'active')
-            ->search($search)
-            ->with(['savingsAccounts.savingProduct'])
-            ->orderBy('full_name')
-            ->limit(20)
-            ->get()
-            ->map(fn (Member $member): array => [
-                'id' => $member->id,
-                'member_number' => $member->member_number,
-                'full_name' => $member->full_name,
-                'identity_number' => $member->identity_number,
-                'phone' => $member->phone,
-                'address' => $member->address,
-                'status' => $member->status,
-                'has_active_shm_customer' => $member->shmCustomers()->where('is_active', true)->exists(),
-            ]);
-
         return Inertia::render('Shm/Customers/Create', [
-            'members' => $members,
-            'filters' => [
-                'search' => $search ?? '',
-            ],
             'flash' => [
                 'success' => session('success'),
                 'error' => session('error'),
@@ -180,8 +150,6 @@ class ShmCustomerController extends Controller
                 'created_at' => $application->created_at,
             ]);
 
-        $customer->load('member');
-
         return Inertia::render('Shm/Customers/Show', [
             'customer' => [
                 'id' => $customer->id,
@@ -196,13 +164,8 @@ class ShmCustomerController extends Controller
                 'has_location' => $customer->hasLocation(),
                 'is_active' => $customer->is_active,
                 'created_at' => $customer->created_at,
-                'member' => $customer->member ? [
-                    'id' => $customer->member->id,
-                    'member_number' => $customer->member->member_number,
-                    'full_name' => $customer->member->full_name,
-                    'identity_number' => $customer->member->identity_number,
-                    'status' => $customer->member->status,
-                ] : null,
+                'member' => null,
+                'member_id' => $customer->member_id,
             ],
             'applications' => $applications,
             'permissions' => [
@@ -221,8 +184,6 @@ class ShmCustomerController extends Controller
      */
     public function edit(ShmCustomer $customer): Response
     {
-        $customer->load('member:id,member_number,full_name');
-
         return Inertia::render('Shm/Customers/Edit', [
             'customer' => [
                 'id' => $customer->id,
@@ -235,13 +196,8 @@ class ShmCustomerController extends Controller
                 'latitude' => $customer->latitude,
                 'longitude' => $customer->longitude,
                 'is_active' => $customer->is_active,
-                // Relasi anggota sumber hanya ditampilkan (read-only):
-                // asosiasi member TIDAK dapat diubah dari form (T102).
-                'member' => $customer->member ? [
-                    'id' => $customer->member->id,
-                    'member_number' => $customer->member->member_number,
-                    'full_name' => $customer->member->full_name,
-                ] : null,
+                'member' => null,
+                'member_id' => $customer->member_id,
             ],
             'flash' => [
                 'success' => session('success'),

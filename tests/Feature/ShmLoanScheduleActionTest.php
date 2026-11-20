@@ -11,6 +11,7 @@ use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -55,22 +56,38 @@ class ShmLoanScheduleActionTest extends TestCase
 
     private User $kasir;
 
+    private User $branchManager;
+
+    private User $director;
+
+    private User $finance;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->admin = $this->userWithRole('admin');
         $this->marketing = $this->userWithRole('marketing');
         $this->marketing2 = $this->userWithRole('marketing');
         $this->kasir = $this->userWithRole('kasir');
 
+        $this->branchManager = User::factory()->create(['is_active' => true]);
+        $this->branchManager->roles()->attach(Role::where('name', 'branch_manager_makro')->value('id'));
+
+        $this->director = User::factory()->create(['is_active' => true]);
+        $this->director->roles()->attach(Role::where('name', 'direktur_utama_makro')->value('id'));
+
+        $this->finance = User::factory()->create(['is_active' => true]);
+        $this->finance->roles()->attach(Role::where('name', 'finance_operational_makro')->value('id'));
+
         // T002C — prasyarat pencairan fail-closed: produk simpanan aktif +
-        // sesi kasir aktif milik pelaku pencairan (admin).
+        // sesi kasir aktif milik pelaku pencairan (finance).
         $this->seedShmSavingsProducts();
-        $this->openCashierSessionFor($this->admin);
+        $this->openCashierSessionFor($this->finance);
     }
 
     private function userWithRole(string $roleName): User
@@ -134,13 +151,19 @@ class ShmLoanScheduleActionTest extends TestCase
             ->post(route('shm.loans.pengajuan.submit-approval', $application))
             ->assertSessionHasNoErrors();
 
-        $this->actingAs($this->admin)
-            ->post(route('shm.applications.approve', $application->refresh()->shm_application_id), [
-                'notes' => 'Disetujui (uji T83).',
+        $this->actingAs($this->branchManager)
+            ->post(route('shm.applications.approve-bm', $application->refresh()->shm_application_id), [
+                'notes' => 'Disetujui BM Level 1 (uji T83).',
             ])
             ->assertSessionHasNoErrors();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
+            ->post(route('shm.applications.approve', $application->refresh()->shm_application_id), [
+                'notes' => 'Disetujui L2 Direktur (uji T83).',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($this->finance)
             ->post(route('shm.loans.pengajuan.disburse', $application))
             ->assertSessionHasNoErrors();
 

@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Member;
 use App\Models\Role;
 use App\Models\ShmAgent;
 use App\Models\ShmCustomer;
@@ -10,6 +9,7 @@ use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
 use App\Services\Shm\ShmLoanSimulationService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -43,20 +43,36 @@ class ShmCustomerPersonalDataTest extends TestCase
 
     private User $admin;
 
+    private User $branchManager;
+
+    private User $director;
+
+    private User $finance;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->marketing = $this->userWithRole('marketing');
         $this->admin = $this->userWithRole('admin');
 
+        $this->branchManager = User::factory()->create(['is_active' => true]);
+        $this->branchManager->roles()->attach(Role::where('name', 'branch_manager_makro')->value('id'));
+
+        $this->director = User::factory()->create(['is_active' => true]);
+        $this->director->roles()->attach(Role::where('name', 'direktur_utama_makro')->value('id'));
+
+        $this->finance = User::factory()->create(['is_active' => true]);
+        $this->finance->roles()->attach(Role::where('name', 'finance_operational_makro')->value('id'));
+
         // T002C — prasyarat pencairan fail-closed (AC-12): produk simpanan
-        // aktif + sesi kasir aktif milik pelaku pencairan (admin).
+        // aktif + sesi kasir aktif milik pelaku pencairan (finance).
         $this->seedShmSavingsProducts();
-        $this->openCashierSessionFor($this->admin);
+        $this->openCashierSessionFor($this->finance);
     }
 
     private function userWithRole(string $roleName): User
@@ -334,11 +350,6 @@ class ShmCustomerPersonalDataTest extends TestCase
 
     public function test_pengajuan_customer_selector_uses_shm_customers_without_member_fields(): void
     {
-        $member = Member::create([
-            'member_number' => 'AGT-001',
-            'full_name' => 'Nasabah Selector',
-            'joined_at' => now()->toDateString(),
-        ]);
         $customer = ShmCustomer::factory()->create(['name' => 'Nasabah Selector']);
 
         $this->actingAs($this->marketing)
@@ -489,13 +500,19 @@ class ShmCustomerPersonalDataTest extends TestCase
             ->post(route('shm.loans.pengajuan.submit-approval', $application->id))
             ->assertSessionHasNoErrors();
 
-        $this->actingAs($this->admin)
-            ->post(route('shm.applications.approve', $application->fresh()->shm_application_id), [
-                'notes' => 'Disetujui (uji T76-FIX).',
+        $this->actingAs($this->branchManager)
+            ->post(route('shm.applications.approve-bm', $application->fresh()->shm_application_id), [
+                'notes' => 'Disetujui BM Level 1 (uji T76-FIX).',
             ])
             ->assertSessionHasNoErrors();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
+            ->post(route('shm.applications.approve', $application->fresh()->shm_application_id), [
+                'notes' => 'Disetujui L2 (uji T76-FIX).',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($this->finance)
             ->post(route('shm.loans.pengajuan.disburse', $application->id))
             ->assertSessionHasNoErrors();
 

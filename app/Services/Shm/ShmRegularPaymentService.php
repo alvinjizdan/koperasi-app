@@ -78,6 +78,12 @@ class ShmRegularPaymentService
         }
 
         return DB::transaction(function () use ($loan, $data, $actorId, $idempotencyKey): array {
+            // T15I Financial Actor Row Locking: kunci baris user actor dan pastikan akun aktif
+            $actor = DB::table('users')->where('id', $actorId)->lockForUpdate()->first();
+            if (! $actor || ! $actor->is_active) {
+                abort(403, 'Aktor tidak aktif atau tidak ditemukan.');
+            }
+
             // 2. Lock baris pinjaman
             $locked = ShmLoan::query()->lockForUpdate()->findOrFail($loan->id);
 

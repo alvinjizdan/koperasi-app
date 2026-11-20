@@ -103,6 +103,16 @@ class ShmApplication extends Model
     }
 
     /**
+     * Dispensasi dan pengecualian Credit Checking yang terikat pada pengajuan ini (Ticket CC-04).
+     *
+     * @return HasMany<ShmCreditCheckException, $this>
+     */
+    public function creditCheckExceptions(): HasMany
+    {
+        return $this->hasMany(ShmCreditCheckException::class, 'shm_application_id');
+    }
+
+    /**
      * Dokumen legalitas Buyback yang melekat pada pengajuan (Ticket 14).
      */
     public function buybackDocuments(): HasMany
@@ -119,7 +129,10 @@ class ShmApplication extends Model
             return false;
         }
 
-        $existingTypes = $this->buybackDocuments()->pluck('document_type')->all();
+        $existingTypes = collect($this->buybackDocuments()->pluck('document_type')->all())
+            ->map(fn (string $t): string => ShmBuybackDocument::canonicalType($t))
+            ->unique()
+            ->all();
 
         foreach (ShmBuybackDocument::REQUIRED_TYPES as $requiredType) {
             if (! in_array($requiredType, $existingTypes, true)) {
@@ -139,9 +152,13 @@ class ShmApplication extends Model
             return '-';
         }
 
-        $count = $this->buybackDocuments()->whereIn('document_type', ShmBuybackDocument::REQUIRED_TYPES)->count();
+        $uniqueCanonicalCount = collect($this->buybackDocuments()->pluck('document_type')->all())
+            ->map(fn (string $t): string => ShmBuybackDocument::canonicalType($t))
+            ->unique()
+            ->intersect(ShmBuybackDocument::REQUIRED_TYPES)
+            ->count();
 
-        return "{$count}/".count(ShmBuybackDocument::REQUIRED_TYPES);
+        return "{$uniqueCanonicalCount}/".count(ShmBuybackDocument::REQUIRED_TYPES);
     }
 
     public function approvals(): HasMany
@@ -187,6 +204,64 @@ class ShmApplication extends Model
     public function latestApproval(): HasOne
     {
         return $this->hasOne(ShmApproval::class)->latestOfMany();
+    }
+
+    /**
+     * Relasi ke Loan Application (bila pengajuan ini adalah mirror dari pengajuan pinjaman).
+     */
+    public function loanApplication(): HasOne
+    {
+        return $this->hasOne(ShmLoanApplication::class, 'shm_application_id');
+    }
+
+    /**
+     * Cek apakah pengajuan ini merupakan mirror dari pengajuan pinjaman.
+     */
+    public function isLoanApplication(): bool
+    {
+        return $this->loanApplication()->exists();
+    }
+
+    /**
+     * Approval Level 1 (Branch Manager).
+     */
+    public function bmApproval(): ?ShmApproval
+    {
+        return $this->approvals()->where('status', ShmApproval::STATUS_APPROVED_BM)->latest()->first();
+    }
+
+    /**
+     * Approval Level 2 (Direktur / Final).
+     */
+    public function directorApproval(): ?ShmApproval
+    {
+        return $this->approvals()->where('status', ShmApproval::STATUS_APPROVED)->latest()->first();
+    }
+
+    /**
+     * Cek apakah sudah disetujui Level 1 oleh Branch Manager.
+     */
+    public function hasBmApproval(): bool
+    {
+        return $this->approvals()->where('status', ShmApproval::STATUS_APPROVED_BM)->exists();
+    }
+
+    /**
+     * Cek apakah sudah disetujui Level 2 oleh Direktur.
+     */
+    public function hasDirectorApproval(): bool
+    {
+        return $this->approvals()->where('status', ShmApproval::STATUS_APPROVED)->exists();
+    }
+
+    /**
+     * Cek apakah sudah disetujui penuh (Level 1 BM dan Level 2 Direktur).
+     */
+    public function isFullyApproved(): bool
+    {
+        return $this->status === ShmApplicationStatus::Approved
+            && $this->hasBmApproval()
+            && $this->hasDirectorApproval();
     }
 
     /**

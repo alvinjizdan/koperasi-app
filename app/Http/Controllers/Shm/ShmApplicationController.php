@@ -20,6 +20,7 @@ use App\Models\MarketingActivity;
 use App\Models\ShmApplication;
 use App\Models\ShmBuybackDocument;
 use App\Models\ShmCustomer;
+use App\Models\ShmMemorandumSubmission;
 use App\Services\ShmApplicationService;
 use App\Services\ShmWorkflowService;
 use Illuminate\Database\Eloquent\Builder;
@@ -204,9 +205,9 @@ class ShmApplicationController extends Controller
 
         $creditCheck = $application->latestCreditCheck;
 
-        $existingBuybackDocs = $application->buybackDocuments->keyBy('document_type');
-        $buybackDocumentsList = collect(ShmBuybackDocument::REQUIRED_TYPES)->map(function (string $type) use ($existingBuybackDocs): array {
-            $doc = $existingBuybackDocs->get($type);
+        $buybackDocsCollection = $application->buybackDocuments;
+        $buybackDocumentsList = collect(ShmBuybackDocument::REQUIRED_TYPES)->map(function (string $type) use ($buybackDocsCollection): array {
+            $doc = ShmBuybackDocument::findMatchingDocument($buybackDocsCollection, $type);
 
             return [
                 'type' => $type,
@@ -223,7 +224,7 @@ class ShmApplicationController extends Controller
             ];
         })->values()->all();
 
-        $uploadedBuybackCount = $existingBuybackDocs->whereIn('document_type', ShmBuybackDocument::REQUIRED_TYPES)->count();
+        $uploadedBuybackCount = collect($buybackDocumentsList)->where('is_uploaded', true)->count();
 
         return Inertia::render('Shm/Applications/Show', [
             'application' => [
@@ -293,6 +294,7 @@ class ShmApplicationController extends Controller
                 'can_manage_credit_check' => Gate::allows('shm.credit_checking.update'),
                 'can_view_credit_check' => Gate::allows('shm.credit_checking.view'),
                 'can_update_memorandum' => Gate::allows('shm.memorandum.update'),
+                'can_decide_approval_bm' => Gate::allows('shm.approval.bm'),
                 'can_decide_approval' => Gate::allows('shm.approval.decide'),
                 'can_update_document' => Gate::allows('shm.document.update'),
                 'can_disburse' => Gate::allows('shm.disburse'),
@@ -469,7 +471,21 @@ class ShmApplicationController extends Controller
     }
 
     /**
-     * Admin atau pemangku wewenang mengambil keputusan approval.
+     * Branch Manager menyetujui tahap 1 (Level 1 Approval).
+     */
+    public function approveBm(Request $request, ShmApplication $application): RedirectResponse
+    {
+        Gate::authorize('shm.approval.bm');
+        $this->authorizeShmOwnership($request, $application);
+
+        $notes = $request->input('notes');
+        $this->workflow->approveBm($application, $request->user()->id, $notes ? (string) $notes : null);
+
+        return back()->with('success', 'Pengajuan berhasil disetujui Level 1 oleh Branch Manager.');
+    }
+
+    /**
+     * Admin atau Presiden Direktur mengambil keputusan approval final (Level 2).
      */
     public function approve(DecideShmApprovalRequest $request, ShmApplication $application): RedirectResponse
     {
@@ -937,8 +953,9 @@ class ShmApplicationController extends Controller
                 }
             });
 
-            // Hapus berkas lama hanya setelah transaksi database berhasil
-            if ($oldFilePathToDelete && Storage::disk('local')->exists($oldFilePathToDelete)) {
+            // Hapus berkas lama hanya setelah transaksi database berhasil,
+            // dan hanya jika berkas tidak direferensikan dalam riwayat revisi pengajuan (Ticket CC-05)
+            if ($oldFilePathToDelete && ! ShmMemorandumSubmission::isFilePathReferenced($oldFilePathToDelete) && Storage::disk('local')->exists($oldFilePathToDelete)) {
                 Storage::disk('local')->delete($oldFilePathToDelete);
             }
         } catch (\Throwable $e) {
@@ -1007,7 +1024,8 @@ class ShmApplicationController extends Controller
         $filePath = $document->file_path;
         $document->delete();
 
-        if ($filePath && Storage::disk('local')->exists($filePath)) {
+        // Jangan hapus berkas fisik jika masih direferensikan dalam riwayat revisi pengajuan (Ticket CC-05A)
+        if ($filePath && ! ShmMemorandumSubmission::isFilePathReferenced($filePath) && Storage::disk('local')->exists($filePath)) {
             Storage::disk('local')->delete($filePath);
         }
 

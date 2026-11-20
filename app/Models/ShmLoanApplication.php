@@ -130,11 +130,15 @@ class ShmLoanApplication extends Model
         'saldo_non_modal',
         'batas_hutang',
         'marital_status',
+        'marital_separation_type',
         'spouse_name',
         'spouse_nik',
         'spouse_phone',
         'ktp_photo_path',
         'kk_photo_path',
+        'marriage_certificate_path',
+        'divorce_certificate_path',
+        'death_certificate_path',
     ];
 
     protected function casts(): array
@@ -396,5 +400,45 @@ class ShmLoanApplication extends Model
     public function isPending(): bool
     {
         return $this->status === 'pending';
+    }
+
+    /**
+     * Apakah pemohon berstatus menikah.
+     */
+    public function isMarried(): bool
+    {
+        return in_array($this->marital_status, ['menikah', 'married'], true);
+    }
+
+    /**
+     * Apakah pemohon berstatus janda atau duda.
+     */
+    public function isDivorcedOrWidowed(): bool
+    {
+        return in_array($this->marital_status, ['janda', 'duda'], true);
+    }
+
+    /**
+     * Apakah dokumen Buku Nikah tersedia.
+     */
+    public function hasMarriageCertificate(): bool
+    {
+        return ! empty($this->marriage_certificate_path);
+    }
+
+    /**
+     * Apakah dokumen Akta Cerai tersedia.
+     */
+    public function hasDivorceCertificate(): bool
+    {
+        return ! empty($this->divorce_certificate_path);
+    }
+
+    /**
+     * Apakah dokumen Akta Kematian tersedia.
+     */
+    public function hasDeathCertificate(): bool
+    {
+        return ! empty($this->death_certificate_path);
     }
 }

@@ -6,7 +6,6 @@ use App\Enums\ShmApplicationStatus;
 use App\Enums\ShmCreditCheckOutcome;
 use App\Enums\ShmCreditCheckStatus;
 use App\Models\AuditLog;
-use App\Models\Member;
 use App\Models\Role;
 use App\Models\ShmApplication;
 use App\Models\ShmApproval;
@@ -16,6 +15,7 @@ use App\Models\ShmDocument;
 use App\Models\ShmMemorandum;
 use App\Models\ShmProperty;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -44,7 +44,11 @@ class ShmApplicationTest extends TestCase
 
     private User $pengawas;
 
-    private Member $member;
+    private User $branchManager;
+
+    private User $director;
+
+    private User $finance;
 
     private ShmCustomer $customer;
 
@@ -54,6 +58,7 @@ class ShmApplicationTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->superadmin = $this->userWithRole('superadmin');
         $this->admin = $this->userWithRole('admin');
@@ -61,9 +66,14 @@ class ShmApplicationTest extends TestCase
         $this->otherMarketing = $this->userWithRole('marketing');
         $this->pengawas = $this->userWithRole('pengawas');
 
-        // Anggota koperasi tetap ada, tetapi pengajuan SHM TIDAK memakainya.
-        // Kehadirannya menegaskan bahwa SHM berjalan tanpa tabel members.
-        $this->member = Member::factory()->create();
+        $this->branchManager = User::factory()->create(['is_active' => true]);
+        $this->branchManager->roles()->attach(Role::where('name', 'branch_manager_makro')->value('id'));
+
+        $this->director = User::factory()->create(['is_active' => true]);
+        $this->director->roles()->attach(Role::where('name', 'direktur_utama_makro')->value('id'));
+
+        $this->finance = User::factory()->create(['is_active' => true]);
+        $this->finance->roles()->attach(Role::where('name', 'finance_operational_makro')->value('id'));
 
         // Nasabah SHM adalah master data tersendiri.
         $this->customer = ShmCustomer::factory()->create();
@@ -153,9 +163,6 @@ class ShmApplicationTest extends TestCase
         );
         $this->assertFalse(Schema::hasColumn('shm_applications', 'prospect_name'));
         $this->assertFalse(Schema::hasColumn('shm_applications', 'prospect_phone'));
-
-        // Anggota koperasi yang ada tidak disentuh oleh pembuatan pengajuan.
-        $this->assertSame(1, Member::query()->count());
     }
 
     public function test_application_number_is_generated_on_server(): void
@@ -236,15 +243,9 @@ class ShmApplicationTest extends TestCase
             ->assertSessionHasErrors('shm_customer_id');
     }
 
-    public function test_application_inline_new_customer_without_member_never_auto_selects_an_active_member(): void
+    public function test_application_inline_new_customer_creates_independent_shm_customer(): void
     {
-        // T89F-2 — negatif assertion: dengan DUA anggota koperasi aktif,
-        // pembuatan nasabah SHM inline tanpa member_id harus DITOLAK.
-        // Tidak boleh memilih anggota aktif pertama (A) maupun anggota (B).
-        $memberB = Member::factory()->create();
-
         $beforeCustomers = ShmCustomer::query()->count();
-        $beforeMembers = Member::query()->count();
 
         $this->actingAs($this->marketing)
             ->post(route('shm.applications.store'), [
@@ -255,15 +256,11 @@ class ShmApplicationTest extends TestCase
                 ],
                 'notes' => 'Pengajuan nasabah baru',
             ])
-            ->assertSessionHasErrors('member_id');
+            ->assertSessionHasNoErrors();
 
-        // Status database, bukan sekadar pesan error.
-        $this->assertSame($beforeCustomers, ShmCustomer::query()->count());
-        $this->assertSame($beforeMembers, Member::query()->count());
-        $this->assertDatabaseMissing('shm_customers', ['name' => 'Nasabah Baru Dari Flow']);
-        $this->assertDatabaseMissing('shm_customers', ['member_id' => $this->member->id]);
-        $this->assertDatabaseMissing('shm_customers', ['member_id' => $memberB->id]);
-        $this->assertDatabaseCount('shm_customers', $beforeCustomers);
+        // Nasabah mandiri berhasil dibuat
+        $this->assertSame($beforeCustomers + 1, ShmCustomer::query()->count());
+        $this->assertDatabaseHas('shm_customers', ['name' => 'Nasabah Baru Dari Flow']);
     }
 
     public function test_application_create_page_offers_only_registered_active_customers(): void
@@ -354,7 +351,7 @@ class ShmApplicationTest extends TestCase
     {
         $application = $this->createApplicationFor($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id))
             ->assertSessionHasErrors('status');
 
@@ -368,7 +365,7 @@ class ShmApplicationTest extends TestCase
         $application->update(['status' => ShmApplicationStatus::Approval]);
         $application->refresh();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id), ['notes' => 'Layak'])
             ->assertSessionHasNoErrors();
 
@@ -379,7 +376,7 @@ class ShmApplicationTest extends TestCase
 
         $approval = ShmApproval::query()->where('shm_application_id', $application->id)->firstOrFail();
         $this->assertSame(ShmApproval::STATUS_APPROVED, $approval->status);
-        $this->assertSame($this->admin->id, $approval->decided_by);
+        $this->assertSame($this->director->id, $approval->decided_by);
     }
 
     public function test_admin_can_reject_at_approval_stage(): void
@@ -388,7 +385,7 @@ class ShmApplicationTest extends TestCase
         $application->update(['status' => ShmApplicationStatus::Approval]);
         $application->refresh();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.reject', $application->id), ['notes' => 'Belum memenuhi syarat'])
             ->assertSessionHasNoErrors();
 
@@ -431,7 +428,7 @@ class ShmApplicationTest extends TestCase
             'status' => ShmDocument::STATUS_COMPLETE,
         ]);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->finance)
             ->post(route('shm.applications.disburse', $application->id))
             ->assertSessionHasNoErrors();
 
@@ -922,13 +919,13 @@ class ShmApplicationTest extends TestCase
             ->post(route('shm.applications.start-approval', $application->id))
             ->assertSessionHasNoErrors();
         $application->refresh();
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.reject', $application->id), ['notes' => 'Tidak layak'])
             ->assertSessionHasNoErrors();
         $application->refresh();
         $this->assertSame(ShmApplicationStatus::Rejected, $application->status);
         $this->assertNotNull($application->rejected_at);
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.return-to-draft', $application->id))
             ->assertSessionHasNoErrors();
         $application->refresh();
@@ -988,7 +985,7 @@ class ShmApplicationTest extends TestCase
         $application->update(['status' => ShmApplicationStatus::Approval]);
         $application->refresh();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id), ['notes' => 'Setuju']);
 
         $this->assertSame(1, AuditLog::query()
@@ -1002,7 +999,7 @@ class ShmApplicationTest extends TestCase
         $application->update(['status' => ShmApplicationStatus::Approval]);
         $application->refresh();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.reject', $application->id), ['notes' => 'Tidak']);
 
         $this->assertSame(1, AuditLog::query()
@@ -1023,7 +1020,7 @@ class ShmApplicationTest extends TestCase
             'status' => ShmDocument::STATUS_COMPLETE,
         ]);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->finance)
             ->post(route('shm.applications.disburse', $application->id));
 
         $this->assertSame(1, AuditLog::query()
@@ -1060,7 +1057,7 @@ class ShmApplicationTest extends TestCase
             ->assertSessionHasNoErrors();
 
         $application->refresh();
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id), ['notes' => 'Layak'])
             ->assertSessionHasNoErrors();
 
@@ -1122,7 +1119,7 @@ class ShmApplicationTest extends TestCase
             ->assertSessionHasNoErrors();
 
         $application->refresh();
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id), ['notes' => 'Layak'])
             ->assertSessionHasNoErrors();
 
@@ -1168,7 +1165,7 @@ class ShmApplicationTest extends TestCase
             ->assertSessionHasNoErrors();
 
         $application->refresh();
-        $this->actingAs($this->admin)
+        $this->actingAs($this->director)
             ->post(route('shm.applications.approve', $application->id), ['notes' => 'Layak'])
             ->assertSessionHasNoErrors();
 

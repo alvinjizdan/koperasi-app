@@ -133,17 +133,9 @@ export default function Show({ customer, applications, permissions, flash }) {
                                 <dd className="font-medium">{customer.customer_number}</dd>
                             </div>
                             <div>
-                                <dt className="text-xs text-gray-500">Anggota Sumber (Member)</dt>
-                                <dd className="font-medium">
-                                    {customer.member ? (
-                                        <>
-                                            Member: {customer.member.member_number} - {customer.member.full_name}
-                                        </>
-                                    ) : (
-                                        <span className="text-xs font-normal text-gray-400">
-                                            Tidak tercatat (data legacy T89C).
-                                        </span>
-                                    )}
+                                <dt className="text-xs text-gray-500">Rujukan Member ID</dt>
+                                <dd className="font-medium text-xs text-gray-500 font-mono">
+                                    {customer.member_id ? `#${customer.member_id} (referensi legacy)` : 'Tidak ada rujukan'}
                                 </dd>
                             </div>
                             <div>

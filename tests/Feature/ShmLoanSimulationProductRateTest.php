@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Role;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Database\Seeders\ShmLoanProductSeeder;
@@ -24,10 +25,11 @@ class ShmLoanSimulationProductRateTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
         $this->seed(ShmLoanProductSeeder::class);
 
         $this->user = User::factory()->create(['email_verified_at' => now()]);
-        $this->user->roles()->attach(Role::query()->where('name', 'admin')->value('id'));
+        $this->user->roles()->attach(Role::query()->where('name', 'admin_makro')->value('id'));
     }
 
     public function test_simulation_resolves_bsm_prioritas_rate_at_tenor_12(): void

@@ -58,45 +58,49 @@ class ShmCustomerService
                     $actorId = Auth::id();
 
                     $memberId = $data['member_id'] ?? null;
-                    if (! $memberId) {
+                    $member = null;
+
+                    if ($memberId) {
+                        $member = Member::query()->lockForUpdate()->find($memberId);
+                        if (! $member) {
+                            throw ValidationException::withMessages([
+                                'member_id' => ['Anggota koperasi tidak ditemukan.'],
+                            ]);
+                        }
+
+                        // Member eligibility: hanya anggota dengan status 'active' yang boleh menjadi nasabah SHM
+                        if ($member->status !== 'active') {
+                            throw ValidationException::withMessages([
+                                'member_id' => [sprintf('Anggota %s berstatus "%s" dan tidak memenuhi syarat menjadi Nasabah SHM. Hanya anggota berstatus aktif yang diperbolehkan.', $member->member_number, $member->status)],
+                            ]);
+                        }
+
+                        // Duplicate prevention (1:1 relationship untuk nasabah aktif)
+                        $existingActive = ShmCustomer::query()
+                            ->where('member_id', $member->id)
+                            ->where('is_active', true)
+                            ->first();
+
+                        if ($existingActive) {
+                            throw ValidationException::withMessages([
+                                'member_id' => [sprintf('Anggota %s sudah terdaftar sebagai Nasabah SHM aktif (%s).', $member->member_number, $existingActive->customer_number)],
+                            ]);
+                        }
+                    }
+
+                    $name = ! empty($data['name']) ? $data['name'] : ($member?->full_name ?? '');
+                    if (empty($name)) {
                         throw ValidationException::withMessages([
-                            'member_id' => ['Anggota koperasi sumber wajib dipilih untuk membuat nasabah SHM.'],
+                            'name' => ['Nama nasabah wajib diisi.'],
                         ]);
                     }
 
-                    $member = Member::query()->lockForUpdate()->find($memberId);
-                    if (! $member) {
-                        throw ValidationException::withMessages([
-                            'member_id' => ['Anggota koperasi tidak ditemukan.'],
-                        ]);
-                    }
-
-                    // Member eligibility: hanya anggota dengan status 'active' yang boleh menjadi nasabah SHM
-                    if ($member->status !== 'active') {
-                        throw ValidationException::withMessages([
-                            'member_id' => [sprintf('Anggota %s berstatus "%s" dan tidak memenuhi syarat menjadi Nasabah SHM. Hanya anggota berstatus aktif yang diperbolehkan.', $member->member_number, $member->status)],
-                        ]);
-                    }
-
-                    // Duplicate prevention (1:1 relationship untuk nasabah aktif)
-                    $existingActive = ShmCustomer::query()
-                        ->where('member_id', $member->id)
-                        ->where('is_active', true)
-                        ->first();
-
-                    if ($existingActive) {
-                        throw ValidationException::withMessages([
-                            'member_id' => [sprintf('Anggota %s sudah terdaftar sebagai Nasabah SHM aktif (%s).', $member->member_number, $existingActive->customer_number)],
-                        ]);
-                    }
-
-                    $name = ! empty($data['name']) ? $data['name'] : $member->full_name;
-                    $nik = array_key_exists('nik', $data) && $data['nik'] !== null ? $data['nik'] : $member->identity_number;
-                    $phone = array_key_exists('phone', $data) && $data['phone'] !== null ? $data['phone'] : $member->phone;
-                    $address = array_key_exists('address', $data) && $data['address'] !== null ? $data['address'] : $member->address;
+                    $nik = array_key_exists('nik', $data) && $data['nik'] !== null ? $data['nik'] : $member?->identity_number;
+                    $phone = array_key_exists('phone', $data) && $data['phone'] !== null ? $data['phone'] : $member?->phone;
+                    $address = array_key_exists('address', $data) && $data['address'] !== null ? $data['address'] : $member?->address;
 
                     $customer = ShmCustomer::query()->create([
-                        'member_id' => $member->id,
+                        'member_id' => $member?->id,
                         'customer_number' => $this->generateCustomerNumber(),
                         'name' => $name,
                         'nik' => $nik,
@@ -113,11 +117,11 @@ class ShmCustomerService
                         ShmCustomer::class,
                         $customer->id,
                         $customer->name,
-                        sprintf('Nasabah SHM %s dibuat dari Anggota Koperasi %s.', $customer->customer_number, $member->member_number),
+                        $member ? sprintf('Nasabah SHM %s dibuat dari Anggota Koperasi %s.', $customer->customer_number, $member->member_number) : sprintf('Nasabah SHM %s dibuat mandiri.', $customer->customer_number),
                         [
                             'customer_number' => $customer->customer_number,
-                            'member_id' => $member->id,
-                            'member_number' => $member->member_number,
+                            'member_id' => $member?->id,
+                            'member_number' => $member?->member_number,
                             'name' => $customer->name,
                             'is_active' => $customer->is_active,
                             'actor_id' => $actorId,

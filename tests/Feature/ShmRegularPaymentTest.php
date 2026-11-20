@@ -3,11 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
-use App\Models\Member;
 use App\Models\Permission;
 use App\Models\Role;
-use App\Models\SavingProduct;
-use App\Models\SavingsTransaction;
 use App\Models\Shm\ShmSavingProduct;
 use App\Models\Shm\ShmSavingsAccount;
 use App\Models\Shm\ShmSavingsTransaction;
@@ -20,6 +17,7 @@ use App\Models\ShmLoanPaymentAllocation;
 use App\Models\ShmLoanSettlement;
 use App\Models\User;
 use App\Services\Shm\ShmRegularPaymentService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -58,8 +56,9 @@ class ShmRegularPaymentTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->admin = $this->userWithRole('admin');
+        $this->admin = $this->userWithRole('admin_makro');
         $this->officer = $this->userWithPermissions(['shm.view', 'shm.payment.create']);
         $this->unauthorizedUser = User::factory()->create(['email_verified_at' => now()]);
 
@@ -70,16 +69,6 @@ class ShmRegularPaymentTest extends TestCase
                 'code' => 'SHM-SP-001',
                 'name' => 'Simpanan Pokok SHM',
                 'description' => 'Simpanan Pokok SHM',
-                'is_active' => true,
-            ]
-        );
-
-        SavingProduct::query()->firstOrCreate(
-            ['category' => SavingProduct::CATEGORY_PRINCIPAL],
-            [
-                'code' => 'SP-001',
-                'name' => 'Simpanan Pokok',
-                'minimum_amount' => 100000,
                 'is_active' => true,
             ]
         );
@@ -103,6 +92,7 @@ class ShmRegularPaymentTest extends TestCase
         $role = Role::query()->create([
             'name' => 't003-tester-'.Str::uuid(),
             'display_name' => 'T003 Tester',
+            'entity' => 'makro',
             'is_system' => false,
         ]);
 
@@ -115,11 +105,12 @@ class ShmRegularPaymentTest extends TestCase
         return $user;
     }
 
-    private function createMember(string $status = 'active'): Member
+    /**
+     * Buat fixture nasabah SHM aktif.
+     */
+    private function createCustomer(): ShmCustomer
     {
-        return Member::factory()->create([
-            'status' => $status,
-        ]);
+        return ShmCustomer::factory()->create();
     }
 
     /**
@@ -127,14 +118,10 @@ class ShmRegularPaymentTest extends TestCase
      *
      * @param  array<int, array{interest: float, principal: float}>|null  $installmentSpecs
      */
-    private function createActiveLoanWithSchedule(?Member $member = null, ?array $installmentSpecs = null, ?User $owner = null): ShmLoan
+    private function createActiveLoanWithSchedule(?ShmCustomer $customer = null, ?array $installmentSpecs = null, ?User $owner = null): ShmLoan
     {
-        $member = $member ?? $this->createMember();
+        $customer = $customer ?? $this->createCustomer();
         $owner = $owner ?? $this->officer;
-
-        $customer = ShmCustomer::factory()->create([
-            'member_id' => $member->id,
-        ]);
 
         $application = ShmLoanApplication::query()->create([
             'application_number' => 'PENGAJ-T003-'.Str::upper(Str::random(8)),
@@ -229,7 +216,7 @@ class ShmRegularPaymentTest extends TestCase
         $this->assertEquals(11_500_000, $loan->totalOwed());
 
         // Tidak ada setoran simpanan (bukan overpayment)
-        $this->assertSame(0, SavingsTransaction::query()->count());
+        $this->assertSame(0, ShmSavingsTransaction::query()->count());
     }
 
     public function test_a2_payment_exactly_clears_total_owed_and_closes_loan(): void
@@ -292,7 +279,7 @@ class ShmRegularPaymentTest extends TestCase
         // Pastikan tidak ada efek finansial sampingan
         $this->assertSame(0, ShmLoanPayment::query()->count());
         $this->assertSame(0, ShmLoanPaymentAllocation::query()->count());
-        $this->assertSame(0, SavingsTransaction::query()->count());
+        $this->assertSame(0, ShmSavingsTransaction::query()->count());
 
         $loan->refresh();
         $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->status);
@@ -310,8 +297,7 @@ class ShmRegularPaymentTest extends TestCase
 
     public function test_b2_payment_on_loan_without_schedule_is_rejected(): void
     {
-        $member = $this->createMember();
-        $customer = ShmCustomer::factory()->create(['member_id' => $member->id]);
+        $customer = $this->createCustomer();
         $loan = ShmLoan::factory()->create([
             'shm_customer_id' => $customer->id,
             'principal' => '10000000',
@@ -336,8 +322,7 @@ class ShmRegularPaymentTest extends TestCase
 
     public function test_c1_overpayment_allocates_all_owed_and_transfers_excess_to_simpanan_pokok(): void
     {
-        $member = $this->createMember();
-        $loan = $this->createActiveLoanWithSchedule($member);
+        $loan = $this->createActiveLoanWithSchedule();
         $totalOwed = $loan->totalOwed(); // 19.5M
 
         // Bayar 22.0M: lunas seluruh 19.5M, lebih bayar 2.5M ke Simpanan Pokok
@@ -380,7 +365,7 @@ class ShmRegularPaymentTest extends TestCase
         $this->assertSame($loan->shm_customer_id, data_get($appliedLog->changes, 'shm_customer_id'));
     }
 
-    public function test_c2_overpayment_fails_closed_if_customer_has_no_source_member(): void
+    public function test_c2_overpayment_succeeds_for_customer_without_member(): void
     {
         $customerWithoutMember = ShmCustomer::factory()->create(['member_id' => null]);
         $loan = ShmLoan::factory()->create([
@@ -412,13 +397,12 @@ class ShmRegularPaymentTest extends TestCase
         $response->assertSessionHasNoErrors();
         $this->assertSame(1, ShmLoanPayment::query()->count());
         $this->assertSame(1, ShmSavingsTransaction::query()->count());
-        $this->assertSame(0, SavingsTransaction::query()->count());
     }
 
-    public function test_c3_overpayment_fails_closed_if_source_member_is_inactive(): void
+    public function test_c3_overpayment_succeeds_independent_of_legacy_member_presence(): void
     {
-        $inactiveMember = $this->createMember('inactive');
-        $loan = $this->createActiveLoanWithSchedule($inactiveMember);
+        $customer = $this->createCustomer();
+        $loan = $this->createActiveLoanWithSchedule($customer);
 
         // SHM Savings independen dari status member koperasi
         $response = $this->actingAs($this->officer)->post(route('shm.loans.payments.store'), [
@@ -430,7 +414,6 @@ class ShmRegularPaymentTest extends TestCase
         $response->assertSessionHasNoErrors();
         $this->assertSame(1, ShmLoanPayment::query()->count());
         $this->assertSame(1, ShmSavingsTransaction::query()->count());
-        $this->assertSame(0, SavingsTransaction::query()->count());
     }
 
     // =================================================================

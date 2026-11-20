@@ -336,14 +336,131 @@ function IdentityPhotoUploader({
     );
 }
 
-function Field({ label, children, hint }) {
+function Field({ label, children, hint, required = false }) {
     return (
         <div>
             <label className="text-xs font-semibold text-slate-700">
-                {label}
+                {label} {required && <span className="text-rose-500">*</span>}
             </label>
             {children}
             {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
+        </div>
+    );
+}
+
+/** Komponen Uploader Dokumen PDF (Buku Nikah / Akta Cerai) */
+function MaritalDocumentUploader({ label, file, existingUrl, error, required = false, onFileSelect, onFileRemove }) {
+    const [clientError, setClientError] = useState(null);
+
+    const handleFileChange = (e) => {
+        setClientError(null);
+        const selected = e.target.files?.[0];
+        if (!selected) return;
+
+        // Validasi format: PDF only
+        if (selected.type !== 'application/pdf' && !selected.name.toLowerCase().endsWith('.pdf')) {
+            setClientError('Format file harus berupa dokumen PDF (.pdf).');
+            e.target.value = '';
+            return;
+        }
+
+        // Validasi ukuran <= 10 MB (10 * 1024 * 1024 bytes)
+        if (selected.size > 10 * 1024 * 1024) {
+            setClientError('Ukuran file dokumen maksimal 10 MB.');
+            e.target.value = '';
+            return;
+        }
+
+        onFileSelect(selected);
+        e.target.value = '';
+    };
+
+    const hasDocument = Boolean(file || existingUrl);
+    const isNewFile = file instanceof File;
+
+    return (
+        <div className="space-y-2">
+            <label className="block text-xs font-semibold text-slate-700">
+                {label} {required && <span className="text-rose-500">*</span>}
+            </label>
+
+            {hasDocument ? (
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-rose-100 text-rose-600">
+                            <FileText className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-xs font-semibold text-slate-800 truncate">
+                                {isNewFile ? file.name : `${label} Tersimpan`}
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                                {isNewFile
+                                    ? `${(file.size / (1024 * 1024)).toFixed(2)} MB • PDF Baru`
+                                    : 'Dokumen PDF tersimpan'}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                        {existingUrl && !isNewFile && (
+                            <a
+                                href={existingUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+                            >
+                                <FileText className="h-3.5 w-3.5 text-slate-500" />
+                                Lihat
+                            </a>
+                        )}
+
+                        <label className="cursor-pointer rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors">
+                            Ganti PDF
+                            <input
+                                type="file"
+                                accept="application/pdf"
+                                onChange={handleFileChange}
+                                className="hidden"
+                            />
+                        </label>
+
+                        {isNewFile && (
+                            <button
+                                type="button"
+                                onClick={onFileRemove}
+                                className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 transition-colors"
+                            >
+                                <X className="h-3 w-3" />
+                                Batal
+                            </button>
+                        )}
+                    </div>
+                </div>
+            ) : (
+                <label className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-white p-4 text-center cursor-pointer hover:bg-slate-50 transition-colors">
+                    <Upload className="h-5 w-5 text-slate-400" />
+                    <span className="text-xs font-medium text-indigo-600 hover:underline">
+                        Upload {label} (PDF)
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                        Format PDF (Maksimal 10 MB)
+                    </span>
+                    <input
+                        type="file"
+                        accept="application/pdf"
+                        onChange={handleFileChange}
+                        className="hidden"
+                    />
+                </label>
+            )}
+
+            {clientError && (
+                <p className="text-xs text-rose-600 font-medium">{clientError}</p>
+            )}
+            {error && (
+                <p className="text-xs text-rose-600 font-medium">{error}</p>
+            )}
         </div>
     );
 }
@@ -425,9 +542,16 @@ export default function Pengajuan({ today, products, customers, options, agents 
             saldo_non_modal: '',
             batas_hutang: '',
             marital_status: '',
+            marital_separation_type: '',
             spouse_name: '',
             spouse_nik: '',
             spouse_phone: '',
+            buku_nikah: null,
+            buku_nikah_url: null,
+            akta_cerai: null,
+            akta_cerai_url: null,
+            akta_kematian: null,
+            akta_kematian_url: null,
             ktp_photo: null,
             ktp_photo_url: null,
             kk_photo: null,
@@ -540,16 +664,32 @@ export default function Pengajuan({ today, products, customers, options, agents 
             form.agunan.filter((_, i) => i !== index),
         );
 
-    // --- Jaminan Pinjaman: daftar + form tambah (lokal) --------------------
+    // --- Jaminan Pinjaman: daftar + form tambah (lokal) (Ticket 28) -------
     const EMPTY_JAMINAN = {
         tanggal: today,
-        jenis: '',
+        jenis: 'SHM/SHGB', // 'SHM/SHGB' | 'Buyback'
         nama: '',
         keterangan: '',
         nilai_perkiraan: '',
         status_pengikatan: '',
         tanggal_pengikatan: '',
         nilai_hak_tanggungan: '',
+        // Field khusus SHM/SHGB
+        shm_type: 'SHM', // 'SHM' | 'SHGB'
+        shm_no: '',
+        shm_owner: '',
+        shm_address: '',
+        shgb_start_date: '',
+        shgb_end_date: '',
+        // Field khusus Buyback
+        buyback_notes: '',
+        buyback_docs: {
+            shm: null,
+            akta_buyback: null,
+            kuasa_jual: null,
+            ppjb: null,
+            pengosongan: null,
+        },
         // Ticket 77 — `foto` memegang objek File yang dipilih (null = tanpa
         // foto); `foto_url` diisi server untuk foto yang sudah tersimpan.
         foto: null,
@@ -562,11 +702,92 @@ export default function Pengajuan({ today, products, customers, options, agents 
     const [showJaminanForm, setShowJaminanForm] = useState(false);
     const [draftJaminan, setDraftJaminan] = useState(EMPTY_JAMINAN);
 
+    const handleJenisJaminanChange = (newJenis) => {
+        if (draftJaminan.jenis === newJenis) return;
+
+        const hasCustomData =
+            draftJaminan.nama.trim() !== '' ||
+            draftJaminan.keterangan.trim() !== '' ||
+            draftJaminan.shm_no.trim() !== '' ||
+            draftJaminan.shm_owner.trim() !== '' ||
+            draftJaminan.shm_address.trim() !== '' ||
+            draftJaminan.buyback_notes.trim() !== '' ||
+            Object.values(draftJaminan.buyback_docs).some((f) => f !== null);
+
+        if (hasCustomData) {
+            const confirmed = window.confirm(
+                'Mengganti jenis jaminan akan mengatur ulang data spesifik jaminan yang telah diisi. Lanjutkan?',
+            );
+            if (!confirmed) return;
+        }
+
+        setDraftJaminan({
+            ...EMPTY_JAMINAN,
+            tanggal: draftJaminan.tanggal || today,
+            nilai_perkiraan: draftJaminan.nilai_perkiraan,
+            status_pengikatan: draftJaminan.status_pengikatan,
+            tanggal_pengikatan: draftJaminan.tanggal_pengikatan,
+            nilai_hak_tanggungan: draftJaminan.nilai_hak_tanggungan,
+            jenis: newJenis,
+            nama:
+                newJenis === 'SHM/SHGB'
+                    ? 'Sertifikat Hak Milik / Guna Bangunan'
+                    : 'Aset / Perjanjian Buyback',
+        });
+    };
+
     const addJaminan = () => {
         if (draftJaminan.jenis.trim() === '' || draftJaminan.nama.trim() === '') {
             return;
         }
-        setRoot('jaminan', [...form.jaminan, { ...draftJaminan }]);
+
+        // Susun keterangan otomatis jika SHM/SHGB atau Buyback memiliki rincian
+        let autoNotes = draftJaminan.keterangan || '';
+        if (draftJaminan.jenis === 'SHM/SHGB') {
+            const details = [];
+            if (draftJaminan.shm_type) details.push(`Tipe: ${draftJaminan.shm_type}`);
+            if (draftJaminan.shm_no) details.push(`No Sertifikat: ${draftJaminan.shm_no}`);
+            if (draftJaminan.shm_owner) details.push(`Atas Nama: ${draftJaminan.shm_owner}`);
+            if (draftJaminan.shm_address) details.push(`Alamat: ${draftJaminan.shm_address}`);
+            if (draftJaminan.shm_type === 'SHGB' && draftJaminan.shgb_start_date && draftJaminan.shgb_end_date) {
+                details.push(`Masa Berlaku SHGB: ${draftJaminan.shgb_start_date} s/d ${draftJaminan.shgb_end_date}`);
+            }
+            if (draftJaminan.keterangan) details.push(`Catatan: ${draftJaminan.keterangan}`);
+            autoNotes = details.join(' | ');
+        } else if (draftJaminan.jenis === 'Buyback') {
+            const details = [];
+            if (draftJaminan.buyback_notes) details.push(`Perjanjian Buyback: ${draftJaminan.buyback_notes}`);
+            const uploadedDocs = Object.entries(draftJaminan.buyback_docs)
+                .filter(([_, f]) => f instanceof File)
+                .map(([type]) => type.toUpperCase());
+            if (uploadedDocs.length > 0) {
+                details.push(`Dokumen Disertakan: ${uploadedDocs.join(', ')}`);
+            }
+            if (draftJaminan.keterangan) details.push(`Catatan: ${draftJaminan.keterangan}`);
+            autoNotes = details.join(' | ');
+        }
+
+        // Jika Buyback memiliki dokumen SHM atau dokumen perjanjian pertama, simpan sebagai dokumen jaminan utama
+        let primaryDoc = draftJaminan.dokumen;
+        if (!primaryDoc && draftJaminan.jenis === 'Buyback') {
+            primaryDoc =
+                draftJaminan.buyback_docs.shm ||
+                draftJaminan.buyback_docs.akta_buyback ||
+                draftJaminan.buyback_docs.ppjb ||
+                draftJaminan.buyback_docs.kuasa_jual ||
+                draftJaminan.buyback_docs.kuasa_awal ||
+                draftJaminan.buyback_docs.pengosongan ||
+                null;
+        }
+
+        setRoot('jaminan', [
+            ...form.jaminan,
+            {
+                ...draftJaminan,
+                keterangan: autoNotes,
+                dokumen: primaryDoc,
+            },
+        ]);
         setDraftJaminan({ ...EMPTY_JAMINAN, tanggal: today });
         setShowJaminanForm(false);
     };
@@ -644,15 +865,22 @@ export default function Pengajuan({ today, products, customers, options, agents 
     const err = (key) => errors[key] ?? null;
 
     const submitPayload = () => {
-        const isMarried = form.pribadi.marital_status === 'married';
+        const isMarried = ['married', 'menikah'].includes(form.pribadi.marital_status);
+        const isDivorced = ['janda', 'duda'].includes(form.pribadi.marital_status);
+        const isCeraiHidup = isDivorced && form.pribadi.marital_separation_type === 'cerai_hidup';
+        const isCeraiMati = isDivorced && form.pribadi.marital_separation_type === 'cerai_mati';
 
         return {
             ...form,
             pribadi: {
                 ...form.pribadi,
+                marital_separation_type: isDivorced ? form.pribadi.marital_separation_type : '',
                 spouse_name: isMarried ? form.pribadi.spouse_name : '',
                 spouse_nik: isMarried ? form.pribadi.spouse_nik : '',
                 spouse_phone: isMarried ? form.pribadi.spouse_phone : '',
+                buku_nikah: isMarried && form.pribadi.buku_nikah instanceof File ? form.pribadi.buku_nikah : null,
+                akta_cerai: isCeraiHidup && form.pribadi.akta_cerai instanceof File ? form.pribadi.akta_cerai : null,
+                akta_kematian: isCeraiMati && form.pribadi.akta_kematian instanceof File ? form.pribadi.akta_kematian : null,
                 ktp_photo: form.pribadi.ktp_photo instanceof File ? form.pribadi.ktp_photo : null,
                 kk_photo: form.pribadi.kk_photo instanceof File ? form.pribadi.kk_photo : null,
             },
@@ -686,6 +914,9 @@ export default function Pengajuan({ today, products, customers, options, agents 
             const hasFiles =
                 form.pribadi.ktp_photo instanceof File ||
                 form.pribadi.kk_photo instanceof File ||
+                form.pribadi.buku_nikah instanceof File ||
+                form.pribadi.akta_cerai instanceof File ||
+                form.pribadi.akta_kematian instanceof File ||
                 (Array.isArray(form.lampiran) && form.lampiran.some((item) => item instanceof File)) ||
                 form.jaminan.some(
                     (item) => item.foto instanceof File || item.dokumen instanceof File,
@@ -1099,12 +1330,15 @@ export default function Pengajuan({ today, products, customers, options, agents 
                                                 value={form.pribadi.marital_status ?? ''}
                                                 onChange={(event) => {
                                                     const val = event.target.value;
+                                                    const isMarried = ['married', 'menikah'].includes(val);
+                                                    const isDivorced = ['janda', 'duda'].includes(val);
                                                     setForm((prev) => ({
                                                         ...prev,
                                                         pribadi: {
                                                             ...prev.pribadi,
                                                             marital_status: val,
-                                                            ...(val !== 'married'
+                                                            ...(!isDivorced ? { marital_separation_type: '' } : {}),
+                                                            ...(!isMarried
                                                                 ? {
                                                                       spouse_name: '',
                                                                       spouse_nik: '',
@@ -1117,8 +1351,17 @@ export default function Pengajuan({ today, products, customers, options, agents 
                                                 className={inputClass}
                                             >
                                                 <option value="">— Pilih Status Pernikahan —</option>
-                                                <option value="single">Belum Menikah</option>
-                                                <option value="married">Sudah Menikah</option>
+                                                <option value="belum_menikah">Belum Menikah</option>
+                                                <option value="menikah">Menikah</option>
+                                                <option value="janda">Janda</option>
+                                                <option value="duda">Duda</option>
+                                                {/* Dukungan backward compatible untuk legacy state */}
+                                                {form.pribadi.marital_status === 'single' && (
+                                                    <option value="single">Belum Menikah (Legacy)</option>
+                                                )}
+                                                {form.pribadi.marital_status === 'married' && (
+                                                    <option value="married">Sudah Menikah (Legacy)</option>
+                                                )}
                                             </select>
                                             {err('pribadi.marital_status') && (
                                                 <p className="mt-1 text-xs text-rose-600">
@@ -1126,16 +1369,42 @@ export default function Pengajuan({ today, products, customers, options, agents 
                                                 </p>
                                             )}
                                         </Field>
+
+                                        {/* Tipe Pemisahan untuk Janda / Duda (Ticket 30A) */}
+                                        {['janda', 'duda'].includes(form.pribadi.marital_status) && (
+                                            <Field label="Penyebab Berpisah" required>
+                                                <select
+                                                    value={form.pribadi.marital_separation_type ?? ''}
+                                                    onChange={(event) =>
+                                                        setGroup(
+                                                            'pribadi',
+                                                            'marital_separation_type',
+                                                            event.target.value,
+                                                        )
+                                                    }
+                                                    className={inputClass}
+                                                >
+                                                    <option value="">— Pilih Penyebab —</option>
+                                                    <option value="cerai_hidup">Cerai Hidup</option>
+                                                    <option value="cerai_mati">Cerai Mati</option>
+                                                </select>
+                                                {err('pribadi.marital_separation_type') && (
+                                                    <p className="mt-1 text-xs text-rose-600">
+                                                        {err('pribadi.marital_separation_type')}
+                                                    </p>
+                                                )}
+                                            </Field>
+                                        )}
                                     </div>
 
-                                    {/* Informasi Pasangan jika Sudah Menikah */}
-                                    {form.pribadi.marital_status === 'married' && (
+                                    {/* Informasi Pasangan jika Menikah */}
+                                    {['married', 'menikah'].includes(form.pribadi.marital_status) && (
                                         <div className="pt-4 border-t border-slate-100 space-y-4">
                                             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                                                 Informasi Pasangan
                                             </h3>
                                             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                                                <Field label="Nama Pasangan">
+                                                <Field label="Nama Pasangan" required>
                                                     <input
                                                         type="text"
                                                         value={form.pribadi.spouse_name ?? ''}
@@ -1155,7 +1424,7 @@ export default function Pengajuan({ today, products, customers, options, agents 
                                                         </p>
                                                     )}
                                                 </Field>
-                                                <Field label="NIK Pasangan">
+                                                <Field label="NIK Pasangan" required>
                                                     <input
                                                         type="text"
                                                         maxLength={16}
@@ -1176,7 +1445,7 @@ export default function Pengajuan({ today, products, customers, options, agents 
                                                         </p>
                                                     )}
                                                 </Field>
-                                                <Field label="Nomor Telepon Pasangan">
+                                                <Field label="Nomor Telepon Pasangan" required>
                                                     <input
                                                         type="text"
                                                         value={form.pribadi.spouse_phone ?? ''}
@@ -1199,6 +1468,82 @@ export default function Pengajuan({ today, products, customers, options, agents 
                                             </div>
                                         </div>
                                     )}
+
+                                    {/* Upload Dokumen Pendukung Status Pernikahan:
+                                        - Buku Nikah (PDF, Maks 10 MB): wajib jika Menikah
+                                        - Akta Cerai (PDF, Maks 10 MB): wajib jika Janda/Duda + Cerai Hidup
+                                        - Akta Kematian (PDF, Maks 10 MB): wajib jika Janda/Duda + Cerai Mati
+                                    */}
+                                    {['married', 'menikah'].includes(form.pribadi.marital_status) && (
+                                        <div className="pt-4 border-t border-slate-100">
+                                            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
+                                                Dokumen Pendukung Pernikahan
+                                            </h3>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <MaritalDocumentUploader
+                                                    label="Buku Nikah"
+                                                    required
+                                                    file={form.pribadi.buku_nikah}
+                                                    existingUrl={form.pribadi.buku_nikah_url}
+                                                    error={err('pribadi.buku_nikah')}
+                                                    onFileSelect={(file) =>
+                                                        setGroup('pribadi', 'buku_nikah', file)
+                                                    }
+                                                    onFileRemove={() =>
+                                                        setGroup('pribadi', 'buku_nikah', null)
+                                                    }
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {['janda', 'duda'].includes(form.pribadi.marital_status) &&
+                                        form.pribadi.marital_separation_type === 'cerai_hidup' && (
+                                            <div className="pt-4 border-t border-slate-100">
+                                                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
+                                                    Dokumen Pendukung Cerai Hidup
+                                                </h3>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <MaritalDocumentUploader
+                                                        label="Akta Cerai"
+                                                        required
+                                                        file={form.pribadi.akta_cerai}
+                                                        existingUrl={form.pribadi.akta_cerai_url}
+                                                        error={err('pribadi.akta_cerai')}
+                                                        onFileSelect={(file) =>
+                                                            setGroup('pribadi', 'akta_cerai', file)
+                                                        }
+                                                        onFileRemove={() =>
+                                                            setGroup('pribadi', 'akta_cerai', null)
+                                                        }
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+
+                                    {['janda', 'duda'].includes(form.pribadi.marital_status) &&
+                                        form.pribadi.marital_separation_type === 'cerai_mati' && (
+                                            <div className="pt-4 border-t border-slate-100">
+                                                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
+                                                    Dokumen Pendukung Cerai Mati
+                                                </h3>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <MaritalDocumentUploader
+                                                        label="Akta Kematian"
+                                                        required
+                                                        file={form.pribadi.akta_kematian}
+                                                        existingUrl={form.pribadi.akta_kematian_url}
+                                                        error={err('pribadi.akta_kematian')}
+                                                        onFileSelect={(file) =>
+                                                            setGroup('pribadi', 'akta_kematian', file)
+                                                        }
+                                                        onFileRemove={() =>
+                                                            setGroup('pribadi', 'akta_kematian', null)
+                                                        }
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
 
                                     {/* Upload Dokumen Identitas: Foto KTP & Foto Kartu Keluarga */}
                                     <div className="pt-4 border-t border-slate-100">
@@ -1868,228 +2213,405 @@ export default function Pengajuan({ today, products, customers, options, agents 
                                     </button>
 
                                     {showJaminanForm && (
-                                        <div className="grid grid-cols-1 gap-4 rounded-lg border border-dashed border-slate-300 p-4 md:grid-cols-3">
-                                            <Field label="Tanggal">
-                                                <input
-                                                    type="date"
-                                                    value={draftJaminan.tanggal}
-                                                    onChange={(event) =>
-                                                        setDraftJaminan({
-                                                            ...draftJaminan,
-                                                            tanggal:
-                                                                event.target
-                                                                    .value,
-                                                        })
-                                                    }
-                                                    className={inputClass}
-                                                />
-                                            </Field>
-                                            <Field
-                                                label="Jenis Jaminan"
-                                                hint="Master jenis jaminan belum tersedia — diisi bebas."
-                                            >
-                                                <input
-                                                    type="text"
-                                                    value={draftJaminan.jenis}
-                                                    onChange={(event) =>
-                                                        setDraftJaminan({
-                                                            ...draftJaminan,
-                                                            jenis: event.target
-                                                                .value,
-                                                        })
-                                                    }
-                                                    className={inputClass}
-                                                />
-                                            </Field>
-                                            <Field label="Nomor Nasabah / Customer">
-                                                <input
-                                                    type="text"
-                                                    readOnly
-                                                    value={
-                                                        selectedCustomer?.customer_number ??
-                                                        '— pilih nasabah di Data Pribadi —'
-                                                    }
-                                                    className={readonlyClass}
-                                                />
-                                            </Field>
-                                            <Field label="Nama Jaminan">
-                                                <input
-                                                    type="text"
-                                                    value={draftJaminan.nama}
-                                                    onChange={(event) =>
-                                                        setDraftJaminan({
-                                                            ...draftJaminan,
-                                                            nama: event.target
-                                                                .value,
-                                                        })
-                                                    }
-                                                    className={inputClass}
-                                                />
-                                            </Field>
-                                            <Field label="Nilai Perkiraan (Rp)">
-                                                <input
-                                                    type="text"
-                                                    inputMode="numeric"
-                                                    value={groupDigits(
-                                                        draftJaminan.nilai_perkiraan,
-                                                    )}
-                                                    onChange={(event) =>
-                                                        setDraftJaminan({
-                                                            ...draftJaminan,
-                                                            nilai_perkiraan:
-                                                                event.target.value
-                                                                    .replace(
-                                                                        /[^0-9]/g,
-                                                                        '',
-                                                                    )
-                                                                    .slice(
-                                                                        0,
-                                                                        16,
-                                                                    ),
-                                                        })
-                                                    }
-                                                    className={moneyClass}
-                                                />
-                                            </Field>
-                                            <Field
-                                                label="Status Pengikatan"
-                                                hint="Master status pengikatan belum tersedia — diisi bebas."
-                                            >
-                                                <input
-                                                    type="text"
-                                                    value={
-                                                        draftJaminan.status_pengikatan
-                                                    }
-                                                    onChange={(event) =>
-                                                        setDraftJaminan({
-                                                            ...draftJaminan,
-                                                            status_pengikatan:
-                                                                event.target
-                                                                    .value,
-                                                        })
-                                                    }
-                                                    className={inputClass}
-                                                />
-                                            </Field>
-                                            <Field label="Tanggal Pengikatan">
-                                                <input
-                                                    type="date"
-                                                    value={
-                                                        draftJaminan.tanggal_pengikatan
-                                                    }
-                                                    onChange={(event) =>
-                                                        setDraftJaminan({
-                                                            ...draftJaminan,
-                                                            tanggal_pengikatan:
-                                                                event.target
-                                                                    .value,
-                                                        })
-                                                    }
-                                                    className={inputClass}
-                                                />
-                                            </Field>
-                                            <Field label="Nilai Hak Tanggungan (Rp)">
-                                                <input
-                                                    type="text"
-                                                    inputMode="numeric"
-                                                    value={groupDigits(
-                                                        draftJaminan.nilai_hak_tanggungan,
-                                                    )}
-                                                    onChange={(event) =>
-                                                        setDraftJaminan({
-                                                            ...draftJaminan,
-                                                            nilai_hak_tanggungan:
-                                                                event.target.value
-                                                                    .replace(
-                                                                        /[^0-9]/g,
-                                                                        '',
-                                                                    )
-                                                                    .slice(
-                                                                        0,
-                                                                        16,
-                                                                    ),
-                                                        })
-                                                    }
-                                                    className={moneyClass}
-                                                />
-                                            </Field>
-                                            <Field
-                                                label="Foto"
-                                                hint="Format: JPG, JPEG, PNG, atau WebP — maksimal 2 MB. Foto tersimpan permanen bersama pengajuan."
-                                            >
-                                                <input
-                                                    type="file"
-                                                    accept="image/jpeg,image/png,image/webp"
-                                                    onChange={(event) =>
-                                                        setDraftJaminan({
-                                                            ...draftJaminan,
-                                                            foto:
-                                                                event.target
-                                                                    .files?.[0] ??
-                                                                null,
-                                                        })
-                                                    }
-                                                    className="mt-1 block w-full text-xs text-slate-500"
-                                                />
-                                                {draftJaminan.foto instanceof
-                                                    File && (
-                                                    <img
-                                                        src={URL.createObjectURL(
-                                                            draftJaminan.foto,
-                                                        )}
-                                                        alt="Pratinjau foto jaminan"
-                                                        className="mt-2 h-20 rounded border border-slate-200 object-cover"
-                                                    />
-                                                )}
-                                            </Field>
-                                            <Field
-                                                label="Dokumen Jaminan (PDF)"
-                                                hint="Format: PDF — maksimal 10 MB. Dokumen legalitas/perjanjian tersimpan permanen bersama jaminan."
-                                            >
-                                                <input
-                                                    type="file"
-                                                    accept="application/pdf"
-                                                    onChange={(event) =>
-                                                        setDraftJaminan({
-                                                            ...draftJaminan,
-                                                            dokumen:
-                                                                event.target
-                                                                    .files?.[0] ??
-                                                                null,
-                                                        })
-                                                    }
-                                                    className="mt-1 block w-full text-xs text-slate-500"
-                                                />
-                                                {draftJaminan.dokumen instanceof
-                                                    File && (
-                                                    <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-600">
-                                                        <FileText className="h-4 w-4 shrink-0" />
-                                                        <span className="truncate">
-                                                            {draftJaminan.dokumen.name}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                            </Field>
-                                            <div className="md:col-span-3">
-                                                <Field label="Keterangan">
-                                                    <textarea
-                                                        rows="3"
-                                                        value={
-                                                            draftJaminan.keterangan
-                                                        }
+                                        <div className="space-y-4 rounded-lg border border-indigo-200 bg-slate-50/50 p-4">
+                                            <div className="border-b border-slate-200 pb-2">
+                                                <h3 className="text-sm font-semibold text-slate-800">
+                                                    Form Input Jaminan Pinjaman
+                                                </h3>
+                                                <p className="text-xs text-slate-500">
+                                                    Pilih jenis jaminan (SHM/SHGB atau Buyback) untuk menampilkan field spesifik yang terintegrasi.
+                                                </p>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                                <Field label="Tanggal">
+                                                    <input
+                                                        type="date"
+                                                        value={draftJaminan.tanggal}
                                                         onChange={(event) =>
                                                             setDraftJaminan({
                                                                 ...draftJaminan,
-                                                                keterangan:
-                                                                    event.target
-                                                                        .value,
+                                                                tanggal: event.target.value,
+                                                            })
+                                                        }
+                                                        className={inputClass}
+                                                    />
+                                                </Field>
+                                                <Field
+                                                    label="Jenis Jaminan *"
+                                                    hint="Pilih SHM/SHGB atau Buyback untuk form spesifik."
+                                                >
+                                                    <select
+                                                        value={draftJaminan.jenis}
+                                                        onChange={(event) =>
+                                                            handleJenisJaminanChange(event.target.value)
+                                                        }
+                                                        className={inputClass}
+                                                    >
+                                                        <option value="SHM/SHGB">SHM / SHGB</option>
+                                                        <option value="Buyback">Buyback</option>
+                                                    </select>
+                                                </Field>
+                                                <Field label="Nomor Nasabah / Customer">
+                                                    <input
+                                                        type="text"
+                                                        readOnly
+                                                        value={
+                                                            selectedCustomer?.customer_number ??
+                                                            '— pilih nasabah di Data Pribadi —'
+                                                        }
+                                                        className={readonlyClass}
+                                                    />
+                                                </Field>
+                                            </div>
+
+                                            {/* Sub-form Kondisional: SHM/SHGB */}
+                                            {draftJaminan.jenis === 'SHM/SHGB' && (
+                                                <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">
+                                                    <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+                                                        <span className="rounded bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700">
+                                                            Detail Jaminan SHM / SHGB
+                                                        </span>
+                                                        <span className="text-xs text-slate-400">
+                                                            Sesuai sertifikat tanah/bangunan
+                                                        </span>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                                        <Field label="Tipe Sertifikat *">
+                                                            <select
+                                                                value={draftJaminan.shm_type}
+                                                                onChange={(e) =>
+                                                                    setDraftJaminan({
+                                                                        ...draftJaminan,
+                                                                        shm_type: e.target.value,
+                                                                        nama: `${e.target.value} No. ${draftJaminan.shm_no || '...'}`,
+                                                                    })
+                                                                }
+                                                                className={inputClass}
+                                                            >
+                                                                <option value="SHM">SHM (Sertifikat Hak Milik)</option>
+                                                                <option value="SHGB">SHGB (Sertifikat Hak Guna Bangunan)</option>
+                                                            </select>
+                                                        </Field>
+                                                        <Field label="Nomor Sertifikat *">
+                                                            <input
+                                                                type="text"
+                                                                placeholder="Contoh: 1234/Kel. Sukamaju"
+                                                                value={draftJaminan.shm_no}
+                                                                onChange={(e) =>
+                                                                    setDraftJaminan({
+                                                                        ...draftJaminan,
+                                                                        shm_no: e.target.value,
+                                                                        nama: `${draftJaminan.shm_type} No. ${e.target.value}`,
+                                                                    })
+                                                                }
+                                                                className={inputClass}
+                                                            />
+                                                        </Field>
+                                                        <Field label="Atas Nama (Pemilik Sertifikat) *">
+                                                            <input
+                                                                type="text"
+                                                                placeholder="Nama sesuai sertifikat"
+                                                                value={draftJaminan.shm_owner}
+                                                                onChange={(e) =>
+                                                                    setDraftJaminan({
+                                                                        ...draftJaminan,
+                                                                        shm_owner: e.target.value,
+                                                                    })
+                                                                }
+                                                                className={inputClass}
+                                                            />
+                                                        </Field>
+                                                    </div>
+
+                                                    <Field label="Alamat / Lokasi Objek Jaminan *">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Alamat lengkap lokasi tanah/bangunan jaminan"
+                                                            value={draftJaminan.shm_address}
+                                                            onChange={(e) =>
+                                                                setDraftJaminan({
+                                                                    ...draftJaminan,
+                                                                    shm_address: e.target.value,
+                                                                })
+                                                            }
+                                                            className={inputClass}
+                                                        />
+                                                    </Field>
+
+                                                    {draftJaminan.shm_type === 'SHGB' && (
+                                                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 rounded border border-amber-200 bg-amber-50/40 p-3">
+                                                            <Field label="Masa Berlaku SHGB (Mulai)">
+                                                                <input
+                                                                    type="date"
+                                                                    value={draftJaminan.shgb_start_date}
+                                                                    onChange={(e) =>
+                                                                        setDraftJaminan({
+                                                                            ...draftJaminan,
+                                                                            shgb_start_date: e.target.value,
+                                                                        })
+                                                                    }
+                                                                    className={inputClass}
+                                                                />
+                                                            </Field>
+                                                            <Field label="Masa Berlaku SHGB (Berakhir)">
+                                                                <input
+                                                                    type="date"
+                                                                    value={draftJaminan.shgb_end_date}
+                                                                    onChange={(e) =>
+                                                                        setDraftJaminan({
+                                                                            ...draftJaminan,
+                                                                            shgb_end_date: e.target.value,
+                                                                        })
+                                                                    }
+                                                                    className={inputClass}
+                                                                />
+                                                            </Field>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {/* Sub-form Kondisional: Buyback */}
+                                            {draftJaminan.jenis === 'Buyback' && (
+                                                <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">
+                                                    <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+                                                        <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                                                            Detail Jaminan Buyback & Dokumen Legalitas (5 Berkas)
+                                                        </span>
+                                                        <span className="text-xs text-slate-400">
+                                                            Terintegrasi modul Buyback
+                                                        </span>
+                                                    </div>
+
+                                                    <Field label="Catatan / Rincian Perjanjian Buyback">
+                                                        <textarea
+                                                            rows="2"
+                                                            placeholder="Rincian naskah klausul, ketentuan buyback, atau identitas aset..."
+                                                            value={draftJaminan.buyback_notes}
+                                                            onChange={(e) =>
+                                                                setDraftJaminan({
+                                                                    ...draftJaminan,
+                                                                    buyback_notes: e.target.value,
+                                                                    nama: draftJaminan.nama || 'Perjanjian Buyback',
+                                                                })
+                                                            }
+                                                            className={inputClass}
+                                                        />
+                                                    </Field>
+
+                                                    <div className="space-y-3 pt-2">
+                                                        <span className="text-xs font-semibold uppercase tracking-wider text-slate-700 block">
+                                                            5 Berkas Dokumen Legalitas Buyback (PDF, maks 10 MB per file):
+                                                        </span>
+                                                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                                            {[
+                                                                { key: 'shm', label: '1. Sertifikat SHM' },
+                                                                { key: 'akta_buyback', label: '2. Akta Buyback' },
+                                                                { key: 'kuasa_jual', label: '3. Kuasa Jual' },
+                                                                { key: 'ppjb', label: '4. Perjanjian Pengikatan Jual Beli (PPJB)' },
+                                                                { key: 'pengosongan', label: '5. Akta Pengosongan' },
+                                                            ].map((doc) => (
+                                                                <div
+                                                                    key={doc.key}
+                                                                    className="rounded border border-slate-200 bg-slate-50 p-2.5 text-xs"
+                                                                >
+                                                                    <div className="flex items-center justify-between mb-1">
+                                                                        <span className="font-medium text-slate-800">
+                                                                            {doc.label}
+                                                                        </span>
+                                                                        <span
+                                                                            className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                                                                                draftJaminan.buyback_docs[doc.key] instanceof File
+                                                                                    ? 'bg-emerald-100 text-emerald-800'
+                                                                                    : 'bg-slate-200 text-slate-600'
+                                                                            }`}
+                                                                        >
+                                                                            {draftJaminan.buyback_docs[doc.key] instanceof File
+                                                                                ? 'Siap Diunggah'
+                                                                                : 'Belum Dipilih'}
+                                                                        </span>
+                                                                    </div>
+                                                                    <input
+                                                                        type="file"
+                                                                        accept="application/pdf"
+                                                                        onChange={(e) =>
+                                                                            setDraftJaminan({
+                                                                                ...draftJaminan,
+                                                                                buyback_docs: {
+                                                                                    ...draftJaminan.buyback_docs,
+                                                                                    [doc.key]: e.target.files?.[0] ?? null,
+                                                                                },
+                                                                            })
+                                                                        }
+                                                                        className="mt-1 block w-full text-xs text-slate-500"
+                                                                    />
+                                                                    {draftJaminan.buyback_docs[doc.key] instanceof File && (
+                                                                        <div className="mt-1 text-[11px] text-emerald-700 truncate font-mono">
+                                                                            {draftJaminan.buyback_docs[doc.key].name}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Field Penilaian & Pengikatan Universal */}
+                                            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                                <Field label="Nama Jaminan (Label Tampil) *">
+                                                    <input
+                                                        type="text"
+                                                        value={draftJaminan.nama}
+                                                        onChange={(event) =>
+                                                            setDraftJaminan({
+                                                                ...draftJaminan,
+                                                                nama: event.target.value,
+                                                            })
+                                                        }
+                                                        placeholder={
+                                                            draftJaminan.jenis === 'SHM/SHGB'
+                                                                ? 'Sertifikat Hak Milik'
+                                                                : 'Aset Buyback'
+                                                        }
+                                                        className={inputClass}
+                                                    />
+                                                </Field>
+                                                <Field label="Nilai Perkiraan (Rp)">
+                                                    <input
+                                                        type="text"
+                                                        inputMode="numeric"
+                                                        value={groupDigits(draftJaminan.nilai_perkiraan)}
+                                                        onChange={(event) =>
+                                                            setDraftJaminan({
+                                                                ...draftJaminan,
+                                                                nilai_perkiraan: event.target.value
+                                                                    .replace(/[^0-9]/g, '')
+                                                                    .slice(0, 16),
+                                                            })
+                                                        }
+                                                        className={moneyClass}
+                                                    />
+                                                </Field>
+                                                <Field label="Nilai Hak Tanggungan (Rp)">
+                                                    <input
+                                                        type="text"
+                                                        inputMode="numeric"
+                                                        value={groupDigits(draftJaminan.nilai_hak_tanggungan)}
+                                                        onChange={(event) =>
+                                                            setDraftJaminan({
+                                                                ...draftJaminan,
+                                                                nilai_hak_tanggungan: event.target.value
+                                                                    .replace(/[^0-9]/g, '')
+                                                                    .slice(0, 16),
+                                                            })
+                                                        }
+                                                        className={moneyClass}
+                                                    />
+                                                </Field>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                                <Field
+                                                    label="Status Pengikatan"
+                                                    hint="Contoh: APHT, SKMHT, Notarial, dsb."
+                                                >
+                                                    <input
+                                                        type="text"
+                                                        value={draftJaminan.status_pengikatan}
+                                                        onChange={(event) =>
+                                                            setDraftJaminan({
+                                                                ...draftJaminan,
+                                                                status_pengikatan: event.target.value,
+                                                            })
+                                                        }
+                                                        className={inputClass}
+                                                    />
+                                                </Field>
+                                                <Field label="Tanggal Pengikatan">
+                                                    <input
+                                                        type="date"
+                                                        value={draftJaminan.tanggal_pengikatan}
+                                                        onChange={(event) =>
+                                                            setDraftJaminan({
+                                                                ...draftJaminan,
+                                                                tanggal_pengikatan: event.target.value,
                                                             })
                                                         }
                                                         className={inputClass}
                                                     />
                                                 </Field>
                                             </div>
-                                            <div className="flex gap-2 md:col-span-3">
+
+                                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                                <Field
+                                                    label="Foto Objek Jaminan"
+                                                    hint="Format: JPG, JPEG, PNG, atau WebP — maks 2 MB."
+                                                >
+                                                    <input
+                                                        type="file"
+                                                        accept="image/jpeg,image/png,image/webp"
+                                                        onChange={(event) =>
+                                                            setDraftJaminan({
+                                                                ...draftJaminan,
+                                                                foto: event.target.files?.[0] ?? null,
+                                                            })
+                                                        }
+                                                        className="mt-1 block w-full text-xs text-slate-500"
+                                                    />
+                                                    {draftJaminan.foto instanceof File && (
+                                                        <img
+                                                            src={URL.createObjectURL(draftJaminan.foto)}
+                                                            alt="Pratinjau foto jaminan"
+                                                            className="mt-2 h-20 rounded border border-slate-200 object-cover"
+                                                        />
+                                                    )}
+                                                </Field>
+                                                <Field
+                                                    label="Dokumen Jaminan Utama (PDF)"
+                                                    hint="Format: PDF — maks 10 MB. Salinan sertifikat atau berkas legalitas utama."
+                                                >
+                                                    <input
+                                                        type="file"
+                                                        accept="application/pdf"
+                                                        onChange={(event) =>
+                                                            setDraftJaminan({
+                                                                ...draftJaminan,
+                                                                dokumen: event.target.files?.[0] ?? null,
+                                                            })
+                                                        }
+                                                        className="mt-1 block w-full text-xs text-slate-500"
+                                                    />
+                                                    {draftJaminan.dokumen instanceof File && (
+                                                        <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+                                                            <FileText className="h-4 w-4 shrink-0" />
+                                                            <span className="truncate">
+                                                                {draftJaminan.dokumen.name}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </Field>
+                                            </div>
+
+                                            <div>
+                                                <Field label="Catatan Tambahan / Keterangan Bebas">
+                                                    <textarea
+                                                        rows="2"
+                                                        value={draftJaminan.keterangan}
+                                                        onChange={(event) =>
+                                                            setDraftJaminan({
+                                                                ...draftJaminan,
+                                                                keterangan: event.target.value,
+                                                            })
+                                                        }
+                                                        placeholder="Catatan tambahan untuk petugas analisa atau kasir..."
+                                                        className={inputClass}
+                                                    />
+                                                </Field>
+                                            </div>
+
+                                            <div className="flex gap-2 pt-2 border-t border-slate-200">
                                                 <button
                                                     type="button"
                                                     onClick={addJaminan}
@@ -2104,9 +2626,7 @@ export default function Pengajuan({ today, products, customers, options, agents 
                                                             ...EMPTY_JAMINAN,
                                                             tanggal: today,
                                                         });
-                                                        setShowJaminanForm(
-                                                            false,
-                                                        );
+                                                        setShowJaminanForm(false);
                                                     }}
                                                     className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
                                                 >

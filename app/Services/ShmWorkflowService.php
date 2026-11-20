@@ -8,8 +8,10 @@ use App\Enums\ShmCreditCheckStatus;
 use App\Models\ShmApplication;
 use App\Models\ShmApproval;
 use App\Models\ShmCreditCheck;
+use App\Models\ShmCreditCheckException;
 use App\Models\ShmDocument;
 use App\Models\ShmMemorandum;
+use App\Models\User;
 use App\Support\DbTransaction;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
@@ -119,25 +121,151 @@ class ShmWorkflowService
     }
 
     /**
-     * Keputusan approve pada tahap approval.
+     * Keputusan approve Level 1 (Branch Manager) pada tahap approval.
+     */
+    public function approveBm(ShmApplication $application, int $actorId, ?string $notes = null): ShmApplication
+    {
+        return DbTransaction::run(function () use ($application, $actorId, $notes): ShmApplication {
+            $locked = ShmApplication::query()->lockForUpdate()->findOrFail($application->id);
+
+            if ($locked->status !== ShmApplicationStatus::Approval) {
+                throw ValidationException::withMessages([
+                    'status' => sprintf(
+                        'Approval Level 1 hanya dapat dilakukan saat status "Approval". Status saat ini: "%s".',
+                        $locked->status->label(),
+                    ),
+                ]);
+            }
+
+            // Guard: Level 1 tidak boleh diapprove berulang
+            $hasBmApproval = ShmApproval::query()
+                ->where('shm_application_id', $locked->id)
+                ->where('status', ShmApproval::STATUS_APPROVED_BM)
+                ->exists();
+
+            if ($hasBmApproval) {
+                throw ValidationException::withMessages([
+                    'status' => 'Pengajuan ini sudah memperoleh persetujuan Level 1 (Branch Manager).',
+                ]);
+            }
+
+            // Catat baris keputusan Level 1 dengan update baris pending jika ada
+            $pendingRow = ShmApproval::query()
+                ->where('shm_application_id', $locked->id)
+                ->where('status', ShmApproval::STATUS_PENDING)
+                ->first();
+
+            if ($pendingRow) {
+                $pendingRow->update([
+                    'decided_by' => $actorId,
+                    'status' => ShmApproval::STATUS_APPROVED_BM,
+                    'decided_at' => now(),
+                    'notes' => $notes,
+                ]);
+            } else {
+                ShmApproval::create([
+                    'shm_application_id' => $locked->id,
+                    'decided_by' => $actorId,
+                    'status' => ShmApproval::STATUS_APPROVED_BM,
+                    'decided_at' => now(),
+                    'notes' => $notes,
+                ]);
+            }
+
+            AuditLogger::log(
+                'shm.application.approved_bm',
+                ShmApplication::class,
+                $locked->id,
+                $locked->application_number,
+                'Pengajuan disetujui pada Level 1 oleh Branch Manager.',
+                [
+                    'status' => $locked->status->value,
+                    'actor_id' => $actorId,
+                    'stage' => 'level_1',
+                    'notes' => $notes,
+                ],
+            );
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Keputusan approve pada tahap approval (Level 2 / Final Approval).
      *
-     * Catatan approval disimpan pada baris approval terpisah, bukan pada
-     * kolom status aplikasi.
+     * Wajib didahului oleh persetujuan Level 1 (Branch Manager).
      */
     public function approve(ShmApplication $application, int $actorId, ?string $notes = null): ShmApplication
     {
         return DbTransaction::run(function () use ($application, $actorId, $notes): ShmApplication {
-            $updated = $this->transition($application, ShmApplicationStatus::Approved, $actorId);
+            $locked = ShmApplication::query()->lockForUpdate()->findOrFail($application->id);
 
-            ShmApproval::query()->updateOrCreate(
-                ['shm_application_id' => $updated->id],
-                [
+            // Guard 1: Status aplikasi harus Approval
+            if ($locked->status !== ShmApplicationStatus::Approval) {
+                throw ValidationException::withMessages([
+                    'status' => sprintf(
+                        'Persetujuan final hanya dapat dilakukan saat status "Approval". Status saat ini: "%s".',
+                        $locked->status->label(),
+                    ),
+                ]);
+            }
+
+            // Guard 2: Untuk pengajuan pinjaman (atau flow Two-Level Approval), Level 1 (Branch Manager) approval wajib sudah ada
+            $isLoanApp = $locked->loanApplication()->exists();
+            $bmApproval = ShmApproval::query()
+                ->where('shm_application_id', $locked->id)
+                ->where('status', ShmApproval::STATUS_APPROVED_BM)
+                ->first();
+
+            if ($isLoanApp && ! $bmApproval) {
+                throw ValidationException::withMessages([
+                    'status' => 'Persetujuan Level 2 (Direktur) ditolak: Pengajuan belum disetujui oleh Branch Manager (Level 1).',
+                ]);
+            }
+
+            // Guard 2b (PRESTG-A-008): Actor Independence Enforcement (L1 approver !== L2 approver)
+            if ($bmApproval && (int) $bmApproval->decided_by === $actorId) {
+                throw ValidationException::withMessages([
+                    'status' => 'Persetujuan Level 2 ditolak: Pejabat penyetuju Level 2 harus berbeda dari pejabat penyetuju Level 1 (Actor Independence).',
+                ]);
+            }
+
+            // Guard 3: Tidak boleh disetujui Level 2 berulang
+            $hasDirectorApproval = ShmApproval::query()
+                ->where('shm_application_id', $locked->id)
+                ->where('status', ShmApproval::STATUS_APPROVED)
+                ->exists();
+
+            if ($hasDirectorApproval) {
+                throw ValidationException::withMessages([
+                    'status' => 'Pengajuan ini sudah memperoleh persetujuan final (Level 2).',
+                ]);
+            }
+
+            $updated = $this->transition($locked, ShmApplicationStatus::Approved, $actorId);
+
+            // Update baris pending yang tersisa, atau buat baris baru untuk approval final
+            $pendingRow = ShmApproval::query()
+                ->where('shm_application_id', $updated->id)
+                ->where('status', ShmApproval::STATUS_PENDING)
+                ->first();
+
+            if ($pendingRow) {
+                $pendingRow->update([
                     'decided_by' => $actorId,
                     'status' => ShmApproval::STATUS_APPROVED,
                     'decided_at' => now(),
                     'notes' => $notes,
-                ],
-            );
+                ]);
+            } else {
+                ShmApproval::create([
+                    'shm_application_id' => $updated->id,
+                    'decided_by' => $actorId,
+                    'status' => ShmApproval::STATUS_APPROVED,
+                    'decided_at' => now(),
+                    'notes' => $notes,
+                ]);
+            }
 
             return $updated;
         });
@@ -151,8 +279,12 @@ class ShmWorkflowService
         return DbTransaction::run(function () use ($application, $actorId, $notes): ShmApplication {
             $updated = $this->transition($application, ShmApplicationStatus::Rejected, $actorId, $notes);
 
+            // Update baris pending yang sudah ada, atau buat baris approval baru
             ShmApproval::query()->updateOrCreate(
-                ['shm_application_id' => $updated->id],
+                [
+                    'shm_application_id' => $updated->id,
+                    'status' => ShmApproval::STATUS_PENDING,
+                ],
                 [
                     'decided_by' => $actorId,
                     'status' => ShmApproval::STATUS_REJECTED,
@@ -279,6 +411,130 @@ class ShmWorkflowService
                     'shm_application_id' => $locked->shm_application_id,
                     'outcome' => $outcome?->value,
                     'actor_id' => $actorId,
+                ],
+            );
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Transisi status credit checking secara langsung (Ticket CC-09).
+     *
+     * Transisi yang diizinkan:
+     * - drafted -> approve (Branch Manager)
+     * - drafted -> rejected (Branch Manager)
+     * - rejected -> drafted (Marketing yang memiliki aplikasi)
+     * - approve -> completed (Branch Manager)
+     * - completed -> terminal
+     *
+     * @throws ValidationException
+     */
+    public function transitionCreditCheck(
+        ShmCreditCheck $creditCheck,
+        ShmCreditCheckStatus $target,
+        User $actor,
+        ?string $notes = null,
+    ): ShmCreditCheck {
+        return DbTransaction::run(function () use ($creditCheck, $target, $actor, $notes): ShmCreditCheck {
+            $locked = ShmCreditCheck::query()
+                ->with('application')
+                ->lockForUpdate()
+                ->findOrFail($creditCheck->id);
+
+            $current = ShmCreditCheckStatus::normalize($locked->status);
+            $target = ShmCreditCheckStatus::normalize($target);
+
+            // 1. Cek apakah transisi status secara state-machine diizinkan
+            if (! $current->canTransitionTo($target)) {
+                throw ValidationException::withMessages([
+                    'status' => sprintf(
+                        'Transisi credit checking dari "%s" ke "%s" tidak diizinkan.',
+                        $current->label(),
+                        $target->label(),
+                    ),
+                ]);
+            }
+
+            // 2. Evaluasi kewenangan aktor berdasarkan matriks peran CC-09A (Strict Alignment)
+            // Branch Manager Makro adalah satu-satunya otoritas operasional normal.
+            // Direktur Utama dan Superadmin TIDAK memiliki wewenang transisi normal.
+            $isBranchManager = (! $actor->isSuperadmin()) && (
+                $actor->hasRole('branch_manager_makro')
+                || $actor->hasRole('branch_manager')
+                || $actor->hasPermission('shm.approval.bm')
+            );
+
+            $isMarketing = (! $actor->isSuperadmin()) && (
+                $actor->hasRole('marketing_makro')
+                || $actor->hasRole('marketing')
+                || $actor->hasPermission('shm.credit_checking.update')
+            );
+
+            $application = $locked->application;
+            $ownsApplication = $application && (int) $application->marketing_id === (int) $actor->id;
+
+            if ($actor->isSuperadmin()) {
+                throw ValidationException::withMessages([
+                    'status' => 'Superadmin tidak berwenang melakukan transisi status Credit Checking pada alur kerja operasional normal.',
+                ]);
+            }
+
+            if ($target === ShmCreditCheckStatus::Approve || $target === ShmCreditCheckStatus::Rejected) {
+                // Hanya Branch Manager yang boleh menyetujui atau menolak
+                if (! $isBranchManager) {
+                    throw ValidationException::withMessages([
+                        'status' => 'Hanya Branch Manager yang berwenang menyetujui (Approve) atau menolak (Rejected) Credit Checking.',
+                    ]);
+                }
+            } elseif ($target === ShmCreditCheckStatus::Drafted) {
+                // Pengembalian rejected -> drafted oleh Marketing/AO pemilik pengajuan
+                if (! $isMarketing) {
+                    throw ValidationException::withMessages([
+                        'status' => 'Hanya Marketing/AO yang berwenang mengembalikan Credit Checking ke status Drafted.',
+                    ]);
+                }
+                // Marketing WAJIB memiliki kepemilikan aplikasi (shm.view_all TIDAK memberikan hak transisi pengajuan orang lain - CC-11 D-03)
+                if (! $ownsApplication) {
+                    throw ValidationException::withMessages([
+                        'status' => 'Marketing hanya berwenang mengubah Credit Checking pada pengajuan miliknya sendiri.',
+                    ]);
+                }
+            } elseif ($target === ShmCreditCheckStatus::Completed) {
+                // Branch Manager menyelesaikan Credit Checking
+                if (! $isBranchManager) {
+                    throw ValidationException::withMessages([
+                        'status' => 'Hanya Branch Manager yang berwenang menyelesaikan (Completed) Credit Checking.',
+                    ]);
+                }
+            }
+
+            // 3. Terapkan pembaruan
+            $locked->status = $target;
+            $locked->filled_by = $actor->id;
+            if ($notes !== null) {
+                $locked->notes = $notes;
+            }
+            if ($target === ShmCreditCheckStatus::Completed && $locked->checked_at === null) {
+                $locked->checked_at = now();
+            }
+            if ($locked->started_at === null) {
+                $locked->started_at = now();
+            }
+            $locked->save();
+
+            AuditLogger::log(
+                'shm.credit_check.transitioned',
+                ShmCreditCheck::class,
+                $locked->id,
+                $application?->application_number,
+                "Status Credit Checking diubah dari {$current->label()} ke {$target->label()}.",
+                [
+                    'shm_application_id' => $locked->shm_application_id,
+                    'from' => $current->value,
+                    'to' => $target->value,
+                    'actor_id' => $actor->id,
+                    'notes' => $notes,
                 ],
             );
 
@@ -551,11 +807,53 @@ class ShmWorkflowService
     }
 
     /**
-     * Credit checking ke memorandum.
+     * Credit checking ke memorandum (Ticket CC-05 / CC-09 Workflow Guard).
+     *
+     * Invariant CC-09:
+     * 1. Pengajuan wajib menyelesaikan Credit Checking (isCompleted === true), KECUALI
+     *    memiliki dispensasi aktif tipe 'completion_bypass' dari Direktur Utama.
+     * 2. FAIL Override dihapus pada CC-09.
+     *
+     * @throws ValidationException
      */
     public function startMemorandum(ShmApplication $application, int $actorId): ShmApplication
     {
-        return $this->transition($application, ShmApplicationStatus::Memorandum, $actorId);
+        return DbTransaction::run(function () use ($application, $actorId): ShmApplication {
+            $lockedApp = ShmApplication::query()->lockForUpdate()->findOrFail($application->id);
+            $creditCheck = $lockedApp->latestCreditCheck;
+
+            // 1. Evaluasi Completion Gate vs Completion Bypass
+            $hasBypass = ShmCreditCheckException::query()
+                ->where('shm_application_id', $lockedApp->id)
+                ->where('exception_type', ShmCreditCheckException::TYPE_COMPLETION_BYPASS)
+                ->where('status', ShmCreditCheckException::STATUS_AUTHORIZED)
+                ->exists();
+
+            if (! $hasBypass) {
+                if (! $creditCheck || ! $creditCheck->isCompleted()) {
+                    throw ValidationException::withMessages([
+                        'credit_checking' => 'Pengajuan tidak dapat masuk ke tahap Memorandum karena proses Credit Checking belum selesai (Completed).',
+                    ]);
+                }
+            }
+
+            // 2. Evaluasi Outcome FAIL vs FAIL Override (historical / legacy support)
+            if ($creditCheck && $creditCheck->isCompleted() && $creditCheck->outcome?->value === 'fail') {
+                $hasOverride = ShmCreditCheckException::query()
+                    ->where('shm_application_id', $lockedApp->id)
+                    ->where('exception_type', ShmCreditCheckException::TYPE_FAIL_OVERRIDE)
+                    ->where('status', ShmCreditCheckException::STATUS_AUTHORIZED)
+                    ->exists();
+
+                if (! $hasOverride) {
+                    throw ValidationException::withMessages([
+                        'credit_checking' => 'Hasil Credit Checking pengajuan ini adalah FAIL. Diperlukan dispensasi khusus FAIL Override dari Direktur Utama untuk melanjutkan ke Memorandum.',
+                    ]);
+                }
+            }
+
+            return $this->transition($lockedApp, ShmApplicationStatus::Memorandum, $actorId);
+        });
     }
 
     /**
@@ -618,7 +916,14 @@ class ShmWorkflowService
      */
     public function returnToDraft(ShmApplication $application, int $actorId): ShmApplication
     {
-        return $this->transition($application, ShmApplicationStatus::Draft, $actorId);
+        return DbTransaction::run(function () use ($application, $actorId): ShmApplication {
+            $updated = $this->transition($application, ShmApplicationStatus::Draft, $actorId);
+
+            // Bersihkan keputusan approval lama saat kembali ke draft agar putaran approval baru bersih
+            ShmApproval::query()->where('shm_application_id', $updated->id)->delete();
+
+            return $updated;
+        });
     }
 
     /**

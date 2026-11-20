@@ -32,7 +32,7 @@ class StoreShmCustomerRequest extends FormRequest
     {
         return [
             'member_id' => [
-                'required',
+                'nullable',
                 'integer',
                 'exists:members,id',
             ],
@@ -126,7 +126,7 @@ class StoreShmCustomerRequest extends FormRequest
     public function payload(): array
     {
         return [
-            'member_id' => (int) $this->input('member_id'),
+            'member_id' => $this->filled('member_id') ? (int) $this->input('member_id') : null,
             'name' => (string) $this->input('name'),
             'nik' => $this->input('nik'),
             'phone' => $this->input('phone'),

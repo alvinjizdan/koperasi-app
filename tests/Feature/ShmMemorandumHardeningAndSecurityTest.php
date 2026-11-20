@@ -7,11 +7,15 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\ShmApplication;
 use App\Models\ShmBuybackDocument;
+use App\Models\ShmCreditCheck;
 use App\Models\ShmCustomer;
 use App\Models\ShmMemorandum;
 use App\Models\ShmMemorandumApprovalHistory;
 use App\Models\User;
 use App\Services\Shm\ShmMemorandumApprovalService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -53,6 +57,9 @@ class ShmMemorandumHardeningAndSecurityTest extends TestCase
         parent::setUp();
         Storage::fake('local');
 
+        $this->seed(PermissionSeeder::class);
+        $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
         $this->seedPermissions();
 
         $this->admin = $this->createUserWithPermissions([
@@ -131,6 +138,8 @@ class ShmMemorandumHardeningAndSecurityTest extends TestCase
         $role = Role::create([
             'name' => 'role_'.uniqid(),
             'display_name' => 'Test Role',
+            'entity' => 'makro',
+            'is_active' => true,
         ]);
 
         foreach ($permissionNames as $permName) {
@@ -147,7 +156,7 @@ class ShmMemorandumHardeningAndSecurityTest extends TestCase
 
     private function createTestApplication(string $type, User $marketing, ShmApplicationStatus $status = ShmApplicationStatus::Completed): ShmApplication
     {
-        return ShmApplication::create([
+        $app = ShmApplication::create([
             'application_number' => 'APP-'.uniqid(),
             'shm_customer_id' => $this->customer->id,
             'marketing_id' => $marketing->id,
@@ -156,6 +165,19 @@ class ShmMemorandumHardeningAndSecurityTest extends TestCase
             'status' => $status,
             'type' => $type,
         ]);
+
+        // Sediakan Credit Check status completed / pass agar memenuhi prasyarat CC-05
+        ShmCreditCheck::create([
+            'shm_application_id' => $app->id,
+            'filled_by' => $marketing->id,
+            'status' => 'completed',
+            'outcome' => 'pass',
+            'result' => 'Lulus pemeriksaan kelayakan.',
+            'started_at' => now()->subDay(),
+            'checked_at' => now(),
+        ]);
+
+        return $app;
     }
 
     private function seedBuybackDocuments(ShmMemorandum $memo, User $uploader): void

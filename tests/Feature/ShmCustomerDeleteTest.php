@@ -4,13 +4,13 @@ namespace Tests\Feature;
 
 use App\Models\AuditLog;
 use App\Models\MarketingActivity;
-use App\Models\Member;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\ShmApplication;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -47,9 +47,11 @@ class ShmCustomerDeleteTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->superadmin = $this->userWithRole('superadmin');
-        $this->marketing = $this->userWithRole('marketing');
+        $this->superadmin->roles()->update(['entity' => 'shared']);
+        $this->marketing = $this->userWithRole('marketing_makro');
         $this->deleter = $this->userWithPermissions(['shm.customer.delete']);
     }
 
@@ -72,6 +74,7 @@ class ShmCustomerDeleteTest extends TestCase
             'name' => 't102-del-'.uniqid(),
             'display_name' => 'T102 Delete Tester',
             'is_system' => false,
+            'entity' => 'makro',
         ]);
 
         $role->permissions()->attach(
@@ -82,21 +85,20 @@ class ShmCustomerDeleteTest extends TestCase
         return $user;
     }
 
-    private function activeMember(array $overrides = []): Member
+    private function createCustomerViaHttp(?int $memberId = null, string $name = 'Nasabah Uji'): ShmCustomer
     {
-        return Member::factory()->create(array_merge(['status' => 'active'], $overrides));
-    }
+        $payload = [
+            'name' => $name,
+            'nik' => '3501234567890123',
+            'phone' => '081234567890',
+            'address' => 'Jl. Contoh No. 1, Cirebon',
+        ];
+        if ($memberId !== null) {
+            $payload['member_id'] = $memberId;
+        }
 
-    private function createCustomerViaHttp(Member $member, string $name = 'Nasabah Uji'): ShmCustomer
-    {
         $this->actingAs($this->marketing)
-            ->post(route('shm.customers.store'), [
-                'member_id' => $member->id,
-                'name' => $name,
-                'nik' => '3501234567890123',
-                'phone' => '081234567890',
-                'address' => 'Jl. Contoh No. 1, Cirebon',
-            ])
+            ->post(route('shm.customers.store'), $payload)
             ->assertSessionHasNoErrors();
 
         return ShmCustomer::query()->latest('id')->firstOrFail();
@@ -151,9 +153,7 @@ class ShmCustomerDeleteTest extends TestCase
 
     public function test_authorized_delete_removes_customer_without_touching_member(): void
     {
-        $member = $this->activeMember();
-        $customer = $this->createCustomerViaHttp($member);
-        $memberCount = Member::query()->count();
+        $customer = $this->createCustomerViaHttp();
 
         $this->actingAs($this->deleter)
             ->delete(route('shm.customers.destroy', $customer->id))
@@ -162,21 +162,8 @@ class ShmCustomerDeleteTest extends TestCase
 
         $this->assertDatabaseMissing('shm_customers', ['id' => $customer->id]);
 
-        // Anggota sumber TIDAK ikut terhapus dan datanya utuh.
-        $this->assertSame($memberCount, Member::query()->count());
-        $this->assertDatabaseHas('members', [
-            'id' => $member->id,
-            'member_number' => $member->member_number,
-            'status' => 'active',
-        ]);
-
         // Satu event audit untuk aksi penghapusan.
         $this->assertSame(1, AuditLog::query()->where('action', 'shm.customer.deleted')->count());
-
-        // Anggota kembali tersedia untuk nasabah baru (tidak ada sisa
-        // relasi aktif yang menggantung).
-        $this->createCustomerViaHttp($member, 'Nasabah Baru');
-        $this->assertSame(1, ShmCustomer::query()->where('member_id', $member->id)->count());
     }
 
     // -----------------------------------------------------------------
@@ -185,8 +172,7 @@ class ShmCustomerDeleteTest extends TestCase
 
     public function test_delete_is_rejected_when_customer_has_application(): void
     {
-        $member = $this->activeMember();
-        $customer = $this->createCustomerViaHttp($member);
+        $customer = $this->createCustomerViaHttp();
 
         $this->actingAs($this->marketing)
             ->post(route('shm.applications.store'), [

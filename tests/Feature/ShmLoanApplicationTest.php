@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
-use App\Models\Member;
 use App\Models\Role;
 use App\Models\ShmAgent;
 use App\Models\ShmCustomer;
@@ -14,6 +13,7 @@ use App\Models\ShmLoanApplicationCollateral;
 use App\Models\ShmLoanApplicationRequirement;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -60,10 +60,12 @@ class ShmLoanApplicationTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->superadmin = $this->userWithRole('superadmin');
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
+        $this->superadmin->roles()->update(['entity' => 'shared']);
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
         $this->kasir = $this->userWithRole('kasir');
     }
 
@@ -282,10 +284,10 @@ class ShmLoanApplicationTest extends TestCase
 
     public function test_koperasi_member_id_cannot_be_used_as_shm_customer(): void
     {
-        $member = Member::factory()->create();
+        $nonExistentCustomerId = 999999;
 
         $payload = $this->validPayload(1);
-        $payload['pribadi']['customer_id'] = $member->id;
+        $payload['pribadi']['customer_id'] = $nonExistentCustomerId;
 
         $this->storeAs($this->admin, $payload)
             ->assertSessionHasErrors('pribadi.customer_id');
@@ -447,9 +449,6 @@ class ShmLoanApplicationTest extends TestCase
 
     public function test_pdf_export_contains_saved_application_with_eleven_sections(): void
     {
-        // Data koperasi yang TIDAK boleh muncul di PDF SHM.
-        Member::factory()->create(['full_name' => 'ANGGOTA KOPERASI JANGAN MUNCUL']);
-
         $application = $this->makeApplication();
 
         $response = $this->actingAs($this->admin)
@@ -588,6 +587,7 @@ class ShmLoanApplicationTest extends TestCase
             'shm.loans.pengajuan',
             'shm.loans.pengajuan.daftar',
             'shm.loans.pengajuan.disburse',
+            'shm.loans.pengajuan.dokumen-pernikahan',
             'shm.loans.pengajuan.edit',
             'shm.loans.pengajuan.identitas.foto',
             // Dokumen PDF jaminan (ticket upload-dokumen-jaminan).
@@ -605,6 +605,15 @@ class ShmLoanApplicationTest extends TestCase
             'shm.loans.products.index',
             'shm.loans.products.store',
             'shm.loans.products.update',
+            'shm.loans.refunds.approve',
+            'shm.loans.refunds.cancel',
+            'shm.loans.refunds.confirm_recovery',
+            'shm.loans.refunds.index',
+            'shm.loans.refunds.payout',
+            'shm.loans.refunds.reject',
+            'shm.loans.refunds.reverse',
+            'shm.loans.refunds.show',
+            'shm.loans.refunds.store',
             'shm.loans.report.index',
             'shm.loans.report.pdf',
             // T83 — action eksplisit pembangkitan jadwal angsuran.
