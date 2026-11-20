@@ -134,6 +134,7 @@ class ConcurrencyHarness
             (string) ($decoded['kind'] ?? 'unknown'),
             $decoded['errors'] ?? [],
             (string) ($decoded['message'] ?? ''),
+            $decoded,
         );
     }
 }
@@ -148,6 +149,7 @@ class WorkerResult
         public readonly string $kind,
         public readonly array $errors,
         public readonly string $message,
+        public readonly array $data = [],
     ) {}
 }
 
@@ -160,6 +162,11 @@ class WorkerResults
      * @param  array<int, WorkerResult>  $results
      */
     public function __construct(private readonly array $results) {}
+
+    public function all(): array
+    {
+        return $this->results;
+    }
 
     public function count(): int
     {

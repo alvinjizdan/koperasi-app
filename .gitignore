@@ -98,3 +98,6 @@ desktop.ini
 # ============================================================
 Homestead.json
 Homestead.yaml
+
+# Archived legacy tests - excluded from active repository changes
+/tests-archive/
