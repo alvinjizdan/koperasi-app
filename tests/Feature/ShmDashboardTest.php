@@ -11,6 +11,7 @@ use App\Models\ShmApproval;
 use App\Models\ShmCustomer;
 use App\Models\ShmMemorandum;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -34,6 +35,8 @@ class ShmDashboardTest extends TestCase
 
     private User $admin;
 
+    private User $direktur;
+
     private User $marketing;
 
     private User $otherMarketing;
@@ -48,11 +51,19 @@ class ShmDashboardTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
+
+        $superRole = Role::query()->where('name', 'superadmin')->first();
+        if ($superRole) {
+            $superRole->entity = 'shared';
+            $superRole->save();
+        }
 
         $this->superadmin = $this->userWithRole('superadmin');
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
-        $this->otherMarketing = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->direktur = $this->userWithRole('direktur_utama_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->otherMarketing = $this->userWithRole('marketing_makro');
         $this->pengawas = $this->userWithRole('pengawas');
 
         $this->customer = ShmCustomer::factory()->create();
@@ -349,14 +360,14 @@ class ShmDashboardTest extends TestCase
         $rejected = $this->pendingApproval($this->marketing);
         $this->pendingApproval($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->direktur)
             ->post(route('shm.applications.approve', $approved->id))
             ->assertSessionHasNoErrors();
-        $this->actingAs($this->admin)
+        $this->actingAs($this->direktur)
             ->post(route('shm.applications.reject', $rejected->id))
             ->assertSessionHasNoErrors();
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->direktur)
             ->get(route('shm.dashboard'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page->where('metrics.pending_approval', 1));
@@ -376,8 +387,8 @@ class ShmDashboardTest extends TestCase
 
         $adminOwn = $this->pendingApproval($this->admin);
 
-        // Admin punya view_all + approval.decide: seluruh 3 pending.
-        $this->actingAs($this->admin)
+        // Direktur Utama punya view_all + approval.decide: seluruh 3 pending.
+        $this->actingAs($this->direktur)
             ->get(route('shm.dashboard'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page->where('metrics.pending_approval', 3));
@@ -394,9 +405,10 @@ class ShmDashboardTest extends TestCase
             'name' => 'approver-dashboard-'.uniqid(),
             'display_name' => 'Approver Dashboard',
             'is_system' => false,
+            'entity' => 'makro',
         ]);
         $role->permissions()->attach(
-            Permission::query()->whereIn('name', [
+            Permission::query()->where('entity', 'makro')->whereIn('name', [
                 'shm.view', 'shm.create', 'shm.submit', 'shm.memorandum.update', 'shm.approval.decide',
             ])->pluck('id')
         );
@@ -558,7 +570,7 @@ class ShmDashboardTest extends TestCase
         $approved = $this->pendingApproval($this->marketing);
         $this->pendingApproval($this->marketing);
 
-        $this->actingAs($this->admin)
+        $this->actingAs($this->direktur)
             ->post(route('shm.applications.approve', $approved->id))
             ->assertSessionHasNoErrors();
 
@@ -621,7 +633,7 @@ class ShmDashboardTest extends TestCase
         // Marketing B: approval sudah diputuskan (approved), tetapi status
         // pengajuan dipaksa kembali ke tahap approval. TIDAK dihitung pending.
         $otherApplication = $this->pendingApproval($this->otherMarketing);
-        $this->actingAs($this->admin)
+        $this->actingAs($this->direktur)
             ->post(route('shm.applications.approve', $otherApplication->id))
             ->assertSessionHasNoErrors();
         $otherApplication->forceFill(['status' => ShmApplicationStatus::Approval])->save();

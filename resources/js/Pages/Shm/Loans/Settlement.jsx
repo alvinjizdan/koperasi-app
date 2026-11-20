@@ -107,6 +107,8 @@ export default function Settlement({
     timeline,
     correction_preview,
     corrections,
+    refunds,
+    refund_summary,
     flash,
     error,
     errors,
@@ -122,6 +124,54 @@ export default function Settlement({
     const [correctionPenalty, setCorrectionPenalty] = useState('');
     const [correctionNotes, setCorrectionNotes] = useState('');
     const [isSubmittingCorrection, setIsSubmittingCorrection] = useState(false);
+
+    // Form Modal Buat Permohonan Refund
+    const [showRefundModal, setShowRefundModal] = useState(false);
+    const [refundAmount, setRefundAmount] = useState('');
+    const [payoutMethod, setPayoutMethod] = useState('bank_transfer');
+    const [bankName, setBankName] = useState('');
+    const [accountNumber, setAccountNumber] = useState('');
+    const [accountHolder, setAccountHolder] = useState('');
+    const [refundReason, setRefundReason] = useState('');
+    const [isSubmittingRefund, setIsSubmittingRefund] = useState(false);
+
+    const submitRefund = (e) => {
+        e.preventDefault();
+        if (!refundAmount || parseFloat(refundAmount) <= 0) {
+            alert('Nominal refund harus lebih dari Rp 0.');
+            return;
+        }
+
+        setIsSubmittingRefund(true);
+        router.post(
+            route('shm.loans.refunds.store', settlement.id),
+            {
+                amount: refundAmount,
+                payout_method: payoutMethod,
+                payout_details: payoutMethod === 'bank_transfer' ? {
+                    bank_name: bankName,
+                    account_number: accountNumber,
+                    account_holder: accountHolder,
+                } : null,
+                reason: refundReason,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setShowRefundModal(false);
+                    setRefundAmount('');
+                    setBankName('');
+                    setAccountNumber('');
+                    setAccountHolder('');
+                    setRefundReason('');
+                    setIsSubmittingRefund(false);
+                },
+                onError: () => {
+                    setIsSubmittingRefund(false);
+                },
+            }
+        );
+    };
 
     if (!loan) {
         return (
@@ -372,20 +422,37 @@ export default function Settlement({
                                 note={`Sisa bunga masa depan (${preview?.remaining_months ?? 0} bulan tersisa) — dasar discount`}
                             />
                             <MoneyRow
-                                label="Unallocated Payment"
+                                label="Unallocated Payment (tersedia)"
                                 value={preview?.unallocated_payment ?? '0'}
                                 muted
-                                note="Pembayaran belum teralokasi (informasi)"
+                                note="Pembayaran nasabah belum teralokasi yang dapat digunakan untuk pelunasan"
                             />
                             <MoneyRow
-                                label="Settlement Amount (est. tanpa penalty)"
+                                label="Gross Settlement Obligation"
                                 value={preview?.settlement_amount ?? '0'}
-                                highlight
                                 note={
                                     previewDiscountBlocked
                                         ? 'TIDAK dapat dihitung — lihat catatan kontrak di bawah'
                                         : 'Pokok outstanding + due interest + remaining interest (setelah discount bila eligible)'
                                 }
+                            />
+                            <MoneyRow
+                                label="Titipan Diaplikasikan (Applied Unallocated)"
+                                value={preview?.applied_unallocated_payment ?? '0'}
+                                negative
+                                note="Saldo titipan yang otomatis memotong kewajiban settlement"
+                            />
+                            <MoneyRow
+                                label="Sisa Tagihan Kas Baru (Net Cash Due)"
+                                value={preview?.net_cash_due ?? preview?.settlement_amount ?? '0'}
+                                highlight
+                                note="Jumlah kas baru yang wajib disetor nasabah (est. tanpa penalty)"
+                            />
+                            <MoneyRow
+                                label="Sisa Dana Titipan Setelah Settlement"
+                                value={preview?.remaining_unallocated_payment ?? '0'}
+                                muted
+                                note="Saldo titipan nasabah yang masih tersisa setelah settlement"
                             />
                         </div>
                     </section>
@@ -508,12 +575,27 @@ export default function Settlement({
                                 note="Diisi manual saat pengajuan — tidak dihitung otomatis"
                             />
                             <MoneyRow
-                                label="Total Settlement Obligation"
+                                label="Total Settlement Obligation (Gross)"
                                 value={settlement.settlement_amount}
-                                highlight
                             />
+                            {settlement.applied_unallocated_amount && Number(settlement.applied_unallocated_amount) > 0 ? (
+                                <>
+                                    <MoneyRow
+                                        label="Titipan Diaplikasikan (Applied Unallocated)"
+                                        value={settlement.applied_unallocated_amount}
+                                        negative
+                                        note="Saldo titipan yang otomatis memotong kewajiban settlement"
+                                    />
+                                    <MoneyRow
+                                        label="Tagihan Kas Baru (Net Cash Due)"
+                                        value={settlement.net_cash_due ?? '0'}
+                                        highlight
+                                        note="Jumlah kas baru yang wajib disetor nasabah untuk settlement ini"
+                                    />
+                                </>
+                            ) : null}
                             <MoneyRow
-                                label="Pembayaran Tertaut"
+                                label="Pembayaran Kas Tertaut"
                                 value={settlement.payment?.amount ?? '0'}
                                 note={
                                     settlement.payment
@@ -587,8 +669,27 @@ export default function Settlement({
                                 </>
                             )}
 
+                            {status === 'approved' && Number(settlement.net_cash_due) <= 0.005 && Number(settlement.applied_unallocated_amount) > 0 && (
+                                <div className="flex w-full flex-wrap items-center justify-between gap-3 rounded-md bg-emerald-50 border border-emerald-200 p-4">
+                                    <div className="flex items-center gap-2 text-sm text-emerald-800">
+                                        <BadgeCheck className="h-5 w-5 text-emerald-600 shrink-0" />
+                                        <span>
+                                            <strong>Zero Cash Settlement:</strong> Seluruh kewajiban settlement telah ditutup penuh oleh dana titipan (Net Cash Due = Rp 0). Tidak memerlukan pembayaran kas baru.
+                                        </span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={verifyPayment}
+                                        className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 shadow-sm"
+                                    >
+                                        <ShieldCheck className="h-4 w-4" />
+                                        Verifikasi Settlement (Zero Cash)
+                                    </button>
+                                </div>
+                            )}
+
                             {(status === 'approved' ||
-                                status === 'payment_recorded') && (
+                                status === 'payment_recorded') && (Number(settlement.net_cash_due) > 0.005 || !settlement.net_cash_due) && (
                                 <div className="flex w-full flex-wrap items-end gap-3 rounded-md bg-slate-50 p-3">
                                     <div className="flex-1 min-w-[16rem]">
                                         <label className="block text-xs text-slate-500">
@@ -661,14 +762,104 @@ export default function Settlement({
                                         <BadgeCheck className="h-4 w-4" />
                                         Pelunasan selesai — pinjaman sudah ditutup.
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowCorrectionModal(true)}
-                                        className="inline-flex items-center gap-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 shadow-sm"
-                                    >
-                                        <RotateCcw className="h-4 w-4" />
-                                        Koreksi Pelunasan
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        {settlement.overpayment_amount && parseFloat(settlement.overpayment_amount) > 0 && refund_summary && parseFloat(refund_summary.remaining_refundable) > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowRefundModal(true)}
+                                                className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 shadow-sm"
+                                            >
+                                                <Wallet className="h-4 w-4" />
+                                                Ajukan Refund Kelebihan Bayar
+                                            </button>
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowCorrectionModal(true)}
+                                            className="inline-flex items-center gap-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 shadow-sm"
+                                        >
+                                            <RotateCcw className="h-4 w-4" />
+                                            Koreksi Pelunasan
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Section Riwayat Refund Kelebihan Bayar (Ticket 42) */}
+                            {settlement.overpayment_amount && parseFloat(settlement.overpayment_amount) > 0 && (
+                                <div className="mt-6 border-t border-slate-100 pt-5 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                                            <Wallet className="h-4 w-4 text-indigo-600" />
+                                            Pengembalian Kelebihan Bayar (Refund Overpayment 2-1302)
+                                        </h3>
+                                        {refund_summary && (
+                                            <span className="text-xs text-slate-500">
+                                                Sisa Refundable: <strong className="text-indigo-600">{formatRupiah(refund_summary.remaining_refundable)}</strong>
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {refund_summary && (
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-100 text-xs">
+                                            <div>
+                                                <div className="text-slate-500">Total Overpayment</div>
+                                                <div className="font-semibold text-slate-800 mt-0.5">{formatRupiah(refund_summary.overpayment_amount)}</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-amber-700">Dalam Reservasi</div>
+                                                <div className="font-semibold text-amber-900 mt-0.5">{formatRupiah(parseFloat(refund_summary.pending_reservations) + parseFloat(refund_summary.approved_reservations))}</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-emerald-700">Sudah Dibayar</div>
+                                                <div className="font-semibold text-emerald-900 mt-0.5">{formatRupiah(refund_summary.paid_amount)}</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-indigo-700">Sisa Refundable</div>
+                                                <div className="font-semibold text-indigo-900 mt-0.5">{formatRupiah(refund_summary.remaining_refundable)}</div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {(!refunds || refunds.length === 0) ? (
+                                        <p className="text-xs text-slate-400">Belum ada pengajuan refund untuk overpayment ini.</p>
+                                    ) : (
+                                        <div className="overflow-x-auto rounded-lg border border-slate-200">
+                                            <table className="w-full text-left text-xs text-slate-600">
+                                                <thead className="bg-slate-50 font-semibold uppercase text-slate-500 border-b border-slate-200">
+                                                    <tr>
+                                                        <th className="px-3 py-2">No. Ref</th>
+                                                        <th className="px-3 py-2 text-right">Nominal</th>
+                                                        <th className="px-3 py-2">Metode</th>
+                                                        <th className="px-3 py-2 text-center">Status</th>
+                                                        <th className="px-3 py-2">Pengaju</th>
+                                                        <th className="px-3 py-2 text-center">Aksi</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {refunds.map((ref) => (
+                                                        <tr key={ref.id} className="hover:bg-slate-50/50">
+                                                            <td className="px-3 py-2 font-mono font-medium text-slate-900">{ref.refund_reference}</td>
+                                                            <td className="px-3 py-2 text-right font-semibold text-slate-900">{formatRupiah(ref.amount)}</td>
+                                                            <td className="px-3 py-2 capitalize">{ref.payout_method === 'bank_transfer' ? 'Transfer' : 'Kasir'}</td>
+                                                            <td className="px-3 py-2 text-center">
+                                                                <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700 capitalize">{ref.status}</span>
+                                                            </td>
+                                                            <td className="px-3 py-2 text-slate-500">{ref.requester?.name}</td>
+                                                            <td className="px-3 py-2 text-center">
+                                                                <Link
+                                                                    href={route('shm.loans.refunds.show', ref.id)}
+                                                                    className="text-indigo-600 hover:text-indigo-800 font-medium"
+                                                                >
+                                                                    Lihat →
+                                                                </Link>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -941,6 +1132,133 @@ export default function Settlement({
                                     >
                                         <RotateCcw className="h-4 w-4" />
                                         {isSubmittingCorrection ? 'Memproses...' : 'Proses Koreksi Pelunasan'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* Modal Permohonan Refund Overpayment (Ticket 42) */}
+                {showRefundModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+                        <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl space-y-4">
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                                    <Wallet className="w-5 h-5 text-indigo-600" />
+                                    Pengajuan Refund Kelebihan Bayar
+                                </h3>
+                                <button
+                                    onClick={() => setShowRefundModal(false)}
+                                    className="text-slate-400 hover:text-slate-600 text-lg font-bold"
+                                >
+                                    &times;
+                                </button>
+                            </div>
+
+                            <div className="rounded-lg bg-indigo-50/60 p-3 text-xs text-indigo-900 border border-indigo-100 flex justify-between items-center">
+                                <span>Maksimal Saldo Refundable:</span>
+                                <strong className="text-sm font-bold text-indigo-700">
+                                    {formatRupiah(refund_summary?.remaining_refundable || '0')}
+                                </strong>
+                            </div>
+
+                            <form onSubmit={submitRefund} className="space-y-3">
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-700">
+                                        Nominal Refund <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max={refund_summary?.remaining_refundable || undefined}
+                                        step="0.01"
+                                        required
+                                        className="mt-1 w-full rounded-md border-slate-300 text-sm focus:border-indigo-500 focus:ring-indigo-500 font-semibold"
+                                        placeholder="0"
+                                        value={refundAmount}
+                                        onChange={(e) => setRefundAmount(e.target.value)}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-700">
+                                        Metode Pembayaran <span className="text-red-500">*</span>
+                                    </label>
+                                    <select
+                                        value={payoutMethod}
+                                        onChange={(e) => setPayoutMethod(e.target.value)}
+                                        className="mt-1 w-full rounded-md border-slate-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    >
+                                        <option value="bank_transfer">Transfer Bank</option>
+                                        <option value="cash">Kasir Tunai</option>
+                                    </select>
+                                </div>
+
+                                {payoutMethod === 'bank_transfer' && (
+                                    <div className="space-y-2 rounded-lg bg-slate-50 p-3 border border-slate-200">
+                                        <div>
+                                            <label className="block text-[11px] font-medium text-slate-600">Nama Bank *</label>
+                                            <input
+                                                type="text"
+                                                required
+                                                placeholder="BCA / Mandiri / BRI..."
+                                                className="mt-0.5 w-full rounded border-slate-300 text-xs"
+                                                value={bankName}
+                                                onChange={(e) => setBankName(e.target.value)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[11px] font-medium text-slate-600">Nomor Rekening *</label>
+                                            <input
+                                                type="text"
+                                                required
+                                                placeholder="Nomor rekening nasabah..."
+                                                className="mt-0.5 w-full rounded border-slate-300 text-xs font-mono"
+                                                value={accountNumber}
+                                                onChange={(e) => setAccountNumber(e.target.value)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[11px] font-medium text-slate-600">Nama Pemilik Rekening *</label>
+                                            <input
+                                                type="text"
+                                                required
+                                                placeholder="Nama sesuai buku tabungan..."
+                                                className="mt-0.5 w-full rounded border-slate-300 text-xs"
+                                                value={accountHolder}
+                                                onChange={(e) => setAccountHolder(e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-700">Alasan / Catatan</label>
+                                    <textarea
+                                        rows={2}
+                                        placeholder="Pengembalian kelebihan transfer pelunasan..."
+                                        className="mt-1 w-full rounded-md border-slate-300 text-sm"
+                                        value={refundReason}
+                                        onChange={(e) => setRefundReason(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="mt-4 flex justify-end gap-2 pt-2 border-t border-slate-100">
+                                    <button
+                                        type="button"
+                                        disabled={isSubmittingRefund}
+                                        onClick={() => setShowRefundModal(false)}
+                                        className="rounded-md border border-slate-300 px-3.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={isSubmittingRefund}
+                                        className="rounded-md bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                                    >
+                                        {isSubmittingRefund ? 'Memproses...' : 'Kirim Pengajuan'}
                                     </button>
                                 </div>
                             </form>

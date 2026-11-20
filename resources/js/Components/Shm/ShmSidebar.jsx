@@ -63,36 +63,6 @@ const shmNavigation = [
         ],
     },
 
-    // Ticket 49: modul Memorandum kini operasional. Kedua kategori mengarah
-    // ke modul yang sama dengan filter `type`; tidak ada domain/controller
-    // kedua. Kategori dipisah sebagai submenu agar sesuai struktur menu SHM.
-    {
-        name: "Memorandum",
-        icon: ScrollText,
-        children: [
-            {
-                name: "Pengajuan",
-                route: "shm.applications.index",
-                permission: "shm.view",
-            },
-            {
-                name: "SHM/SHGB",
-                route: "shm.memorandums.shm-shgb.index",
-                permission: "shm.memorandum.update",
-            },
-            {
-                name: "Buyback",
-                route: "shm.memorandums.buyback.index",
-                permission: "shm.memorandum.update",
-            },
-            {
-                name: "Summary",
-                route: "shm.memorandums.summary.index",
-                permission: "shm.memorandum.update",
-            },
-        ],
-    },
-
     // --- Admin: Kelengkapan Dokumen (Ticket 50) ---
     // Parent Admin kini operasional karena memiliki anak yang dapat dinavigasi.
     // Export dan Collection (Ticket 90) juga operasional; menu Collection
@@ -137,12 +107,6 @@ const shmNavigation = [
                 route: "shm.marketing.monitoring.index",
                 permission: "marketing.monitoring.view",
             },
-            {
-                name: "Approval",
-                route: "shm.approvals.index",
-                permission: "shm.approval.decide",
-                pendingKey: "approvals",
-            },
         ],
     },
     // Ticket 64/65/66: modul finansial SHM — Pinjaman yang TERPISAH dari modul
@@ -167,6 +131,13 @@ const shmNavigation = [
                 name: "Daftar Pengajuan",
                 route: "shm.loans.pengajuan.daftar",
                 permission: "shm.view",
+            },
+            // Ticket 29: Two-Level Approval dipindahkan di bawah modul Pinjaman
+            {
+                name: "Approval Pengajuan Pinjaman",
+                route: "shm.approvals.index",
+                permission: "shm.approval.decide",
+                pendingKey: "approvals",
             },
             {
                 name: "Daftar Pinjaman",
@@ -207,6 +178,11 @@ const shmNavigation = [
                 route: "shm.loans.pelunasan.index",
                 permission: "shm.view",
             },
+            {
+                name: "Refund Kelebihan Bayar",
+                route: "shm.loans.refunds.index",
+                permission: "shm.view",
+            },
             // Ticket 89B: master policy diskon bunga pelunasan (data-driven).
             // Baca = shm.view; tulis = shm.settlement.policy.manage.
             {
@@ -218,6 +194,17 @@ const shmNavigation = [
                 name: "Laporan",
                 route: "shm.loans.report.index",
                 permission: "shm.view",
+            },
+            // Ticket 28B: Modul Memorandum di bawah Pinjaman (SHM/SHGB & Buyback adalah Jenis Jaminan di Form Pengajuan)
+            {
+                name: "Pengajuan Memorandum",
+                route: "shm.applications.index",
+                permission: "shm.view",
+            },
+            {
+                name: "Summary",
+                route: "shm.memorandums.summary.index",
+                permission: "shm.memorandum.update",
             },
         ],
     },
@@ -290,6 +277,16 @@ const shmNavigation = [
                 permission: "accounting.shm.view",
             },
             {
+                name: "Arus Kas Masuk",
+                route: "shm.cash-inflow.index",
+                permission: "accounting.shm.journals.view",
+            },
+            {
+                name: "Arus Kas Keluar",
+                route: "shm.cash-outflow.index",
+                permission: "accounting.shm.journals.view",
+            },
+            {
                 name: "Konfigurasi Produk",
                 route: "shm.product-accounting.index",
                 permission: "accounting.shm.view",
@@ -328,6 +325,54 @@ const shmNavigation = [
                 name: "Neraca",
                 route: "shm.balance-sheet.index",
                 permission: "accounting.shm.reports.view",
+            },
+        ],
+    },
+    {
+        name: "Pengaturan SHM",
+        icon: Briefcase,
+        permission: "shm.role.update",
+        children: [
+            {
+                name: "Akses Pengguna",
+                route: "shm.settings.users.index",
+                permission: "shm.role.update",
+            },
+            {
+                name: "Role & Permission",
+                route: "shm.settings.roles.index",
+                permission: "shm.role.update",
+            },
+        ],
+    },
+    {
+        name: "Pengaturan & Sistem",
+        icon: Briefcase,
+        children: [
+            {
+                name: "Pengaturan Operasional",
+                route: "pengaturan.operational",
+                permission: "pengaturan.view",
+            },
+            {
+                name: "Profil Lembaga",
+                route: "pengaturan.profile",
+                permission: "pengaturan.view",
+            },
+            {
+                name: "Manajemen Pengguna",
+                route: "pengaturan.users.index",
+                permission: "pengguna.view",
+            },
+            {
+                name: "Role & Permission",
+                route: "pengaturan.roles.index",
+                permission: "role.view",
+            },
+            {
+                name: "Audit Trail",
+                route: "pengaturan.audit.index",
+                permission: "audit.view",
             },
         ],
     },
