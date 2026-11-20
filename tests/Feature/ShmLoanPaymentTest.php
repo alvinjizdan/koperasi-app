@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
-use App\Models\Member;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Shm\ShmSavingProduct;
@@ -14,6 +13,7 @@ use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanPayment;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Database\QueryException;
@@ -55,10 +55,11 @@ class ShmLoanPaymentTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
-        $this->marketing2 = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->marketing2 = $this->userWithRole('marketing_makro');
     }
 
     private function userWithRole(string $roleName): User
@@ -83,6 +84,7 @@ class ShmLoanPaymentTest extends TestCase
         $role = Role::query()->create([
             'name' => 'payment-tester-'.Str::uuid(),
             'display_name' => 'Payment Tester',
+            'entity' => 'makro',
             'is_system' => false,
         ]);
 
@@ -101,13 +103,11 @@ class ShmLoanPaymentTest extends TestCase
      * T151 — `$member` dipakai untuk skenario lebih bayar yang wajib
      * memindahkan kelebihan ke Simpanan Pokok anggota sumber.
      */
-    private function applicationOwnedBy(User $user, ?Member $member = null): ShmLoanApplication
+    private function applicationOwnedBy(User $user): ShmLoanApplication
     {
         return ShmLoanApplication::query()->create([
             'application_number' => 'PENGAJ-PIN-'.Str::upper(Str::random(10)),
-            'shm_customer_id' => ShmCustomer::factory()->create([
-                'member_id' => $member?->id,
-            ])->id,
+            'shm_customer_id' => ShmCustomer::factory()->create()->id,
             'application_date' => now()->toDateString(),
             'principal' => '100000000',
             'tenor_months' => 12,
@@ -123,9 +123,9 @@ class ShmLoanPaymentTest extends TestCase
      * T151 — pinjaman selalu memiliki jadwal angsuran karena kewajiban yang
      * harus dibayar TIDAK boleh ditebak dari saldo pokok.
      */
-    private function activeLoanOf(User $user, ?Member $member = null): ShmLoan
+    private function activeLoanOf(User $user): ShmLoan
     {
-        $application = $this->applicationOwnedBy($user, $member);
+        $application = $this->applicationOwnedBy($user);
 
         $loan = ShmLoan::factory()->create([
             'shm_customer_id' => $application->shm_customer_id,
@@ -355,7 +355,6 @@ class ShmLoanPaymentTest extends TestCase
 
     public function test_overpayment_is_persisted_without_truncation(): void
     {
-        $member = Member::factory()->create();
         ShmSavingProduct::firstOrCreate(
             ['category' => ShmSavingProduct::CATEGORY_PRINCIPAL],
             [
@@ -366,7 +365,7 @@ class ShmLoanPaymentTest extends TestCase
             ]
         );
 
-        $loan = $this->activeLoanOf($this->marketing, $member);
+        $loan = $this->activeLoanOf($this->marketing);
 
         // Jauh melebihi sisa angsuran (3 × Rp10jt) dan melebihi plafon.
         $this->pay($loan, ['amount' => '150000000'])->assertSessionHasNoErrors();

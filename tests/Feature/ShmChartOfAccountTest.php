@@ -10,6 +10,9 @@ use App\Models\User;
 use App\Services\Accounting\ShmChartOfAccountService;
 use App\Services\Accounting\SimpleXlsxService;
 use App\Support\AccountingContext;
+use Database\Seeders\MakroPhysicalRoleSeeder;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\ValidationException;
@@ -25,20 +28,30 @@ class ShmChartOfAccountTest extends TestCase
 
     private User $admin;
 
+    private User $koperasiAdmin;
+
     private User $staff;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->seed();
+        $this->seed(PermissionSeeder::class);
+        $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->coaService = app(ShmChartOfAccountService::class);
         $this->xlsxService = app(SimpleXlsxService::class);
 
         $this->admin = User::factory()->create();
-        $adminRole = Role::where('name', 'admin')->first();
+        $adminRole = Role::where('name', 'admin_makro')->first();
         if ($adminRole) {
             $this->admin->roles()->attach($adminRole->id);
+        }
+
+        $this->koperasiAdmin = User::factory()->create();
+        $koperasiAdminRole = Role::where('name', 'admin')->first();
+        if ($koperasiAdminRole) {
+            $this->koperasiAdmin->roles()->attach($koperasiAdminRole->id);
         }
 
         $this->staff = User::factory()->create();
@@ -76,7 +89,7 @@ class ShmChartOfAccountTest extends TestCase
     }
 
     /**
-     * 2. Cooperative CoA list excludes SHM accounts.
+     * 2. Cooperative CoA list excludes SHM accounts (HTTP route decommissioned, asserting database scope).
      */
     public function test_cooperative_coa_list_excludes_shm_accounts(): void
     {
@@ -89,11 +102,8 @@ class ShmChartOfAccountTest extends TestCase
             'is_active' => true,
         ]);
 
-        $response = $this->actingAs($this->admin)->get(route('akuntansi.coa.index'));
-        $response->assertOk();
-
-        $accounts = $response->viewData('page')['props']['accounts'];
-        $codes = collect($accounts)->pluck('code')->all();
+        $koperasiAccounts = ChartOfAccount::where('accounting_context', AccountingContext::KOPERASI)->get();
+        $codes = $koperasiAccounts->pluck('code')->all();
         $this->assertNotContains('9-9999', $codes);
     }
 

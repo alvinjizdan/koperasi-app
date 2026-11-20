@@ -67,6 +67,11 @@ class JournalEntry extends Model
         return $this->belongsTo(self::class, 'reversed_by_entry_id');
     }
 
+    public function refundAccountingLinks(): HasMany
+    {
+        return $this->hasMany(ShmRefundAccountingLink::class, 'journal_entry_id');
+    }
+
     public function totalDebit(): float
     {
         return round((float) $this->lines()->sum('debit'), 2);

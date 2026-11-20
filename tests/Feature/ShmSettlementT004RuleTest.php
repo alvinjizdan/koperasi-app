@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\Shm\ShmLoanPaymentAllocationService;
 use App\Services\Shm\ShmLoanPaymentService;
 use App\Services\Shm\ShmLoanSettlementService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -51,6 +52,7 @@ class ShmSettlementT004RuleTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->user = $this->userWithPermissions([
             'shm.view',
@@ -67,10 +69,11 @@ class ShmSettlementT004RuleTest extends TestCase
             'name' => 't004-'.Str::uuid(),
             'display_name' => 'T004 Tester',
             'is_system' => false,
+            'entity' => 'makro',
         ]);
 
         $role->permissions()->attach(
-            Permission::query()->whereIn('name', $permissionNames)->pluck('id')
+            Permission::query()->where('entity', 'makro')->whereIn('name', $permissionNames)->pluck('id')
         );
 
         $user->roles()->attach($role->id);

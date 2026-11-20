@@ -13,6 +13,7 @@ use App\Models\ShmLoanPayment;
 use App\Models\ShmLoanPaymentAllocation;
 use App\Models\User;
 use App\Services\Shm\ShmLoanPaymentService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Database\Eloquent\Collection;
@@ -53,10 +54,11 @@ class ShmLoanPaymentAllocationTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
-        $this->marketing2 = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->marketing2 = $this->userWithRole('marketing_makro');
         $this->payer = $this->userWithPermissions(['shm.view', 'shm.payment.create']);
     }
 
@@ -82,7 +84,9 @@ class ShmLoanPaymentAllocationTest extends TestCase
         $role = Role::query()->create([
             'name' => 'alloc-tester-'.Str::uuid(),
             'display_name' => 'Allocation Tester',
+            'entity' => 'makro',
             'is_system' => false,
+            'is_active' => true,
         ]);
 
         $role->permissions()->attach(

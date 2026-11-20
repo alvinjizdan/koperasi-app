@@ -5,11 +5,14 @@ namespace App\Services\Accounting;
 use App\Models\AccountingImportBatch;
 use App\Models\ChartOfAccount;
 use App\Models\JournalEntry;
+use App\Models\ShmRefundAccountingLink;
+use App\Models\ShmSettlementRefund;
 use App\Services\AuditLogger;
 use App\Support\AccountingContext;
 use App\Support\DbTransaction;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class ShmJournalImportService
@@ -96,6 +99,47 @@ class ShmJournalImportService
         }
 
         return DbTransaction::run(function () use ($preview, $userId): AccountingImportBatch {
+            $incomingRefs = array_filter(array_map(fn ($j) => $j['raw_ref'] ?? null, $preview['journals']));
+
+            // Concurrency lock: On PostgreSQL, acquire transaction advisory locks for incoming voucher refs
+            // to serialize concurrent transactions importing the same voucher identity.
+            if (! empty($incomingRefs) && config('database.default') === 'pgsql') {
+                foreach ($incomingRefs as $ref) {
+                    $lockKey = crc32("shm_voucher_{$ref}");
+                    DB::statement('SELECT pg_advisory_xact_lock(?)', [$lockKey]);
+                }
+            }
+
+            // Re-verify duplicate checksum inside transaction with lock to prevent concurrent races
+            $existingBatch = AccountingImportBatch::query()
+                ->where('checksum_hash', $preview['checksum'])
+                ->where('accounting_context', AccountingContext::SHM)
+                ->where('status', 'COMPLETED')
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingBatch !== null) {
+                throw ValidationException::withMessages([
+                    'file' => [sprintf('Berkas ini sudah pernah diimpor pada %s (Batch #%d).', $existingBatch->created_at->format('d/m/Y H:i'), $existingBatch->id)],
+                ]);
+            }
+
+            // Re-verify semantic duplicate inside transaction
+            if (! empty($incomingRefs)) {
+                $existingRefs = JournalEntry::query()
+                    ->where('accounting_context', AccountingContext::SHM)
+                    ->whereIn('description', array_map(fn ($r) => "Jurnal Impor {$r}", $incomingRefs))
+                    ->lockForUpdate()
+                    ->pluck('description')
+                    ->all();
+
+                if (! empty($existingRefs)) {
+                    throw ValidationException::withMessages([
+                        'file' => [sprintf('Ditemukan %d referensi jurnal yang sudah pernah tersimpan di sistem (contoh: %s). Untuk mencegah duplikasi, periksa kembali nomor bukti jurnal Anda.', count($existingRefs), $existingRefs[0])],
+                    ]);
+                }
+            }
+
             $dates = array_filter(array_map(fn ($j) => $j['date'], $preview['journals']));
             sort($dates);
             $periodStart = ! empty($dates) ? reset($dates) : null;
@@ -144,6 +188,23 @@ class ShmJournalImportService
                 // Associate batch
                 $entry->import_batch_id = $batch->id;
                 $entry->save();
+
+                // BR-42B-04: Jika XLSX mencantumkan refund_ref, kaitkan link accounting status DRAFT
+                if (! empty($jData['refund_ref'])) {
+                    $refModel = ShmSettlementRefund::where('refund_reference', $jData['refund_ref'])->first();
+                    if ($refModel) {
+                        ShmRefundAccountingLink::create([
+                            'accounting_context' => AccountingContext::SHM,
+                            'shm_settlement_refund_id' => $refModel->id,
+                            'recognition_channel' => ShmRefundAccountingLink::CHANNEL_XLSX_IMPORT,
+                            'journal_entry_id' => $entry->id,
+                            'status' => ShmRefundAccountingLink::STATUS_DRAFT,
+                            'linked_by' => $userId,
+                            'linked_at' => now(),
+                            'notes' => 'Diimpor dari berkas XLSX Batch #'.$batch->id,
+                        ]);
+                    }
+                }
             }
 
             AuditLogger::log(
@@ -248,6 +309,22 @@ class ShmJournalImportService
             ];
         }
 
+        if (count($rows) > 5001) {
+            $errors[] = ['row' => 1, 'journal_ref' => '-', 'message' => 'Jumlah baris melebihi batas maksimal (maksimal 5.000 baris per file).'];
+
+            return [
+                'filename' => $filename,
+                'checksum' => $checksum,
+                'total_journals' => 0,
+                'total_lines' => 0,
+                'total_debit' => 0.0,
+                'total_credit' => 0.0,
+                'is_balanced' => true,
+                'journals' => [],
+                'errors' => $errors,
+            ];
+        }
+
         // Header check
         $headerRow = $rows[0] ?? [];
         $normalizedHeader = array_map(fn ($h) => strtolower(trim((string) $h)), $headerRow);
@@ -259,6 +336,7 @@ class ShmJournalImportService
         $colDesc = $this->findColIndex($normalizedHeader, ['keterangan', 'deskripsi', 'description']);
         $colDebit = $this->findColIndex($normalizedHeader, ['debit', 'debet']);
         $colCredit = $this->findColIndex($normalizedHeader, ['kredit', 'credit']);
+        $colRefundRef = $this->findColIndex($normalizedHeader, ['refund_ref', 'referensi refund', 'no refund', 'refund ref']);
 
         if ($colDate === null || $colCode === null || $colDebit === null || $colCredit === null) {
             $errors[] = [
@@ -310,6 +388,7 @@ class ShmJournalImportService
             $descRaw = $colDesc !== null ? trim($row[$colDesc] ?? '') : '';
             $debitRaw = trim($row[$colDebit] ?? '0');
             $creditRaw = trim($row[$colCredit] ?? '0');
+            $refundRefRaw = $colRefundRef !== null ? trim($row[$colRefundRef] ?? '') : '';
 
             // Grouping key: ref + date if ref provided, to prevent mixing different dates under same ref
             // If ref is provided and multiple dates are seen under same ref, flag warning/error or key by both
@@ -381,10 +460,13 @@ class ShmJournalImportService
                     'raw_ref' => $refRaw !== '' ? $refRaw : null,
                     'date' => $date,
                     'description' => $refRaw !== '' ? "Jurnal Impor {$refRaw}" : ($descRaw ?: "Jurnal Impor {$journalKey}"),
+                    'refund_ref' => $refundRefRaw !== '' ? $refundRefRaw : null,
                     'total_debit' => 0.0,
                     'total_credit' => 0.0,
                     'lines' => [],
                 ];
+            } elseif ($refundRefRaw !== '' && empty($journalsGrouped[$journalKey]['refund_ref'])) {
+                $journalsGrouped[$journalKey]['refund_ref'] = $refundRefRaw;
             }
 
             $journalsGrouped[$journalKey]['total_debit'] += $debit;
@@ -400,7 +482,8 @@ class ShmJournalImportService
             ];
         }
 
-        // Validate balance per journal entry
+        // Validate balance per journal entry and validate refund references (BR-42B-04)
+        $seenRefundRefs = [];
         foreach ($journalsGrouped as $key => &$j) {
             $diff = abs(round($j['total_debit'] - $j['total_credit'], 2));
             if ($diff > 0.005) {
@@ -415,6 +498,51 @@ class ShmJournalImportService
                         number_format($diff, 2, ',', '.')
                     ),
                 ];
+            }
+
+            // Validasi referensi refund jika diisi di XLSX
+            if (! empty($j['refund_ref'])) {
+                $refCode = $j['refund_ref'];
+                $firstRow = $j['lines'][0]['row'] ?? 0;
+
+                if (isset($seenRefundRefs[$refCode])) {
+                    $errors[] = [
+                        'row' => $firstRow,
+                        'journal_ref' => $key,
+                        'message' => "Referensi refund '{$refCode}' duplikat dalam berkas impor yang sama (juga ditemukan pada jurnal [{$seenRefundRefs[$refCode]}]).",
+                    ];
+                } else {
+                    $seenRefundRefs[$refCode] = $key;
+                }
+
+                $refundRecord = ShmSettlementRefund::where('refund_reference', $refCode)->first();
+                if (! $refundRecord) {
+                    $errors[] = [
+                        'row' => $firstRow,
+                        'journal_ref' => $key,
+                        'message' => "Referensi refund '{$refCode}' tidak ditemukan pada sistem SHM.",
+                    ];
+                } else {
+                    if (! in_array($refundRecord->status, [ShmSettlementRefund::STATUS_PAID, ShmSettlementRefund::STATUS_RECOVERY_PENDING, ShmSettlementRefund::STATUS_RECOVERED], true)) {
+                        $errors[] = [
+                            'row' => $firstRow,
+                            'journal_ref' => $key,
+                            'message' => "Refund '{$refCode}' belum berstatus dibayarkan (status saat ini: '{$refundRecord->status}').",
+                        ];
+                    }
+
+                    $alreadyLinked = ShmRefundAccountingLink::where('shm_settlement_refund_id', $refundRecord->id)
+                        ->where('status', ShmRefundAccountingLink::STATUS_POSTED)
+                        ->exists();
+
+                    if ($alreadyLinked) {
+                        $errors[] = [
+                            'row' => $firstRow,
+                            'journal_ref' => $key,
+                            'message' => "Refund '{$refCode}' sudah pernah diakui dalam akuntansi SHM dengan status POSTED.",
+                        ];
+                    }
+                }
             }
         }
         unset($j);

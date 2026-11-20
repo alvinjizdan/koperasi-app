@@ -14,6 +14,7 @@ use App\Models\ShmLoanProduct;
 use App\Models\User;
 use App\Services\Accounting\SimpleXlsxService;
 use App\Support\AccountingContext;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -40,10 +41,11 @@ class ShmDailyJournalTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         // 1. Admin user with accounting.shm.reports.view permission
         $this->admin = User::factory()->create();
-        $adminRole = Role::where('name', 'admin')->first();
+        $adminRole = Role::where('name', 'admin_makro')->first();
         if ($adminRole) {
             $this->admin->roles()->attach($adminRole->id);
         }

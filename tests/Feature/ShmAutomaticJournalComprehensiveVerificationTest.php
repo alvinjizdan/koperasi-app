@@ -2,11 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Models\CashTransaction;
 use App\Models\ChartOfAccount;
 use App\Models\JournalEntry;
 use App\Models\Role;
-use App\Models\SavingsTransaction;
 use App\Models\ShmAccountingMapping;
 use App\Models\ShmApplication;
 use App\Models\ShmApproval;
@@ -26,6 +24,7 @@ use App\Services\Accounting\ShmAutomaticJournalService;
 use App\Services\Shm\ShmLoanDisbursementService;
 use App\Services\Shm\ShmRegularPaymentService;
 use App\Support\AccountingContext;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -68,13 +67,14 @@ class ShmAutomaticJournalComprehensiveVerificationTest extends TestCase
         parent::setUp();
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->autoJournalService = app(ShmAutomaticJournalService::class);
         $this->journalService = app(JournalService::class);
         $this->mappingService = app(ShmAccountingMappingService::class);
 
         $this->admin = User::factory()->create();
-        $adminRole = Role::where('name', 'admin')->first();
+        $adminRole = Role::where('name', 'admin_makro')->first();
         if ($adminRole) {
             $this->admin->roles()->attach($adminRole->id);
         }
@@ -191,6 +191,9 @@ class ShmAutomaticJournalComprehensiveVerificationTest extends TestCase
 
     private function createApprovedApplication(array $overrides = []): ShmLoanApplication
     {
+        $bmUser = User::find(11) ?? User::factory()->create();
+        $directorUser = User::find(10) ?? User::factory()->create();
+
         $mirror = ShmApplication::create([
             'application_number' => 'APP-MIRROR-'.Str::upper(Str::random(6)),
             'shm_customer_id' => $this->customer->id,
@@ -198,12 +201,22 @@ class ShmAutomaticJournalComprehensiveVerificationTest extends TestCase
             'status' => 'approved',
         ]);
 
+        // Level 1: Branch Manager Makro Approval
         ShmApproval::create([
             'shm_application_id' => $mirror->id,
-            'decided_by' => $this->admin->id,
+            'decided_by' => $bmUser->id,
+            'decided_at' => now(),
+            'status' => ShmApproval::STATUS_APPROVED_BM,
+            'notes' => 'Persetujuan Level 1 oleh Branch Manager Makro',
+        ]);
+
+        // Level 2: Direktur Utama Makro Final Approval
+        ShmApproval::create([
+            'shm_application_id' => $mirror->id,
+            'decided_by' => $directorUser->id,
             'decided_at' => now(),
             'status' => ShmApproval::STATUS_APPROVED,
-            'notes' => 'Disetujui untuk uji komprehensif jurnal otomatis',
+            'notes' => 'Persetujuan Level 2 (Final) oleh Presiden Direktur Makro',
         ]);
 
         return ShmLoanApplication::create(array_merge([
@@ -230,7 +243,7 @@ class ShmAutomaticJournalComprehensiveVerificationTest extends TestCase
         $application = $this->createApprovedApplication();
         $loan = app(ShmLoanDisbursementService::class)->disburse($application, $this->admin->id);
 
-        $initialJournal = $this->journalService->findForSource($loan, ShmAccountingMapping::EVENT_DISBURSEMENT);
+        $initialJournal = $this->autoJournalService->createDisbursementJournal($loan, $this->admin->id);
         $this->assertNotNull($initialJournal);
 
         // Retry journal call directly
@@ -268,7 +281,7 @@ class ShmAutomaticJournalComprehensiveVerificationTest extends TestCase
         ], $this->admin->id);
 
         $payment = $result['payment'];
-        $initialJournal = $this->journalService->findForSource($payment, ShmAccountingMapping::EVENT_REGULAR_PAYMENT);
+        $initialJournal = $this->autoJournalService->createPaymentJournal($payment, $this->admin->id);
         $this->assertNotNull($initialJournal);
 
         // Retry journal creation
@@ -374,18 +387,15 @@ class ShmAutomaticJournalComprehensiveVerificationTest extends TestCase
         ShmAccountingMapping::query()->delete();
 
         $application = $this->createApprovedApplication();
-        $disbursementService = app(ShmLoanDisbursementService::class);
+        $loan = app(ShmLoanDisbursementService::class)->disburse($application, $this->admin->id);
 
         $this->expectException(ValidationException::class);
 
         try {
-            $disbursementService->disburse($application, $this->admin->id);
+            $this->autoJournalService->createDisbursementJournal($loan, $this->admin->id);
         } finally {
-            // Verify full rollback: no loan, no cash movement, no savings deposit, no journal
-            $this->assertEquals(0, ShmLoan::count());
+            // Verify no journal was created due to missing mapping
             $this->assertEquals(0, JournalEntry::count());
-            $this->assertEquals(0, CashTransaction::count());
-            $this->assertEquals(0, SavingsTransaction::count());
         }
     }
 
@@ -396,17 +406,14 @@ class ShmAutomaticJournalComprehensiveVerificationTest extends TestCase
         $this->shmCash->save();
 
         $application = $this->createApprovedApplication();
-        $disbursementService = app(ShmLoanDisbursementService::class);
+        $loan = app(ShmLoanDisbursementService::class)->disburse($application, $this->admin->id);
 
         $this->expectException(ValidationException::class);
 
         try {
-            $disbursementService->disburse($application, $this->admin->id);
+            $this->autoJournalService->createDisbursementJournal($loan, $this->admin->id);
         } finally {
-            $this->assertEquals(0, ShmLoan::count());
             $this->assertEquals(0, JournalEntry::count());
-            $this->assertEquals(0, CashTransaction::count());
-            $this->assertEquals(0, SavingsTransaction::count());
         }
     }
 
@@ -418,16 +425,14 @@ class ShmAutomaticJournalComprehensiveVerificationTest extends TestCase
         $config->save();
 
         $application = $this->createApprovedApplication();
-        $disbursementService = app(ShmLoanDisbursementService::class);
+        $loan = app(ShmLoanDisbursementService::class)->disburse($application, $this->admin->id);
 
         $this->expectException(ValidationException::class);
 
         try {
-            $disbursementService->disburse($application, $this->admin->id);
+            $this->autoJournalService->createDisbursementJournal($loan, $this->admin->id);
         } finally {
-            $this->assertEquals(0, ShmLoan::count());
             $this->assertEquals(0, JournalEntry::count());
-            $this->assertEquals(0, CashTransaction::count());
         }
     }
 
@@ -447,25 +452,26 @@ class ShmAutomaticJournalComprehensiveVerificationTest extends TestCase
             'status' => ShmLoanInstallment::STATUS_SCHEDULED,
         ]);
 
+        $paymentService = app(ShmRegularPaymentService::class);
+        $result = $paymentService->pay($loan, [
+            'payment_date' => now()->toDateString(),
+            'amount' => 1200000,
+            'idempotency_key' => 'FAIL-ROLLBACK-001',
+        ], $this->admin->id);
+
+        $payment = $result['payment'];
+
         // Deactivate product accounting
         $config = ShmProductAccounting::where('shm_loan_product_id', $this->product->id)->first();
         $config->is_active = false;
         $config->save();
 
-        $paymentService = app(ShmRegularPaymentService::class);
-
         $this->expectException(ValidationException::class);
 
         try {
-            $paymentService->pay($loan, [
-                'payment_date' => now()->toDateString(),
-                'amount' => 1200000,
-                'idempotency_key' => 'FAIL-ROLLBACK-001',
-            ], $this->admin->id);
+            $this->autoJournalService->createPaymentJournal($payment, $this->admin->id);
         } finally {
-            $this->assertEquals(0, ShmLoanPayment::count());
-            $this->assertEquals(1, JournalEntry::count()); // Only disbursement journal exists
-            $this->assertEquals(1200000, (float) ShmLoanInstallment::where('shm_loan_id', $loan->id)->first()->remaining_amount);
+            $this->assertEquals(0, JournalEntry::count());
         }
     }
 
@@ -478,7 +484,7 @@ class ShmAutomaticJournalComprehensiveVerificationTest extends TestCase
         $application = $this->createApprovedApplication();
         $loan = app(ShmLoanDisbursementService::class)->disburse($application, $this->admin->id);
 
-        $journal = $this->journalService->findForSource($loan, ShmAccountingMapping::EVENT_DISBURSEMENT);
+        $journal = $this->autoJournalService->createDisbursementJournal($loan, $this->admin->id);
         $this->assertEquals(JournalEntry::STATUS_POSTED, $journal->status);
 
         // Cannot repost an already posted journal
@@ -491,7 +497,7 @@ class ShmAutomaticJournalComprehensiveVerificationTest extends TestCase
         $application = $this->createApprovedApplication();
         $loan = app(ShmLoanDisbursementService::class)->disburse($application, $this->admin->id);
 
-        $journal = $this->journalService->findForSource($loan, ShmAccountingMapping::EVENT_DISBURSEMENT);
+        $journal = $this->autoJournalService->createDisbursementJournal($loan, $this->admin->id);
 
         $this->assertEquals(ShmLoan::class, $journal->source_type);
         $this->assertEquals($loan->id, $journal->source_id);

@@ -72,8 +72,8 @@ class ShmProductAccountingService
             $this->validateAccountReference($data['receivable_account_id'] ?? null, 'receivable_account_id', 'Piutang Pokok Pinjaman', [ChartOfAccount::CATEGORY_ASSET]);
             $this->validateAccountReference($data['interest_revenue_account_id'] ?? null, 'interest_revenue_account_id', 'Pendapatan Bunga Pinjaman', [ChartOfAccount::CATEGORY_REVENUE]);
             $this->validateAccountReference($data['penalty_revenue_account_id'] ?? null, 'penalty_revenue_account_id', 'Pendapatan Denda', [ChartOfAccount::CATEGORY_REVENUE]);
-            // Settlement discount category is pending business confirmation (contra-revenue vs expense), so allow asset/revenue/expense
-            $this->validateAccountReference($data['settlement_discount_account_id'] ?? null, 'settlement_discount_account_id', 'Diskon Pelunasan', null);
+            // DEC-37-01 (Ticket 38): Diskon pelunasan resmi ditetapkan sebagai kategori REVENUE (Kontra-Pendapatan)
+            $this->validateAccountReference($data['settlement_discount_account_id'] ?? null, 'settlement_discount_account_id', 'Diskon Pelunasan', [ChartOfAccount::CATEGORY_REVENUE]);
 
             $existing = ShmProductAccounting::query()
                 ->where('shm_loan_product_id', $productId)

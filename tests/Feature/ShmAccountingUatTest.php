@@ -73,6 +73,7 @@ class ShmAccountingUatTest extends TestCase
         $importRole = Role::create([
             'name' => 'operator_shm_import',
             'display_name' => 'Operator SHM Import',
+            'entity' => 'makro',
             'is_system' => false,
         ]);
         $viewPerm = Permission::where('name', 'accounting.shm.view')->first();
@@ -88,6 +89,7 @@ class ShmAccountingUatTest extends TestCase
         $approverRole = Role::create([
             'name' => 'approver_shm_accounting',
             'display_name' => 'Approver SHM Accounting',
+            'entity' => 'makro',
             'is_system' => false,
         ]);
         $postPerm = Permission::where('name', 'accounting.shm.journals.post')->first();

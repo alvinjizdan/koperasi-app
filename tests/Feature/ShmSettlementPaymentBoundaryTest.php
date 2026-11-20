@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\Shm\ShmLoanPaymentAllocationService;
 use App\Services\Shm\ShmLoanPaymentService;
 use App\Services\Shm\ShmLoanSettlementService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -62,8 +63,9 @@ class ShmSettlementPaymentBoundaryTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->admin = $this->userWithRole('admin');
+        $this->admin = $this->userWithRole('admin_makro');
         $this->user = $this->userWithPermissions([
             'shm.view',
             'shm.payment.create',
@@ -90,10 +92,11 @@ class ShmSettlementPaymentBoundaryTest extends TestCase
             'name' => 't108-'.Str::uuid(),
             'display_name' => 'T108 Tester',
             'is_system' => false,
+            'entity' => 'makro',
         ]);
 
         $role->permissions()->attach(
-            Permission::query()->whereIn('name', $permissionNames)->pluck('id')
+            Permission::query()->where('entity', 'makro')->whereIn('name', $permissionNames)->pluck('id')
         );
 
         $user->roles()->attach($role->id);

@@ -16,6 +16,7 @@ use App\Models\ShmSettlementDiscountPolicy;
 use App\Models\User;
 use App\Services\Shm\ShmLoanPaymentAllocationService;
 use App\Services\Shm\ShmLoanPaymentService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -58,10 +59,11 @@ class ShmLoanSettlementTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
-        $this->marketing2 = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->marketing2 = $this->userWithRole('marketing_makro');
         $this->settlementUser = $this->userWithPermissions([
             'shm.view',
             'shm.payment.create',
@@ -87,6 +89,7 @@ class ShmLoanSettlementTest extends TestCase
         $role = Role::query()->create([
             'name' => 'settlement-tester-'.Str::uuid(),
             'display_name' => 'Settlement Tester',
+            'entity' => 'makro',
             'is_system' => false,
         ]);
 
@@ -426,7 +429,8 @@ class ShmLoanSettlementTest extends TestCase
         $response = $this->actingAs($this->settlementUser)
             ->post(route('shm.loans.pelunasan.store', $loan), ['penalty' => 0]);
 
-        $response->assertSessionHas('error', function (string $message): bool {
+        $response->assertSessionHas('error', function (?string $message = null): bool {
+            $this->assertNotNull($message);
             $this->assertStringContainsString('policy diskon', $message);
             $this->assertStringContainsString('belum dikonfigurkan', $message);
             $this->assertStringContainsString('50.000.000', $message);

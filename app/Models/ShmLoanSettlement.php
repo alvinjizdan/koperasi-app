@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
@@ -47,7 +48,9 @@ use Illuminate\Support\Carbon;
  * @property string $outstanding_interest
  * @property string $outstanding_penalty
  * @property string $unallocated_payment_amount
+ * @property string $applied_unallocated_amount
  * @property string $settlement_amount
+ * @property string $net_cash_due
  * @property string $overpayment_amount
  * @property string $status
  * @property int|null $shm_loan_payment_id
@@ -93,7 +96,9 @@ class ShmLoanSettlement extends Model
         'outstanding_interest',
         'outstanding_penalty',
         'unallocated_payment_amount',
+        'applied_unallocated_amount',
         'settlement_amount',
+        'net_cash_due',
         'overpayment_amount',
         'status',
         'notes',
@@ -124,7 +129,9 @@ class ShmLoanSettlement extends Model
             'outstanding_interest' => 'decimal:2',
             'outstanding_penalty' => 'decimal:2',
             'unallocated_payment_amount' => 'decimal:2',
+            'applied_unallocated_amount' => 'decimal:2',
             'settlement_amount' => 'decimal:2',
+            'net_cash_due' => 'decimal:2',
             'overpayment_amount' => 'decimal:2',
             'shm_loan_payment_id' => 'integer',
             'payment_recorded_at' => 'datetime',
@@ -194,6 +201,31 @@ class ShmLoanSettlement extends Model
     }
 
     /**
+     * Penggunaan dana titipan yang tercatat pada settlement ini (Ticket 41).
+     *
+     * @return HasMany<ShmLoanSettlementUnallocatedUsage, $this>
+     */
+    public function unallocatedUsages(): HasMany
+    {
+        return $this->hasMany(ShmLoanSettlementUnallocatedUsage::class, 'shm_loan_settlement_id');
+    }
+
+    /**
+     * Total nominal dana titipan yang aktif diaplikasikan pada settlement ini.
+     */
+    public function appliedUnallocatedAmount(): string
+    {
+        return number_format(
+            (float) $this->unallocatedUsages()
+                ->where('status', ShmLoanSettlementUnallocatedUsage::STATUS_ACTIVE)
+                ->sum('amount'),
+            2,
+            '.',
+            '',
+        );
+    }
+
+    /**
      * Koreksi settlement yang mereferensikan settlement ini sebagai transaksi original.
      *
      * @return HasOne<ShmSettlementCorrection, $this>
@@ -211,5 +243,15 @@ class ShmLoanSettlement extends Model
     public function correctionAsReplacement(): HasOne
     {
         return $this->hasOne(ShmSettlementCorrection::class, 'replacement_settlement_id');
+    }
+
+    /**
+     * Riwayat refund kelebihan bayar untuk settlement ini (Ticket 42).
+     *
+     * @return HasMany<ShmSettlementRefund, $this>
+     */
+    public function refunds(): HasMany
+    {
+        return $this->hasMany(ShmSettlementRefund::class, 'shm_loan_settlement_id');
     }
 }

@@ -13,6 +13,7 @@ use App\Models\ShmLoanSettlement;
 use App\Models\ShmSettlementDiscountPolicy;
 use App\Models\User;
 use App\Services\Shm\ShmLoanPaymentService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -51,6 +52,7 @@ class ShmSettlementContractEnforcementATest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->user = $this->userWithPermissions([
             'shm.view',
@@ -58,8 +60,8 @@ class ShmSettlementContractEnforcementATest extends TestCase
             'shm.settlement.create',
             'shm.settlement.policy.manage',
         ]);
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
     }
 
     private function userWithRole(string $roleName): User
@@ -78,6 +80,7 @@ class ShmSettlementContractEnforcementATest extends TestCase
         $role = Role::query()->create([
             'name' => 't89d-a-'.Str::uuid(),
             'display_name' => 'T89D-A Tester',
+            'entity' => 'makro',
             'is_system' => false,
         ]);
 
@@ -220,8 +223,9 @@ class ShmSettlementContractEnforcementATest extends TestCase
         $response = $this->actingAs($this->user)
             ->post(route('shm.loans.pelunasan.store', $loan), ['penalty' => 0]);
 
-        $response->assertSessionHas('error', function (string $message): bool {
-            return str_contains($message, 'policy diskon')
+        $response->assertSessionHas('error', function (?string $message = null): bool {
+            return $message !== null
+                && str_contains($message, 'policy diskon')
                 && str_contains($message, 'belum dikonfigurkan')
                 && str_contains($message, '50.000.000');
         });

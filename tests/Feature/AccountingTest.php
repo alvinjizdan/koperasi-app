@@ -5,9 +5,6 @@ namespace Tests\Feature;
 use App\Models\CashTransaction;
 use App\Models\ChartOfAccount;
 use App\Models\JournalEntry;
-use App\Models\Permission;
-use App\Models\Role;
-use App\Models\SavingsTransaction;
 use App\Models\User;
 use App\Services\Accounting\JournalService;
 use Database\Seeders\ChartOfAccountSeeder;
@@ -74,100 +71,9 @@ class AccountingTest extends TestCase
         }
     }
 
-    public function test_coa_code_must_be_unique(): void
-    {
-        $this->actingAs($this->superadmin);
-
-        $response = $this->post(route('akuntansi.coa.store'), [
-            'code' => '1-1100', // sudah dipakai Kas
-            'name' => 'Kas Duplikat',
-            'category' => 'asset',
-        ]);
-
-        $response->assertSessionHasErrors('code');
-        $this->assertSame(1, ChartOfAccount::where('code', '1-1100')->count());
-    }
-
-    public function test_coa_normal_balance_follows_category(): void
-    {
-        $this->actingAs($this->superadmin);
-
-        $this->post(route('akuntansi.coa.store'), [
-            'code' => '9-9001',
-            'name' => 'Akun Uji Liabilitas',
-            'category' => 'liability',
-        ]);
-
-        $account = ChartOfAccount::where('code', '9-9001')->firstOrFail();
-        $this->assertSame('credit', $account->normal_balance, 'Saldo normal liabilitas harus kredit.');
-    }
-
-    public function test_coa_parent_must_not_reference_itself(): void
-    {
-        $this->actingAs($this->superadmin);
-        $kas = $this->account('1-1100');
-
-        $response = $this->put(route('akuntansi.coa.update', $kas->id), [
-            'code' => $kas->code,
-            'name' => $kas->name,
-            'category' => 'asset',
-            'parent_id' => (string) $kas->id, // diri sendiri
-        ]);
-
-        $response->assertSessionHasErrors('parent_id');
-        // Data tidak berubah: parent tetap induk semula (1-0000), bukan diri sendiri.
-        $this->assertSame($this->account('1-0000')->id, $kas->fresh()->parent_id);
-        $this->assertSame('Kas', $kas->fresh()->name, 'Data tidak boleh berubah saat validasi gagal.');
-    }
-
-    public function test_coa_parent_must_share_category(): void
-    {
-        $this->actingAs($this->superadmin);
-        $expense = $this->account('5-1100');
-
-        $response = $this->put(route('akuntansi.coa.update', $expense->id), [
-            'code' => $expense->code,
-            'name' => $expense->name,
-            'category' => 'expense',
-            'parent_id' => (string) $this->account('1-0000')->id, // induk aset utk akun beban
-        ]);
-
-        $response->assertSessionHasErrors('parent_id');
-    }
-
-    public function test_account_used_in_journal_cannot_be_deleted_only_deactivated(): void
-    {
-        $kas = $this->account('1-1100');
-
-        $entry = $this->journals->createDraft([
-            'transaction_date' => now()->format('Y-m-d'),
-            'description' => 'Uji penghapusan',
-        ], $this->balancedLines(100_000), $this->superadmin->id);
-        $this->journals->post($entry, $this->superadmin->id);
-
-        $this->actingAs($this->superadmin)
-            ->patch(route('akuntansi.coa.deactivate', $kas->id))
-            ->assertRedirect();
-
-        // Akun terpakai: tetap ada, hanya nonaktif.
-        $this->assertDatabaseHas('chart_of_accounts', ['id' => $kas->id, 'is_active' => false]);
-    }
-
-    public function test_unused_account_can_be_deleted(): void
-    {
-        $this->actingAs($this->superadmin);
-
-        $this->post(route('akuntansi.coa.store'), [
-            'code' => '9-9002',
-            'name' => 'Akun Sekali Pakai',
-            'category' => 'asset',
-        ]);
-        $account = ChartOfAccount::where('code', '9-9002')->firstOrFail();
-
-        $this->patch(route('akuntansi.coa.deactivate', $account->id))->assertRedirect();
-
-        $this->assertDatabaseMissing('chart_of_accounts', ['id' => $account->id]);
-    }
+    // =====================================================================
+    // CORE JOURNAL LOGIC (JournalService tests)
+    // =====================================================================
 
     public function test_inactive_account_cannot_be_used_in_new_journal(): void
     {
@@ -418,14 +324,14 @@ class AccountingTest extends TestCase
     public function test_source_idempotency_returns_existing_entry(): void
     {
         // Transaksi sumber nyata (dummy) agar getKey() valid.
-        $sourceTransaction = SavingsTransaction::factory()->create([
-            'type' => 'deposit',
+        $sourceTransaction = CashTransaction::factory()->create([
+            'type' => 'income',
             'amount' => 50_000,
         ]);
 
         $entry = $this->journals->createDraft([
             'transaction_date' => now()->format('Y-m-d'),
-            'source_type' => SavingsTransaction::class,
+            'source_type' => CashTransaction::class,
             'source_id' => $sourceTransaction->id,
             'posting_type' => 'auto',
         ], $this->balancedLines(), $this->superadmin->id);
@@ -436,7 +342,7 @@ class AccountingTest extends TestCase
         $this->assertSame($entry->id, $found->id);
 
         // Transaksi lain belum memiliki jurnal.
-        $other = SavingsTransaction::factory()->create(['type' => 'deposit', 'amount' => 10_000]);
+        $other = CashTransaction::factory()->create(['type' => 'income', 'amount' => 10_000]);
         $this->assertNull($this->journals->findForSource($other, 'auto'));
     }
 
@@ -462,54 +368,6 @@ class AccountingTest extends TestCase
 
     // =====================================================================
     // OTORISASI
-    // =====================================================================
-
-    public function test_accounting_routes_require_permissions(): void
-    {
-        $plain = User::factory()->create();
-
-        foreach ([
-            'akuntansi.coa.index' => 'get',
-            'akuntansi.coa.create' => 'get',
-            'akuntansi.jurnal.index' => 'get',
-            'akuntansi.jurnal.create' => 'get',
-            'akuntansi.buku-besar.index' => 'get',
-        ] as $routeName => $method) {
-            $response = $this->actingAs($plain)->{$method}(route($routeName));
-            $this->assertSame(403, $response->status(), "Route {$routeName} harus 403 tanpa permission.");
-        }
-
-        $this->actingAs($plain)
-            ->post(route('akuntansi.jurnal.store'), [])
-            ->assertForbidden();
-    }
-
-    public function test_permissioned_user_can_view_but_not_post(): void
-    {
-        $viewer = User::factory()->create();
-        $role = Role::query()->create([
-            'name' => 'viewer_'.uniqid(),
-            'display_name' => 'Viewer Akuntansi',
-            'is_system' => false,
-        ]);
-        $role->permissions()->attach(
-            Permission::query()->where('name', 'accounting.journals.view')->pluck('id')
-        );
-        $viewer->roles()->attach($role->id);
-
-        $this->actingAs($viewer)->get(route('akuntansi.jurnal.index'))->assertOk();
-
-        $entry = $this->journals->createDraft([
-            'transaction_date' => now()->format('Y-m-d'),
-        ], $this->balancedLines(), $this->superadmin->id);
-
-        $this->actingAs($viewer)
-            ->post(route('akuntansi.jurnal.post', $entry->id))
-            ->assertForbidden();
-
-        $this->assertSame(JournalEntry::STATUS_DRAFT, $entry->fresh()->status);
-    }
-
     // =====================================================================
     // AUDIT TRAIL
     // =====================================================================

@@ -2,17 +2,14 @@
 
 namespace Tests\Feature;
 
-use App\Models\Loan;
-use App\Models\Member;
 use App\Models\Role;
-use App\Models\SavingProduct;
-use App\Models\SavingsAccount;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
 use App\Services\Shm\ShmLoanSimulationService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -60,10 +57,11 @@ class ShmFinancialTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->superadmin = $this->userWithRole('superadmin');
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
         $this->kasir = $this->userWithRole('kasir');
     }
 
@@ -125,9 +123,6 @@ class ShmFinancialTest extends TestCase
         $this->assertInstanceOf(ShmCustomer::class, $loan->customer);
         $this->assertNull($loan->getAttribute('member_id'));
         $this->assertFalse(Schema::hasColumn('shm_loans', 'member_id'));
-
-        // Pinjaman & angsuran koperasi tidak tersentuh.
-        $this->assertSame(0, Loan::query()->count());
     }
 
     public function test_shm_customer_can_own_shm_financial_data(): void
@@ -143,23 +138,18 @@ class ShmFinancialTest extends TestCase
 
     public function test_koperasi_member_financial_data_is_never_mixed_into_shm(): void
     {
-        $member = Member::factory()->create();
-        SavingsAccount::factory()->create(['member_id' => $member->id]);
-        Loan::factory()->create(['member_id' => $member->id]);
+        // Domain SHM mandiri
+        $customer = ShmCustomer::factory()->create();
+        $loan = ShmLoan::factory()->create(['shm_customer_id' => $customer->id]);
 
-        // Data koperasi ada, tetapi tidak pernah muncul di domain SHM.
-        $this->assertSame(1, SavingsAccount::query()->count());
-        $this->assertSame(1, Loan::query()->count());
-        $this->assertSame(0, ShmLoan::query()->count());
-        $this->assertSame(0, ShmCustomer::query()->count());
+        $this->assertSame(1, ShmLoan::query()->count());
+        $this->assertSame(1, ShmCustomer::query()->count());
     }
 
     public function test_shm_masters_are_separate_from_koperasi_masters(): void
     {
-        SavingProduct::factory()->create();
         ShmLoanProduct::factory()->create();
 
-        $this->assertSame(1, SavingProduct::query()->count());
         $this->assertSame(1, ShmLoanProduct::query()->count());
 
         $this->assertTrue(Schema::hasTable('shm_loan_products'));
@@ -203,10 +193,6 @@ class ShmFinancialTest extends TestCase
         // Konfigurasi bunga koperasi tetap provisional 0% — SHM tidak menulis ke sana.
         $this->assertSame(0.0, (float) config('business-rules.loan.default_annual_rate'));
         $this->assertSame('annual', config('business-rules.loan.rate_basis'));
-
-        $koperasiLoan = Loan::factory()->create()->refresh();
-        $this->assertSame(0.0, (float) $koperasiLoan->interest_rate_annual);
-        $this->assertSame('none', $koperasiLoan->interest_method);
     }
 
     // -----------------------------------------------------------------

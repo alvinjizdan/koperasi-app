@@ -14,12 +14,19 @@ use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanPayment;
 use App\Models\ShmLoanProduct;
+use App\Models\ShmLoanSettlement;
+use App\Models\ShmSettlementCorrection;
+use App\Models\ShmSettlementDiscountPolicy;
 use App\Models\User;
 use App\Services\Accounting\SimpleXlsxService;
 use App\Services\Shm\ShmLoanDisbursementService;
+use App\Services\Shm\ShmLoanPaymentService;
+use App\Services\Shm\ShmLoanSettlementService;
 use App\Services\Shm\ShmRegularPaymentService;
 use App\Services\Shm\ShmRepaymentScheduleService;
+use App\Services\Shm\ShmSettlementCorrectionService;
 use App\Support\AccountingContext;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -49,9 +56,10 @@ class ShmAccountingRefactorAndImportTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->admin = $this->userWithRole('admin');
-        $this->unauthorizedUser = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->unauthorizedUser = $this->userWithRole('marketing_makro');
 
         $this->seedShmSavingsProducts();
         $this->openCashierSessionFor($this->admin);
@@ -106,9 +114,17 @@ class ShmAccountingRefactorAndImportTest extends TestCase
         ShmApproval::create([
             'shm_application_id' => $mirror->id,
             'decided_by' => $this->admin->id,
+            'decided_at' => now()->subMinute(),
+            'status' => ShmApproval::STATUS_APPROVED_BM,
+            'notes' => 'Disetujui Level 1 BM untuk uji refactor akuntansi',
+        ]);
+
+        ShmApproval::create([
+            'shm_application_id' => $mirror->id,
+            'decided_by' => $this->admin->id,
             'decided_at' => now(),
             'status' => ShmApproval::STATUS_APPROVED,
-            'notes' => 'Disetujui untuk uji refactor akuntansi',
+            'notes' => 'Disetujui Level 2 Dirut untuk uji refactor akuntansi',
         ]);
 
         return ShmLoanApplication::create(array_merge([
@@ -182,6 +198,99 @@ class ShmAccountingRefactorAndImportTest extends TestCase
 
         $this->assertArrayHasKey('payment', $result);
         $this->assertInstanceOf(ShmLoanPayment::class, $result['payment']);
+
+        $newJournalCount = JournalEntry::query()->where('accounting_context', AccountingContext::SHM)->count();
+        $this->assertSame($initialJournalCount, $newJournalCount);
+    }
+
+    /** 2b. Test Settlement does NOT create automatic journal (Option A) */
+    public function test_shm_settlement_does_not_create_automatic_journal(): void
+    {
+        $application = $this->createApprovedApplication();
+        $disbursementService = app(ShmLoanDisbursementService::class);
+        $loan = $disbursementService->disburse($application, $this->admin->id);
+
+        $scheduleService = app(ShmRepaymentScheduleService::class);
+        $scheduleService->generate($loan, $this->admin->id);
+        $loan->refresh();
+
+        ShmSettlementDiscountPolicy::query()->firstOrCreate(
+            ['min_remaining_months' => 1, 'max_remaining_months' => 24],
+            ['discount_percent' => '5.00', 'is_active' => true]
+        );
+
+        $settlementService = app(ShmLoanSettlementService::class);
+        $paymentService = app(ShmLoanPaymentService::class);
+
+        $settlement = $settlementService->request($loan, [
+            'penalty' => 0,
+            'notes' => 'Settlement testing for Option A',
+        ], (int) $this->admin->id);
+
+        $settlement = $settlementService->approve($loan, (int) $this->admin->id);
+
+        $payment = $paymentService->create($loan, [
+            'payment_date' => now()->toDateString(),
+            'amount' => (float) $settlement->settlement_amount,
+        ], (int) $this->admin->id);
+
+        $settlementService->recordPayment($loan, $payment->id, (int) $this->admin->id);
+        $settlementService->verifyPayment($loan, (int) $this->admin->id);
+
+        $initialJournalCount = JournalEntry::query()->where('accounting_context', AccountingContext::SHM)->count();
+
+        $completedSettlement = $settlementService->complete($loan, (int) $this->admin->id);
+
+        $this->assertSame(ShmLoanSettlement::STATUS_COMPLETED, $completedSettlement->status);
+
+        $newJournalCount = JournalEntry::query()->where('accounting_context', AccountingContext::SHM)->count();
+        $this->assertSame($initialJournalCount, $newJournalCount);
+    }
+
+    /** 2c. Test Settlement Correction does NOT create automatic journal (Option A) */
+    public function test_shm_settlement_correction_does_not_create_automatic_journal(): void
+    {
+        $application = $this->createApprovedApplication();
+        $disbursementService = app(ShmLoanDisbursementService::class);
+        $loan = $disbursementService->disburse($application, $this->admin->id);
+
+        $scheduleService = app(ShmRepaymentScheduleService::class);
+        $scheduleService->generate($loan, $this->admin->id);
+        $loan->refresh();
+
+        ShmSettlementDiscountPolicy::query()->firstOrCreate(
+            ['min_remaining_months' => 1, 'max_remaining_months' => 24],
+            ['discount_percent' => '5.00', 'is_active' => true]
+        );
+
+        $settlementService = app(ShmLoanSettlementService::class);
+        $paymentService = app(ShmLoanPaymentService::class);
+
+        $settlement = $settlementService->request($loan, [
+            'penalty' => 0,
+            'notes' => 'Settlement testing for Option A correction',
+        ], (int) $this->admin->id);
+        $settlement = $settlementService->approve($loan, (int) $this->admin->id);
+        $payment = $paymentService->create($loan, [
+            'payment_date' => now()->toDateString(),
+            'amount' => (float) $settlement->settlement_amount,
+        ], (int) $this->admin->id);
+        $settlementService->recordPayment($loan, $payment->id, (int) $this->admin->id);
+        $settlementService->verifyPayment($loan, (int) $this->admin->id);
+        $completedSettlement = $settlementService->complete($loan, (int) $this->admin->id);
+
+        $initialJournalCount = JournalEntry::query()->where('accounting_context', AccountingContext::SHM)->count();
+
+        $correctionService = app(ShmSettlementCorrectionService::class);
+        $correction = $correctionService->correct(
+            $loan,
+            $completedSettlement,
+            'Alasan koreksi valid untuk pembuktian Option A',
+            (int) $this->admin->id
+        );
+
+        $this->assertInstanceOf(ShmSettlementCorrection::class, $correction);
+        $this->assertSame(ShmSettlementCorrection::STATUS_COMPLETED, $correction->status);
 
         $newJournalCount = JournalEntry::query()->where('accounting_context', AccountingContext::SHM)->count();
         $this->assertSame($initialJournalCount, $newJournalCount);

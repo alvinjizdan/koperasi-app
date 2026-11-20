@@ -14,6 +14,7 @@ use App\Models\ShmLoanPaymentAllocation;
 use App\Models\User;
 use App\Services\Shm\ShmLoanPaymentAllocationService;
 use App\Services\Shm\ShmLoanPaymentService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -48,10 +49,11 @@ class ShmLoanPaymentHistoryTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
-        $this->marketing2 = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->marketing2 = $this->userWithRole('marketing_makro');
         $this->payer = $this->userWithPermissions(['shm.view', 'shm.payment.create']);
     }
 
@@ -74,6 +76,8 @@ class ShmLoanPaymentHistoryTest extends TestCase
             'name' => 'history-tester-'.Str::uuid(),
             'display_name' => 'History Tester',
             'is_system' => false,
+            'entity' => 'makro',
+            'is_active' => true,
         ]);
 
         $role->permissions()->attach(

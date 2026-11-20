@@ -4,9 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\ChartOfAccount;
 use App\Models\JournalEntry;
-use App\Models\Member;
 use App\Models\Role;
-use App\Models\SavingProduct;
+use App\Models\Shm\ShmSavingProduct;
 use App\Models\ShmAccountingMapping;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
@@ -18,6 +17,7 @@ use App\Models\ShmLoanSettlement;
 use App\Models\ShmProductAccounting;
 use App\Models\ShmSettlementCorrection;
 use App\Models\User;
+use App\Services\Accounting\ShmAutomaticJournalService;
 use App\Services\CashierService;
 use App\Services\Shm\ShmLoanPaymentService;
 use App\Services\Shm\ShmLoanSettlementService;
@@ -91,8 +91,7 @@ class ShmAutomaticJournalPostgresConcurrencyTest extends TestCase
 
     private function createLoanFixture(): ShmLoan
     {
-        $member = Member::factory()->create(['status' => 'active']);
-        $customer = ShmCustomer::factory()->create(['member_id' => $member->id]);
+        $customer = ShmCustomer::factory()->create();
 
         $product = ShmLoanProduct::firstOrCreate(
             ['code' => 'CONC-PROD'],
@@ -199,11 +198,11 @@ class ShmAutomaticJournalPostgresConcurrencyTest extends TestCase
         );
 
         // Simpanan Pokok
-        SavingProduct::firstOrCreate(
+        ShmSavingProduct::firstOrCreate(
             ['code' => 'SP-001'],
             [
                 'name' => 'Simpanan Pokok',
-                'category' => SavingProduct::CATEGORY_PRINCIPAL,
+                'category' => ShmSavingProduct::CATEGORY_PRINCIPAL,
                 'is_active' => true,
             ]
         );
@@ -276,11 +275,20 @@ class ShmAutomaticJournalPostgresConcurrencyTest extends TestCase
         // Tepat 1 record ShmLoanPayment dibuat
         $this->assertSame(1, ShmLoanPayment::where('shm_loan_id', $loan->id)->count());
 
+        $payment = ShmLoanPayment::where('shm_loan_id', $loan->id)->first();
+        $this->assertNotNull($payment);
+
+        // Alur operasional tidak auto-posting jurnal
+        $this->assertSame(0, JournalEntry::where('source_type', ShmLoanPayment::class)->count());
+
+        // Verifikasi pembuatan jurnal eksplisit via ShmAutomaticJournalService
+        $autoJournalService = app(ShmAutomaticJournalService::class);
+        $journal = $autoJournalService->createPaymentJournal($payment, $this->admin->id);
+        $this->assertNotNull($journal);
+
         // Tepat 1 JournalEntry dibuat
         $journalCount = JournalEntry::where('source_type', ShmLoanPayment::class)->count();
         $this->assertSame(1, $journalCount);
-
-        $journal = JournalEntry::where('source_type', ShmLoanPayment::class)->first();
         $this->assertSame(JournalEntry::STATUS_POSTED, $journal->status);
         $this->assertTrue($journal->isBalanced());
     }
@@ -318,13 +326,19 @@ class ShmAutomaticJournalPostgresConcurrencyTest extends TestCase
         // Keduanya mengembalikan ok (idempotent: worker kedua mendapatkan instance settlement yang sama)
         $this->assertSame(2, $results->whereOk()->count());
 
-        // Tepat 1 settlement journal dibuat (idempotensi jurnal terbukti di PostgreSQL paralel)
+        // Alur operasional tidak auto-posting jurnal
+        $this->assertSame(0, JournalEntry::where('source_type', ShmLoanSettlement::class)->count());
+
+        // Verifikasi pembuatan jurnal eksplisit via ShmAutomaticJournalService
+        $autoJournalService = app(ShmAutomaticJournalService::class);
+        $journal = $autoJournalService->createSettlementJournal($settlement->fresh(), $this->admin->id);
+        $this->assertNotNull($journal);
+
+        // Tepat 1 settlement journal dibuat (idempotensi jurnal terbukti di PostgreSQL)
         $journalCount = JournalEntry::where('source_type', ShmLoanSettlement::class)
             ->where('posting_type', ShmAccountingMapping::EVENT_SETTLEMENT)
             ->count();
         $this->assertSame(1, $journalCount);
-
-        $journal = JournalEntry::where('source_type', ShmLoanSettlement::class)->first();
         $this->assertSame(JournalEntry::STATUS_POSTED, $journal->status);
         $this->assertTrue($journal->isBalanced());
     }
@@ -352,11 +366,9 @@ class ShmAutomaticJournalPostgresConcurrencyTest extends TestCase
         $settlement = $settlementService->verifyPayment($loan, $this->admin->id);
         $settlement = $settlementService->complete($loan, $this->admin->id);
 
-        // Settlement journal terbentuk
-        $originalJournal = JournalEntry::where('source_type', ShmLoanSettlement::class)
-            ->where('source_id', $settlement->id)
-            ->where('posting_type', ShmAccountingMapping::EVENT_SETTLEMENT)
-            ->first();
+        // Buat settlement journal secara eksplisit
+        $autoJournalService = app(ShmAutomaticJournalService::class);
+        $originalJournal = $autoJournalService->createSettlementJournal($settlement->fresh(), $this->admin->id);
         $this->assertNotNull($originalJournal);
 
         $results = $this->harness->runParallel([
@@ -371,6 +383,16 @@ class ShmAutomaticJournalPostgresConcurrencyTest extends TestCase
 
         // Tepat 1 record ShmSettlementCorrection dibuat
         $this->assertSame(1, ShmSettlementCorrection::where('original_settlement_id', $settlement->id)->count());
+
+        $correction = ShmSettlementCorrection::where('original_settlement_id', $settlement->id)->first();
+        $this->assertNotNull($correction);
+
+        // Alur operasional koreksi tidak auto-posting pembalik jurnal
+        $this->assertSame(0, JournalEntry::where('posting_type', ShmAccountingMapping::EVENT_SETTLEMENT.'_reversal')->count());
+
+        // Verifikasi pembuatan jurnal pembalik eksplisit via ShmAutomaticJournalService
+        $reversalJournal = $autoJournalService->reverseSettlementJournal($correction, $this->admin->id);
+        $this->assertNotNull($reversalJournal);
 
         // Jurnal asli ditandai REVERSED
         $this->assertSame(JournalEntry::STATUS_REVERSED, $originalJournal->fresh()->status);

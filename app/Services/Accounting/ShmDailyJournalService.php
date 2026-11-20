@@ -179,15 +179,15 @@ class ShmDailyJournalService
         }
 
         $loans = ! empty($loanIds)
-            ? ShmLoan::with(['customer.member'])->whereIn('id', array_unique($loanIds))->get()->keyBy('id')
+            ? ShmLoan::with(['customer'])->whereIn('id', array_unique($loanIds))->get()->keyBy('id')
             : collect();
 
         $payments = ! empty($paymentIds)
-            ? ShmLoanPayment::with(['loan.customer.member'])->whereIn('id', array_unique($paymentIds))->get()->keyBy('id')
+            ? ShmLoanPayment::with(['loan.customer'])->whereIn('id', array_unique($paymentIds))->get()->keyBy('id')
             : collect();
 
         $settlements = ! empty($settlementIds)
-            ? ShmLoanSettlement::with(['loan.customer.member'])->whereIn('id', array_unique($settlementIds))->get()->keyBy('id')
+            ? ShmLoanSettlement::with(['loan.customer'])->whereIn('id', array_unique($settlementIds))->get()->keyBy('id')
             : collect();
 
         foreach ($entries as $entry) {
@@ -201,7 +201,7 @@ class ShmDailyJournalService
                 $loan = $loans[$entry->source_id];
                 $customer = $loan->customer;
                 $customerName = $customer?->name ?? '-';
-                $memberNumber = $customer?->member?->member_number ?? $customer?->customer_number ?? '-';
+                $memberNumber = $customer?->customer_number ?? '-';
                 $accountNumber = $loan->loan_number;
                 $slipNumber = $loan->loan_number;
             } elseif ($entry->source_type === ShmLoanPayment::class && isset($payments[$entry->source_id])) {
@@ -210,7 +210,7 @@ class ShmDailyJournalService
                 $loan = $payment->loan;
                 $customer = $loan?->customer;
                 $customerName = $customer?->name ?? '-';
-                $memberNumber = $customer?->member?->member_number ?? $customer?->customer_number ?? '-';
+                $memberNumber = $customer?->customer_number ?? '-';
                 $accountNumber = $loan?->loan_number ?? '-';
                 $slipNumber = $payment->payment_reference ?? '-';
             } elseif ($entry->source_type === ShmLoanSettlement::class && isset($settlements[$entry->source_id])) {
@@ -219,7 +219,7 @@ class ShmDailyJournalService
                 $loan = $settlement->loan;
                 $customer = $loan?->customer;
                 $customerName = $customer?->name ?? '-';
-                $memberNumber = $customer?->member?->member_number ?? $customer?->customer_number ?? '-';
+                $memberNumber = $customer?->customer_number ?? '-';
                 $accountNumber = $loan?->loan_number ?? '-';
                 $slipNumber = $settlement->settlement_reference ?? '-';
             }

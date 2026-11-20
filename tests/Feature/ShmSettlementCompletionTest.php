@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\AuditLog;
 use App\Models\Permission;
 use App\Models\Role;
-use App\Models\SavingsTransaction;
 use App\Models\Shm\ShmSavingsTransaction;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
@@ -17,6 +16,7 @@ use App\Models\ShmSettlementDiscountPolicy;
 use App\Models\User;
 use App\Services\Shm\ShmLoanPaymentService;
 use App\Services\Shm\ShmSettlementDiscountPolicyService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Database\Seeders\ShmSavingProductSeeder;
@@ -53,10 +53,11 @@ class ShmSettlementCompletionTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
         $this->seed(ShmSavingProductSeeder::class);
 
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
         $this->user = $this->userWithPermissions([
             'shm.view',
             'shm.payment.create',
@@ -83,6 +84,7 @@ class ShmSettlementCompletionTest extends TestCase
         $role = Role::query()->create([
             'name' => 't89b-'.Str::uuid(),
             'display_name' => 'T89B Tester',
+            'entity' => 'makro',
             'is_system' => false,
         ]);
 
@@ -214,7 +216,8 @@ class ShmSettlementCompletionTest extends TestCase
                 'max_remaining_months' => 3,
                 'discount_percent' => 10,
             ])
-            ->assertSessionHas('error', function (string $message): bool {
+            ->assertSessionHas('error', function (?string $message = null): bool {
+                $this->assertNotNull($message);
                 $this->assertStringContainsString('bulan minimum tidak boleh melebihi', $message);
 
                 return true;
@@ -249,7 +252,8 @@ class ShmSettlementCompletionTest extends TestCase
                 'max_remaining_months' => 9,
                 'discount_percent' => 20,
             ])
-            ->assertSessionHas('error', function (string $message): bool {
+            ->assertSessionHas('error', function (?string $message = null): bool {
+                $this->assertNotNull($message);
                 $this->assertStringContainsString('beririsan', $message);
 
                 return true;
@@ -553,7 +557,7 @@ class ShmSettlementCompletionTest extends TestCase
             ->assertSessionHas('success');
 
         $this->assertSame('0.00', (string) $settlement->refresh()->overpayment_amount);
-        $this->assertSame(0, SavingsTransaction::query()->count());
+        $this->assertSame(0, ShmSavingsTransaction::query()->count());
     }
 
     public function test_overpayment_completion_is_blocked_explisit_without_any_savings_posting(): void
@@ -581,16 +585,14 @@ class ShmSettlementCompletionTest extends TestCase
         $this->assertSame('100000000.00', (string) $loan->refresh()->principal);
         $this->assertSame('500000.00', (string) $settlement->overpayment_amount);
 
-        // Tidak masuk ke Simpanan SHM maupun Simpanan Koperasi
+        // Tidak masuk ke Simpanan SHM
         $this->assertSame(0, ShmSavingsTransaction::query()->count());
-        $this->assertSame(0, SavingsTransaction::query()->count());
         $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.settled')->count());
         $this->assertSame(1, AuditLog::query()->where('action', 'shm.loan.closed')->count());
 
         // Retry dua kali lagi → idempoten, tidak menduplikasi posting simpanan
         $this->actingAs($this->user)->post(route('shm.loans.pelunasan.complete', $loan))->assertSessionHas('success');
         $this->assertSame(0, ShmSavingsTransaction::query()->count());
-        $this->assertSame(0, SavingsTransaction::query()->count());
         $this->assertSame(1, ShmLoanSettlement::query()->where('shm_loan_id', $loan->id)->count());
     }
 

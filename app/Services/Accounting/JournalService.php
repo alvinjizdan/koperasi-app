@@ -5,7 +5,10 @@ namespace App\Services\Accounting;
 use App\Models\ChartOfAccount;
 use App\Models\JournalEntry;
 use App\Models\JournalLine;
+use App\Models\ShmRefundAccountingLink;
+use App\Models\ShmSettlementRefund;
 use App\Services\AuditLogger;
+use App\Services\Shm\ShmSettlementRefundService;
 use App\Support\AccountingContext;
 use App\Support\DbTransaction;
 use Illuminate\Database\Eloquent\Model;
@@ -28,7 +31,11 @@ use Illuminate\Validation\ValidationException;
  */
 class JournalService
 {
-    private const MAX_ATTEMPTS = 3;
+    public function __construct(
+        private ?ShmSettlementRefundService $refundService = null
+    ) {
+        $this->refundService = $refundService ?? app(ShmSettlementRefundService::class);
+    }
 
     /**
      * Buat jurnal DRAFT dari baris-baris yang diberikan.
@@ -56,6 +63,51 @@ class JournalService
             ]);
 
             $this->createLines($entry, $lines);
+
+            // Phase 2: Link DRAFT manual journal to refund if shm_settlement_refund_id provided
+            if (! empty($data['shm_settlement_refund_id'])) {
+                $refund = ShmSettlementRefund::findOrFail($data['shm_settlement_refund_id']);
+
+                if ($refund->status !== ShmSettlementRefund::STATUS_PAID && $refund->status !== ShmSettlementRefund::STATUS_RECOVERY_PENDING && $refund->status !== ShmSettlementRefund::STATUS_RECOVERED) {
+                    throw ValidationException::withMessages([
+                        'shm_settlement_refund_id' => [sprintf('Refund %s belum berstatus dibayarkan (paid). Status saat ini: "%s".', $refund->refund_reference, $refund->status)],
+                    ]);
+                }
+
+                $activePostedLink = ShmRefundAccountingLink::query()
+                    ->where('shm_settlement_refund_id', $refund->id)
+                    ->where('status', ShmRefundAccountingLink::STATUS_POSTED)
+                    ->first();
+
+                if ($activePostedLink !== null) {
+                    throw ValidationException::withMessages([
+                        'shm_settlement_refund_id' => [sprintf('Refund %s sudah diakui dalam akuntansi melalui Jurnal #%d (%s).', $refund->refund_reference, $activePostedLink->journal_entry_id, $activePostedLink->recognition_channel)],
+                    ]);
+                }
+
+                $totalDebit = (float) $entry->totalDebit();
+                if (round((float) $refund->amount, 2) !== round($totalDebit, 2)) {
+                    throw ValidationException::withMessages([
+                        'amount' => [sprintf(
+                            'Nominal jurnal (Rp %s) harus sama dengan nominal refund %s (Rp %s).',
+                            number_format($totalDebit, 2, ',', '.'),
+                            $refund->refund_reference,
+                            number_format((float) $refund->amount, 2, ',', '.')
+                        )],
+                    ]);
+                }
+
+                ShmRefundAccountingLink::create([
+                    'accounting_context' => AccountingContext::SHM,
+                    'shm_settlement_refund_id' => $refund->id,
+                    'recognition_channel' => ShmRefundAccountingLink::CHANNEL_MANUAL_JOURNAL,
+                    'journal_entry_id' => $entry->id,
+                    'status' => ShmRefundAccountingLink::STATUS_DRAFT,
+                    'linked_by' => $userId,
+                    'linked_at' => now(),
+                    'notes' => 'Tautan manual journal DRAFT ke refund '.$refund->refund_reference,
+                ]);
+            }
 
             AuditLogger::log(
                 'accounting.journal.created',
@@ -165,6 +217,27 @@ class JournalService
                 }
             }
 
+            // Phase 2: If there is an existing DRAFT link for this journal (e.g. from XLSX Import or manual journal)
+            // or if linked to a refund, promote link to POSTED atomically
+            $draftLink = ShmRefundAccountingLink::query()
+                ->where('journal_entry_id', $locked->id)
+                ->where('status', ShmRefundAccountingLink::STATUS_DRAFT)
+                ->first();
+
+            if ($draftLink !== null) {
+                $refund = ShmSettlementRefund::findOrFail($draftLink->shm_settlement_refund_id);
+                // Promote link atomically using refund service
+                $draftLink->delete(); // Remove draft placeholder before calling linkAccountingRecognition to satisfy index
+                $this->refundService->linkAccountingRecognition(
+                    $refund,
+                    $locked->id,
+                    $draftLink->recognition_channel,
+                    $userId,
+                    $draftLink->shm_cash_transaction_id,
+                    $draftLink->notes ?? 'Posting Jurnal #'.$locked->id
+                );
+            }
+
             $locked->update([
                 'status' => JournalEntry::STATUS_POSTED,
                 'posted_by' => $userId,
@@ -239,6 +312,9 @@ class JournalService
                 'status' => JournalEntry::STATUS_REVERSED,
                 'reversed_by_entry_id' => $reversal->id,
             ])->save();
+
+            // Phase 2: Reverse any active accounting recognition links
+            $this->refundService->reverseAccountingRecognition($locked->id, $userId);
 
             AuditLogger::log(
                 'accounting.journal.reversed',

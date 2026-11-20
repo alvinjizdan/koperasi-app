@@ -12,6 +12,7 @@ use App\Models\ShmLoanSettlement;
 use App\Services\Shm\SettlementContractIncomplete;
 use App\Services\Shm\ShmLoanSettlementService;
 use App\Services\Shm\ShmSettlementCorrectionService;
+use App\Services\Shm\ShmSettlementRefundService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -162,6 +163,11 @@ class ShmLoanSettlementController extends Controller
                     'payment_date' => $payment->payment_date?->toDateString(),
                     'amount' => $payment->amount,
                 ])->all(),
+            'refunds' => $loan->settlement ? $loan->settlement->refunds()
+                ->with(['requester:id,name', 'approver:id,name', 'payer:id,name'])
+                ->orderByDesc('id')
+                ->get() : [],
+            'refund_summary' => $loan->settlement ? app(ShmSettlementRefundService::class)->calculateRefundableSummary($loan->settlement) : null,
             'timeline' => $this->settlementTimeline($loan),
             'flash' => [
                 'success' => session('success'),
@@ -378,7 +384,9 @@ class ShmLoanSettlementController extends Controller
             'outstanding_interest' => $settlement->outstanding_interest,
             'outstanding_penalty' => $settlement->outstanding_penalty,
             'unallocated_payment_amount' => $settlement->unallocated_payment_amount,
+            'applied_unallocated_amount' => $settlement->applied_unallocated_amount,
             'settlement_amount' => $settlement->settlement_amount,
+            'net_cash_due' => $settlement->net_cash_due,
             'overpayment_amount' => $settlement->overpayment_amount,
             'notes' => $settlement->notes,
             'discount' => [

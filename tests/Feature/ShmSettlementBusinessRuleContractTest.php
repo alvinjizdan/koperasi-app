@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\SavingProduct;
 use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 
@@ -280,15 +279,6 @@ class ShmSettlementBusinessRuleContractTest extends TestCase
         // tanpa membuat member / SHM Savings.
         $this->assertStringContainsString('BLOCKER BUSINESS DATA', $overpayment['implementation_dependency']);
         $this->assertStringContainsString('TIDAK membuat member', $overpayment['implementation_dependency']);
-
-        // Struktur Simpanan Pokok yang dipakai MEMANG sudah ada pada koperasi
-        // (SavingProduct category `principal`) — bukan entitas baru.
-        $this->assertSame('principal', SavingProduct::CATEGORY_PRINCIPAL);
-        $this->assertArrayHasKey(
-            SavingProduct::CATEGORY_PRINCIPAL,
-            SavingProduct::CATEGORIES,
-        );
-        $this->assertSame('Simpanan Pokok', SavingProduct::CATEGORIES[SavingProduct::CATEGORY_PRINCIPAL]);
 
         // Akuntansi overpayment umum TETAP PENDING (T89A tidak menggantinya).
         $this->assertSame(

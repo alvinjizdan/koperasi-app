@@ -7,10 +7,11 @@ use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanPayment;
 use App\Models\ShmLoanPaymentAllocation;
 use App\Models\ShmLoanSettlement;
+use App\Models\ShmLoanSettlementUnallocatedUsage;
 use App\Models\ShmSettlementCorrection;
 use App\Services\Accounting\ShmAutomaticJournalService;
 use App\Services\AuditLogger;
-use Illuminate\Support\Facades\DB;
+use App\Support\DbTransaction;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -124,7 +125,7 @@ class ShmSettlementCorrectionService
         int $actorId,
         array $replacementData = [],
     ): ShmSettlementCorrection {
-        return DB::transaction(function () use ($loan, $settlement, $reason, $actorId, $replacementData): ShmSettlementCorrection {
+        return DbTransaction::run(function () use ($loan, $settlement, $reason, $actorId, $replacementData): ShmSettlementCorrection {
             $trimmedReason = trim($reason);
             if ($trimmedReason === '' || strlen($trimmedReason) < 5) {
                 throw ValidationException::withMessages([
@@ -159,6 +160,12 @@ class ShmSettlementCorrectionService
             // 1. Reversal settlement original: status menjadi reversed (nilai finansial tetap utuh)
             $lockedSettlement->status = ShmLoanSettlement::STATUS_REVERSED;
             $lockedSettlement->save();
+
+            // 1b. Reversal penggunaan dana titipan pada settlement original (Ticket 41)
+            ShmLoanSettlementUnallocatedUsage::query()
+                ->where('shm_loan_settlement_id', $lockedSettlement->id)
+                ->where('status', ShmLoanSettlementUnallocatedUsage::STATUS_ACTIVE)
+                ->update(['status' => ShmLoanSettlementUnallocatedUsage::STATUS_REVERSED]);
 
             // 2. Lepas tautan pembayaran pelunasan original ke domain reguler
             if ($lockedSettlement->shm_loan_payment_id !== null) {

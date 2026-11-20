@@ -4,12 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\AuditLog;
 use App\Models\CashTransaction;
-use App\Models\Member;
 use App\Models\Permission;
 use App\Models\Role;
-use App\Models\SavingProduct;
-use App\Models\SavingsAccount;
-use App\Models\SavingsTransaction;
 use App\Models\Shm\ShmSavingsTransaction;
 use App\Models\ShmCustomer;
 use App\Models\ShmLoan;
@@ -24,6 +20,7 @@ use App\Services\Shm\ShmLoanPaymentAllocationService;
 use App\Services\Shm\ShmLoanPaymentService;
 use App\Services\Shm\ShmLoanSettlementService;
 use App\Services\Shm\ShmSettlementCorrectionService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Database\Seeders\ShmSavingProductSeeder;
@@ -66,6 +63,7 @@ class ShmSettlementCorrectionTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
         $this->seed(ShmSavingProductSeeder::class);
 
         $this->user = $this->userWithPermissions([
@@ -86,10 +84,11 @@ class ShmSettlementCorrectionTest extends TestCase
             'name' => 't005-'.Str::uuid(),
             'display_name' => 'T005 Tester',
             'is_system' => false,
+            'entity' => 'makro',
         ]);
 
         $role->permissions()->attach(
-            Permission::query()->whereIn('name', $permissionNames)->pluck('id')
+            Permission::query()->where('entity', 'makro')->whereIn('name', $permissionNames)->pluck('id')
         );
 
         $user->roles()->attach($role->id);
@@ -98,36 +97,11 @@ class ShmSettlementCorrectionTest extends TestCase
     }
 
     /**
-     * Buat pinjaman aktif dengan nasabah yang terhubung ke Member Simpanan Pokok.
+     * Buat pinjaman aktif nasabah SHM.
      */
-    private function activeLoanWithMember(float $futureInterest = 60_000_000, ?SavingsAccount &$savingsAccount = null): ShmLoan
+    private function activeLoanWithMember(float $futureInterest = 60_000_000): ShmLoan
     {
-        $member = Member::factory()->create(['status' => 'active']);
-
-        $product = SavingProduct::query()->firstOrCreate(
-            ['category' => SavingProduct::CATEGORY_PRINCIPAL],
-            [
-                'code' => 'SP-POKOK',
-                'name' => 'Simpanan Pokok',
-                'description' => 'Simpanan Pokok Anggota',
-                'minimum_initial_deposit' => 100_000,
-                'minimum_balance' => 0,
-                'is_active' => true,
-            ],
-        );
-
-        $savingsAccount = SavingsAccount::query()->create([
-            'account_number' => 'SA-'.Str::upper(Str::random(10)),
-            'member_id' => $member->id,
-            'saving_product_id' => $product->id,
-            'opened_at' => now()->toDateString(),
-            'status' => 'active',
-            'balance' => 0,
-        ]);
-
-        $customer = ShmCustomer::factory()->create([
-            'member_id' => $member->id,
-        ]);
+        $customer = ShmCustomer::factory()->create();
 
         $application = ShmLoanApplication::query()->create([
             'application_number' => 'PENGAJ-T005-'.Str::upper(Str::random(10)),
@@ -416,8 +390,7 @@ class ShmSettlementCorrectionTest extends TestCase
     public function test_case_g_and_h_overpayment_compensated_and_zero_cash_impact(): void
     {
         $this->policy();
-        $savingsAccount = null;
-        $loan = $this->activeLoanWithMember(60_000_000, $savingsAccount);
+        $loan = $this->activeLoanWithMember(60_000_000);
 
         $cashCountBefore = CashTransaction::query()->count();
 
@@ -425,11 +398,8 @@ class ShmSettlementCorrectionTest extends TestCase
         $overpaymentAmount = 1_500_000;
         $settlement = $this->completeSettlement($loan, $overpaymentAmount);
 
-        // Rekening simpanan koperasi & SHM tidak bertambah karena overpayment menjadi Bunga Pendapatan SHM
+        // Rekening simpanan SHM tidak bertambah karena overpayment menjadi Bunga Pendapatan SHM
         $this->assertSame(0, ShmSavingsTransaction::query()->count());
-        $this->assertSame(0, SavingsTransaction::query()->count());
-        $savingsAccount->refresh();
-        $this->assertSame(0.0, (float) $savingsAccount->balance);
 
         // Tidak boleh ada dampak kas kasir dari overpayment deposit
         $this->assertSame($cashCountBefore, CashTransaction::query()->count());
@@ -443,9 +413,8 @@ class ShmSettlementCorrectionTest extends TestCase
             (int) $this->user->id,
         );
 
-        // Simpanan SHM dan Koperasi tetap 0
+        // Simpanan SHM tetap 0
         $this->assertSame(0, ShmSavingsTransaction::query()->count());
-        $this->assertSame(0, SavingsTransaction::query()->count());
 
         // Case H: Nol dampak transaksi kas kasir selama kompensasi
         $this->assertSame($cashCountBefore, CashTransaction::query()->count());

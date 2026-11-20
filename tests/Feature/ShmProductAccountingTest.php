@@ -11,6 +11,7 @@ use App\Models\ShmProductAccounting;
 use App\Models\User;
 use App\Services\Accounting\ShmProductAccountingService;
 use App\Support\AccountingContext;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
@@ -44,11 +45,12 @@ class ShmProductAccountingTest extends TestCase
     {
         parent::setUp();
         $this->seed();
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->service = app(ShmProductAccountingService::class);
 
         $this->admin = User::factory()->create();
-        $adminRole = Role::where('name', 'admin')->first();
+        $adminRole = Role::where('name', 'admin_makro')->first() ?? Role::where('name', 'admin')->first();
         if ($adminRole) {
             $this->admin->roles()->attach($adminRole->id);
         }

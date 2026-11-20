@@ -14,6 +14,7 @@ use App\Models\ShmLoanSettlement;
 use App\Models\ShmSettlementDiscountPolicy;
 use App\Models\User;
 use App\Services\Shm\ShmLoanPaymentService;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Database\Seeders\ShmSavingProductSeeder;
@@ -55,6 +56,7 @@ class ShmSettlementContractEnforcementTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
         $this->seed(ShmSavingProductSeeder::class);
 
         $this->user = $this->userWithPermissions([
@@ -63,8 +65,8 @@ class ShmSettlementContractEnforcementTest extends TestCase
             'shm.settlement.create',
             'shm.settlement.policy.manage',
         ]);
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
     }
 
     private function userWithRole(string $roleName): User
@@ -83,6 +85,7 @@ class ShmSettlementContractEnforcementTest extends TestCase
         $role = Role::query()->create([
             'name' => 't89d-'.Str::uuid(),
             'display_name' => 'T89D Tester',
+            'entity' => 'makro',
             'is_system' => false,
         ]);
 

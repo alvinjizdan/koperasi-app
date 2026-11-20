@@ -8,6 +8,7 @@ use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanPayment;
 use App\Models\ShmLoanPaymentAllocation;
 use App\Models\ShmLoanSettlement;
+use App\Models\ShmLoanSettlementUnallocatedUsage;
 use App\Services\Accounting\ShmAutomaticJournalService;
 use App\Services\AuditLogger;
 use Illuminate\Support\Carbon;
@@ -117,10 +118,19 @@ class ShmLoanSettlementService
                 + (float) $discount['interest_after_discount']
             );
 
+        $grossSettlement = $settlementAmount === null ? null : (float) $settlementAmount;
+        $availableUnallocated = (float) $components['unallocated_payment'];
+        $appliedUnallocated = $grossSettlement === null ? 0.0 : min($availableUnallocated, $grossSettlement);
+        $netCashDue = $grossSettlement === null ? null : max(0.0, $grossSettlement - $appliedUnallocated);
+        $remainingUnallocated = max(0.0, $availableUnallocated - $appliedUnallocated);
+
         return array_merge($components, $discount, [
             'as_of' => now()->toDateString(),
             'outstanding_penalty' => $this->money(0.0), // preview: penalty diinput saat pengajuan
             'settlement_amount' => $settlementAmount,
+            'applied_unallocated_payment' => $this->money($appliedUnallocated),
+            'net_cash_due' => $netCashDue === null ? null : $this->money($netCashDue),
+            'remaining_unallocated_payment' => $this->money($remainingUnallocated),
             'blocked_items' => $this->blockedItems(),
             'pending_notes' => [
                 'PENDING BUSINESS CONFIRMATION — settlement tolerance (tidak dipakai: pembayaran harus tepat memenuhi kewajiban).',
@@ -184,6 +194,10 @@ class ShmLoanSettlementService
                 + (float) $penalty
             );
 
+            $availableUnallocated = (float) $components['unallocated_payment'];
+            $appliedUnallocated = min($availableUnallocated, (float) $settlementAmount);
+            $netCashDue = max(0.0, (float) $settlementAmount - $appliedUnallocated);
+
             $settlement = ShmLoanSettlement::query()->create([
                 'shm_loan_id' => $locked->id,
                 'settlement_reference' => $this->generateReference(),
@@ -192,7 +206,9 @@ class ShmLoanSettlementService
                 'outstanding_interest' => $components['outstanding_interest_due'],
                 'outstanding_penalty' => $this->money((float) $penalty),
                 'unallocated_payment_amount' => $components['unallocated_payment'],
+                'applied_unallocated_amount' => $this->money($appliedUnallocated),
                 'settlement_amount' => $settlementAmount,
+                'net_cash_due' => $this->money($netCashDue),
                 'overpayment_amount' => $this->money(0.0),
                 'status' => ShmLoanSettlement::STATUS_PENDING,
                 'notes' => $data['notes'] ?? null,
@@ -270,6 +286,12 @@ class ShmLoanSettlementService
             $settlement->status = ShmLoanSettlement::STATUS_REJECTED;
             $settlement->save();
 
+            // Lepaskan alokasi penggunaan titipan jika pernah dibuat
+            ShmLoanSettlementUnallocatedUsage::query()
+                ->where('shm_loan_settlement_id', $settlement->id)
+                ->where('status', ShmLoanSettlementUnallocatedUsage::STATUS_ACTIVE)
+                ->update(['status' => ShmLoanSettlementUnallocatedUsage::STATUS_RELEASED]);
+
             AuditLogger::log(
                 'shm.loan.settlement.rejected',
                 ShmLoanSettlement::class,
@@ -293,7 +315,13 @@ class ShmLoanSettlementService
      */
     public function recordPayment(ShmLoan $loan, int $paymentId, int $actorId): ShmLoanSettlement
     {
-        return DB::transaction(function () use ($loan, $paymentId): ShmLoanSettlement {
+        return DB::transaction(function () use ($loan, $paymentId, $actorId): ShmLoanSettlement {
+            // T15I Financial Actor Row Locking
+            $actor = DB::table('users')->where('id', $actorId)->lockForUpdate()->first();
+            if (! $actor || ! $actor->is_active) {
+                abort(403, 'Aktor tidak aktif atau tidak ditemukan.');
+            }
+
             $lockedLoan = ShmLoan::query()->lockForUpdate()->findOrFail($loan->id);
             $settlement = $this->lockedSettlementOf($lockedLoan->id);
 
@@ -406,7 +434,8 @@ class ShmLoanSettlementService
 
     /**
      * Verifikasi EKSPLISIT pembayaran pelunasan: payment_recorded →
-     * payment_verified. `posted` saja TIDAK cukup (created ≠ verified).
+     * payment_verified (atau approved → payment_verified untuk zero-cash settlement).
+     * `posted` saja TIDAK cukup (created ≠ verified).
      *
      * @throws ValidationException
      */
@@ -415,18 +444,37 @@ class ShmLoanSettlementService
         return DB::transaction(function () use ($loan, $actorId): ShmLoanSettlement {
             $lockedLoan = ShmLoan::query()->lockForUpdate()->findOrFail($loan->id);
             $settlement = $this->lockedSettlementOf($lockedLoan->id);
-            $this->guardStatus($settlement, ShmLoanSettlement::STATUS_PAYMENT_RECORDED, 'memverifikasi pembayaran');
 
-            $payment = $this->lockedPaymentOf($settlement);
+            // Boleh diverifikasi dari payment_recorded, ATAU dari approved jika net_cash_due <= 0.
+            if ($settlement->status === ShmLoanSettlement::STATUS_APPROVED) {
+                // Hitung ulang saldo titipan aktual
+                $components = $this->components($lockedLoan, now()->startOfDay());
+                $availableUnallocated = (float) $components['unallocated_payment'];
+                $grossObligation = (float) $settlement->settlement_amount;
+                $appliedUnallocated = min($availableUnallocated, $grossObligation);
+                $netCashDue = max(0.0, $grossObligation - $appliedUnallocated);
 
-            if ((float) $payment->amount + 0.005 < (float) $settlement->settlement_amount) {
-                throw ValidationException::withMessages([
-                    'payment' => sprintf(
-                        'Pembayaran Rp %s kurang dari kewajiban settlement Rp %s.',
-                        number_format((float) $payment->amount, 2, ',', '.'),
-                        number_format((float) $settlement->settlement_amount, 2, ',', '.'),
-                    ),
-                ]);
+                if ($netCashDue > 0.005) {
+                    $this->guardStatus($settlement, ShmLoanSettlement::STATUS_PAYMENT_RECORDED, 'memverifikasi pembayaran');
+                }
+            } else {
+                $this->guardStatus($settlement, ShmLoanSettlement::STATUS_PAYMENT_RECORDED, 'memverifikasi pembayaran');
+            }
+
+            if ($settlement->shm_loan_payment_id !== null) {
+                $payment = $this->lockedPaymentOf($settlement);
+
+                // Validasi kas baru terhadap net_cash_due aktual
+                $netDue = (float) $settlement->net_cash_due;
+                if ((float) $payment->amount + 0.005 < $netDue) {
+                    throw ValidationException::withMessages([
+                        'payment' => sprintf(
+                            'Pembayaran Rp %s kurang dari kewajiban settlement Rp %s.',
+                            number_format((float) $payment->amount, 2, ',', '.'),
+                            number_format($netDue, 2, ',', '.'),
+                        ),
+                    ]);
+                }
             }
 
             $settlement->payment_verified_at = now();
@@ -441,8 +489,8 @@ class ShmLoanSettlementService
                 $settlement->settlement_reference,
                 sprintf('Pembayaran pelunasan %s diverifikasi.', $settlement->settlement_reference),
                 array_merge($this->settlementMetadata($lockedLoan, $settlement), [
-                    'payment_reference' => $payment->payment_reference,
-                    'payment_amount' => (string) $payment->amount,
+                    'payment_reference' => $settlement->payment?->payment_reference,
+                    'payment_amount' => $settlement->payment ? (string) $settlement->payment->amount : '0.00',
                 ]),
             );
 
@@ -463,7 +511,13 @@ class ShmLoanSettlementService
      */
     public function complete(ShmLoan $loan, int $actorId): ShmLoanSettlement
     {
-        return DB::transaction(function () use ($loan): ShmLoanSettlement {
+        return DB::transaction(function () use ($loan, $actorId): ShmLoanSettlement {
+            // T15I Financial Actor Row Locking
+            $actor = DB::table('users')->where('id', $actorId)->lockForUpdate()->first();
+            if (! $actor || ! $actor->is_active) {
+                abort(403, 'Aktor tidak aktif atau tidak ditemukan.');
+            }
+
             $lockedLoan = ShmLoan::query()->lockForUpdate()->findOrFail($loan->id);
             $settlement = $this->lockedSettlementOf($lockedLoan->id);
 
@@ -480,18 +534,74 @@ class ShmLoanSettlementService
                 ]);
             }
 
-            $payment = $this->lockedPaymentOf($settlement);
+            // Hitung ulang saldo titipan aktual pada pinjaman ini & lock payments sumber
+            $payments = ShmLoanPayment::query()
+                ->where('shm_loan_id', $lockedLoan->id)
+                ->where('status', ShmLoanPayment::STATUS_POSTED)
+                ->whereNull('settlement_released_at')
+                ->lockForUpdate()
+                ->orderBy('id')
+                ->get();
 
-            $overpayment = round((float) $payment->amount - (float) $settlement->settlement_amount, 2);
+            $grossSettlementObligation = (float) $settlement->settlement_amount;
+            $remainingNeeded = $grossSettlementObligation;
+            $appliedUnallocated = 0.0;
+
+            // Hapus atau batalkan penggunaan sebelumnya jika pernah dicatat pada settlement ini (idempotensi)
+            ShmLoanSettlementUnallocatedUsage::query()
+                ->where('shm_loan_settlement_id', $settlement->id)
+                ->delete();
+
+            foreach ($payments as $srcPayment) {
+                // Jangan gunakan payment pelunasan yang saat ini ditautkan sebagai sumber titipan angsuran
+                if ($settlement->shm_loan_payment_id === $srcPayment->id) {
+                    continue;
+                }
+
+                $availableInPayment = (float) $srcPayment->unallocatedAmount();
+                if ($availableInPayment > 0.005 && $remainingNeeded > 0.005) {
+                    $useAmount = min($availableInPayment, $remainingNeeded);
+                    ShmLoanSettlementUnallocatedUsage::create([
+                        'shm_loan_settlement_id' => $settlement->id,
+                        'shm_loan_payment_id' => $srcPayment->id,
+                        'amount' => $this->money($useAmount),
+                        'status' => ShmLoanSettlementUnallocatedUsage::STATUS_ACTIVE,
+                        'created_by' => $actorId,
+                    ]);
+
+                    $appliedUnallocated += $useAmount;
+                    $remainingNeeded -= $useAmount;
+                }
+            }
+
+            $netCashDue = max(0.0, round($grossSettlementObligation - $appliedUnallocated, 2));
+
+            $payment = null;
+            if ($settlement->shm_loan_payment_id !== null) {
+                $payment = $this->lockedPaymentOf($settlement);
+            }
+
+            if ($netCashDue > 0.005 && $payment === null) {
+                throw ValidationException::withMessages([
+                    'payment' => 'Settlement ini memerlukan pembayaran kas baru, namun belum ada pembayaran yang ditautkan.',
+                ]);
+            }
+
+            $paidCashAmount = $payment !== null ? (float) $payment->amount : 0.0;
+            $overpayment = round($paidCashAmount - $netCashDue, 2);
 
             if ($overpayment < -0.005) {
                 throw ValidationException::withMessages([
-                    'payment' => 'Pembayaran kurang dari kewajiban settlement sehingga tidak dapat diselesaikan.',
+                    'payment' => sprintf(
+                        'Pembayaran kas baru Rp %s kurang dari sisa tagihan settlement Rp %s sehingga tidak dapat diselesaikan.',
+                        number_format($paidCashAmount, 2, ',', '.'),
+                        number_format($netCashDue, 2, ',', '.'),
+                    ),
                 ]);
             }
 
             // 1. Settlementkan seluruh sisa angsuran (kewajiban dianggap
-            //    selesai: sebagian tunai + sebagian potongan discount yang
+            //    selesai: sebagian tunai + sebagian titipan + sebagian potongan discount yang
             //    terekam pada settlement). Komponen jadwal TIDAK diubah.
             $installments = $lockedLoan->installments()
                 ->where('status', '!=', ShmLoanInstallment::STATUS_PAID)
@@ -510,6 +620,8 @@ class ShmLoanSettlementService
             }
 
             // 2. Settlement completed (SATU audit completion).
+            $settlement->applied_unallocated_amount = $this->money($appliedUnallocated);
+            $settlement->net_cash_due = $this->money($netCashDue);
             $settlement->overpayment_amount = $this->money($overpayment > 0.005 ? $overpayment : 0.0);
             $settlement->status = ShmLoanSettlement::STATUS_COMPLETED;
             $settlement->save();
@@ -603,12 +715,20 @@ class ShmLoanSettlementService
             )
             ->sum('total_amount');
 
+        $totalConsumedInSettlement = (float) ShmLoanSettlementUnallocatedUsage::query()
+            ->whereIn(
+                'shm_loan_payment_id',
+                ShmLoanPayment::query()->where('shm_loan_id', $loan->id)->select('id'),
+            )
+            ->where('status', ShmLoanSettlementUnallocatedUsage::STATUS_ACTIVE)
+            ->sum('amount');
+
         return [
             'outstanding_principal' => $this->money($outstandingPrincipal),
             'outstanding_interest_due' => $this->money($dueInterest),
             'remaining_interest' => $this->money($remainingInterest),
             'remaining_months' => $remainingMonths,
-            'unallocated_payment' => $this->money(max(0.0, $totalPayments - $totalAllocated)),
+            'unallocated_payment' => $this->money(max(0.0, $totalPayments - $totalAllocated - $totalConsumedInSettlement)),
         ];
     }
 
@@ -834,7 +954,9 @@ class ShmLoanSettlementService
             'outstanding_interest' => (string) $settlement->outstanding_interest,
             'outstanding_penalty' => (string) $settlement->outstanding_penalty,
             'unallocated_payment' => (string) $settlement->unallocated_payment_amount,
+            'applied_unallocated_amount' => (string) $settlement->applied_unallocated_amount,
             'settlement_amount' => (string) $settlement->settlement_amount,
+            'net_cash_due' => (string) $settlement->net_cash_due,
             'overpayment_amount' => (string) $settlement->overpayment_amount,
             'discount_eligible' => $settlement->discount_eligible,
             'discount_applied' => $settlement->discount_applied,

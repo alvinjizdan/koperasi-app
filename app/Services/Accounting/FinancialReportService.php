@@ -260,8 +260,15 @@ class FinancialReportService
                 }
 
                 $net = round($account['total_debit'] - $account['total_credit'], 2);
-                $normal = $account['normal_balance'] === ChartOfAccount::NORMAL_DEBIT ? 1 : -1;
-                $balance = round($net * $normal, 2);
+                if ($category === ChartOfAccount::CATEGORY_REVENUE) {
+                    // Pendapatan standar ber-saldo normal CREDIT (credit - debit)
+                    // Akun kontra-pendapatan (normal DEBIT, contoh 4-1901) mengurangi pendapatan bersih (-net = credit - debit, bernilai negatif)
+                    $balance = round(-$net, 2);
+                } else {
+                    // Beban ber-saldo normal DEBIT (debit - credit)
+                    $normal = $account['normal_balance'] === ChartOfAccount::NORMAL_DEBIT ? 1 : -1;
+                    $balance = round($net * $normal, 2);
+                }
 
                 $sectionTotal = round($sectionTotal + $balance, 2);
                 $sectionRows[] = [

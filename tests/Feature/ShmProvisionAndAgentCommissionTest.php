@@ -134,6 +134,14 @@ class ShmProvisionAndAgentCommissionTest extends TestCase
         ShmApproval::create([
             'shm_application_id' => $mirror->id,
             'decided_by' => $this->admin->id,
+            'decided_at' => now()->subMinute(),
+            'status' => ShmApproval::STATUS_APPROVED_BM,
+            'notes' => 'Disetujui Level 1 BM untuk uji provisi',
+        ]);
+
+        ShmApproval::create([
+            'shm_application_id' => $mirror->id,
+            'decided_by' => $this->admin->id,
             'decided_at' => now(),
             'status' => ShmApproval::STATUS_APPROVED,
             'notes' => 'Disetujui untuk uji provisi',
@@ -191,6 +199,14 @@ class ShmProvisionAndAgentCommissionTest extends TestCase
             'shm_customer_id' => $this->customer->id,
             'marketing_id' => $this->admin->id,
             'status' => 'approved',
+        ]);
+
+        ShmApproval::create([
+            'shm_application_id' => $mirror->id,
+            'decided_by' => $this->admin->id,
+            'decided_at' => now()->subMinute(),
+            'status' => ShmApproval::STATUS_APPROVED_BM,
+            'notes' => 'Disetujui Level 1 BM untuk uji provisi tanpa agen',
         ]);
 
         ShmApproval::create([

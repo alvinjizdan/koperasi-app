@@ -30,6 +30,7 @@ use App\Services\Shm\ShmRegularPaymentService;
 use App\Services\Shm\ShmRepaymentScheduleService;
 use App\Services\Shm\ShmSettlementCorrectionService;
 use App\Support\AccountingContext;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -89,6 +90,7 @@ class ShmFinancialIntegrationQaTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->autoJournalService = app(ShmAutomaticJournalService::class);
         $this->journalService = app(JournalService::class);
@@ -100,7 +102,7 @@ class ShmFinancialIntegrationQaTest extends TestCase
         $this->correctionService = app(ShmSettlementCorrectionService::class);
 
         $this->admin = User::factory()->create();
-        $adminRole = Role::where('name', 'admin')->first();
+        $adminRole = Role::where('name', 'admin_makro')->first() ?? Role::where('name', 'admin')->first();
         if ($adminRole) {
             $this->admin->roles()->attach($adminRole->id);
         }
@@ -216,6 +218,14 @@ class ShmFinancialIntegrationQaTest extends TestCase
         ShmApproval::create([
             'shm_application_id' => $mirror->id,
             'decided_by' => $this->admin->id,
+            'decided_at' => now()->subMinute(),
+            'status' => ShmApproval::STATUS_APPROVED_BM,
+            'notes' => 'Disetujui Level 1 BM untuk uji integrasi finansial end-to-end',
+        ]);
+
+        ShmApproval::create([
+            'shm_application_id' => $mirror->id,
+            'decided_by' => $this->admin->id,
             'decided_at' => now(),
             'status' => ShmApproval::STATUS_APPROVED,
             'notes' => 'Disetujui untuk uji integrasi finansial end-to-end',
@@ -263,8 +273,11 @@ class ShmFinancialIntegrationQaTest extends TestCase
         $this->assertNotNull($loan);
         $this->assertSame(ShmLoan::STATUS_ACTIVE, $loan->status);
 
-        // Invariant A & E for Disbursement
-        $disbJournal = $this->journalService->findForSource($loan, ShmAccountingMapping::EVENT_DISBURSEMENT);
+        // Operational workflow does not auto-post journal
+        $this->assertNull($this->journalService->findForSource($loan, ShmAccountingMapping::EVENT_DISBURSEMENT));
+
+        // Invariant A & E for Disbursement (verified via ShmAutomaticJournalService)
+        $disbJournal = $this->autoJournalService->createDisbursementJournal($loan, $this->admin->id);
         $this->assertNotNull($disbJournal);
         $this->assertSame(JournalEntry::STATUS_POSTED, $disbJournal->status);
         $this->assertSame(AccountingContext::SHM, $disbJournal->accounting_context);
@@ -303,8 +316,11 @@ class ShmFinancialIntegrationQaTest extends TestCase
         $payment = $payResult['payment'];
         $this->assertNotNull($payment);
 
-        // Invariant A & E for Payment
-        $payJournal = $this->journalService->findForSource($payment, ShmAccountingMapping::EVENT_REGULAR_PAYMENT);
+        // Operational workflow does not auto-post journal
+        $this->assertNull($this->journalService->findForSource($payment, ShmAccountingMapping::EVENT_REGULAR_PAYMENT));
+
+        // Invariant A & E for Payment (verified via ShmAutomaticJournalService)
+        $payJournal = $this->autoJournalService->createPaymentJournal($payment, $this->admin->id);
         $this->assertNotNull($payJournal);
         $this->assertSame(JournalEntry::STATUS_POSTED, $payJournal->status);
         $this->assertTrue($payJournal->isBalanced());
@@ -398,19 +414,20 @@ class ShmFinancialIntegrationQaTest extends TestCase
             'tenor_months' => 12,
         ]);
 
-        $initialLoansCount = ShmLoan::count();
+        $loan = $this->disbursementService->disburse($loanApp, $this->admin->id);
+        $this->assertNotNull($loan);
+        $this->assertNull($this->journalService->findForSource($loan, ShmAccountingMapping::EVENT_DISBURSEMENT));
 
-        // Attempt disbursement - should throw ValidationException and rollback cleanly
+        // Attempt automatic journal creation - should throw ValidationException
         try {
-            $this->disbursementService->disburse($loanApp, $this->admin->id);
+            $this->autoJournalService->createDisbursementJournal($loan, $this->admin->id);
             $this->fail('Expected ValidationException was not thrown.');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('mapping', $e->errors());
         }
 
-        // Assert loan record was NOT committed
-        $this->assertSame($initialLoansCount, ShmLoan::count());
-        $this->assertDatabaseMissing('shm_loans', ['shm_loan_application_id' => $loanApp->id]);
+        // Assert no journal record was committed
+        $this->assertSame(0, JournalEntry::where('source_type', ShmLoan::class)->where('source_id', $loan->id)->count());
     }
 
     /**
@@ -425,6 +442,10 @@ class ShmFinancialIntegrationQaTest extends TestCase
         ]);
         $loan = $this->disbursementService->disburse($loanApp, $this->admin->id);
         app(ShmRepaymentScheduleService::class)->generate($loan);
+
+        // Explicitly create disbursement journal
+        $firstJournal = $this->autoJournalService->createDisbursementJournal($loan, $this->admin->id);
+        $this->assertNotNull($firstJournal);
 
         $initialJournalCount = JournalEntry::where('source_type', ShmLoan::class)
             ->where('source_id', $loan->id)
@@ -456,6 +477,12 @@ class ShmFinancialIntegrationQaTest extends TestCase
         ], $this->admin->id);
 
         $this->assertSame($res1['payment']->id, $res2['payment']->id);
+
+        // Payment journal creation and idempotency
+        $payJournal1 = $this->autoJournalService->createPaymentJournal($res1['payment'], $this->admin->id);
+        $this->assertNotNull($payJournal1);
+        $payJournal2 = $this->autoJournalService->createPaymentJournal($res1['payment'], $this->admin->id);
+
         $this->assertSame(
             1,
             JournalEntry::where('source_type', ShmLoanPayment::class)->where('source_id', $res1['payment']->id)->count()
@@ -507,8 +534,11 @@ class ShmFinancialIntegrationQaTest extends TestCase
         $loan->refresh();
         $this->assertSame(ShmLoan::STATUS_CLOSED, $loan->status);
 
-        // Journal balanced and posted
-        $journal = $this->journalService->findForSource($payment, ShmAccountingMapping::EVENT_REGULAR_PAYMENT);
+        // Operational payment workflow does not auto-post journal
+        $this->assertNull($this->journalService->findForSource($payment, ShmAccountingMapping::EVENT_REGULAR_PAYMENT));
+
+        // Journal balanced and posted via ShmAutomaticJournalService
+        $journal = $this->autoJournalService->createPaymentJournal($payment, $this->admin->id);
         $this->assertNotNull($journal);
         $this->assertTrue($journal->isBalanced());
     }
