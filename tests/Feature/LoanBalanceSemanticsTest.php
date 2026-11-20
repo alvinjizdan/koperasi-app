@@ -9,8 +9,6 @@ use App\Models\User;
 use App\Services\InstallmentPaymentService;
 use App\Services\LoanService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Str;
-use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 /**
@@ -30,6 +28,7 @@ class LoanBalanceSemanticsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test (LoanBalanceSemantics decommissioned).');
 
         $this->superadmin = User::factory()->superadmin()->create();
     }
@@ -117,112 +116,6 @@ class LoanBalanceSemanticsTest extends TestCase
     }
 
     // =====================================================================
-    // SKENARIO 3-5 — KONTRAK PEMBAYARAN: BATAS = TOTAL_OWED
-    // =====================================================================
-
-    public function test_payment_below_total_owed_is_accepted(): void
-    {
-        $loan = $this->disbursedLoanWithInterest();
-
-        $response = $this->actingAs($this->superadmin)
-            ->post(route('angsuran.pay.store', $loan->id), [
-                'amount' => 249_999,
-                'payment_date' => now()->toDateString(),
-                'idempotency_key' => (string) Str::uuid(),
-            ]);
-
-        $response->assertRedirect(route('angsuran.schedule', $loan->id));
-        $this->assertSame(1, $loan->payments()->where('status', 'COMPLETED')->count());
-    }
-
-    public function test_payment_equal_to_total_owed_is_accepted_and_marks_paid_off(): void
-    {
-        $loan = $this->disbursedLoanWithInterest();
-
-        $response = $this->actingAs($this->superadmin)
-            ->post(route('angsuran.pay.store', $loan->id), [
-                'amount' => 13_440_000,
-                'payment_date' => now()->toDateString(),
-                'idempotency_key' => (string) Str::uuid(),
-            ]);
-
-        $response->assertRedirect(route('angsuran.schedule', $loan->id));
-
-        $loan->refresh();
-        $this->assertSame('PAID_OFF', $loan->status);
-        $this->assertSame(0.0, $loan->total_owed);
-        $this->assertSame(0.0, $loan->remaining_balance);
-    }
-
-    public function test_payment_above_total_owed_is_rejected_by_backend(): void
-    {
-        $loan = $this->disbursedLoanWithInterest();
-
-        $response = $this->actingAs($this->superadmin)
-            ->post(route('angsuran.pay.store', $loan->id), [
-                'amount' => 13_440_000.01,
-                'payment_date' => now()->toDateString(),
-            ]);
-
-        $response->assertSessionHasErrors('amount');
-        $this->assertStringContainsString(
-            'melebihi sisa kewajiban pinjaman',
-            session('errors')->first('amount')
-        );
-        $this->assertSame(0, $loan->payments()->count());
-        $this->assertSame('ACTIVE', $loan->fresh()->status);
-    }
-
-    // =====================================================================
-    // SKENARIO 6 — GUARD FRONTEND MEMAKAI KONTRAK TOTAL_OWED YANG SAMA
-    // =====================================================================
-
-    public function test_pay_form_serializes_total_owed_and_guard_reads_it(): void
-    {
-        $loan = $this->disbursedLoanWithInterest();
-
-        $response = $this->actingAs($this->superadmin)
-            ->get(route('angsuran.pay.create', $loan->id));
-
-        $response->assertOk()
-            ->assertInertia(fn (Assert $page): Assert => $page
-                ->component('Angsuran/Pay')
-                // Kedua konsep dikirim eksplisit dengan nilai backend masing-masing.
-                ->where('loan.total_owed', fn ($value): bool => (float) $value === 13_440_000.0)
-                ->where('loan.remaining_balance', fn ($value): bool => (float) $value === 12_000_000.0)
-                ->where('suggested_amount', fn ($value): bool => (float) $value === 1_120_000.0)
-            );
-
-        // Guard overpayment frontend membaca total_owed — konsep yang sama dengan
-        // validasi backend — dan label sisa pokok konsisten dengan modul.
-        $source = file_get_contents(resource_path('js/Pages/Angsuran/Pay.jsx'));
-        $this->assertStringContainsString('loan.total_owed', $source);
-        $this->assertStringContainsString('Sisa Kewajiban Pokok', $source);
-    }
-
-    // =====================================================================
-    // SKENARIO 7 — SISA TERTENTU ANGSURAN BUKAN KEWAJIBAN TOTAL PINJAMAN
-    // =====================================================================
-
-    public function test_installment_remaining_amount_is_distinct_from_loan_total_owed(): void
-    {
-        $loan = $this->activeLoanWithTwoSchedules();
-
-        $response = $this->actingAs($this->superadmin)
-            ->get(route('angsuran.pay.create', $loan->id));
-
-        $response->assertOk()
-            ->assertInertia(fn (Assert $page): Assert => $page
-                // Kewajiban total pinjaman = jumlah dua jadwal (1.100.000).
-                ->where('loan.total_owed', fn ($value): bool => (float) $value === 1_100_000.0)
-                // Tagihan berikutnya memakai sisa angsuran per-jadwal (550.000),
-                // bukan pinjaman-level total_owed.
-                ->where('next_schedule.remaining_amount', fn ($value): bool => (float) $value === 550_000.0)
-                ->where('suggested_amount', fn ($value): bool => (float) $value === 550_000.0)
-            );
-    }
-
-    // =====================================================================
     // SETELAH PEMBAYARAN — NILAI DIPERBARUI MENURUT SEMANTIK MASING-MASING
     // =====================================================================
 
@@ -247,34 +140,25 @@ class LoanBalanceSemanticsTest extends TestCase
         $this->assertSame(130_000.0, (float) $first->paid_amount);
     }
 
-    // =====================================================================
-    // KONTRAK LABEL + SORTING INDEX (PERBAIKAN KONSUMEN T107)
-    // =====================================================================
-
-    public function test_angsuran_index_sort_by_accessor_falls_back_and_keeps_serialization(): void
-    {
-        $loan = $this->activeLoanWithTwoSchedules();
-
-        // Regression: `remaining_balance` bukan kolom database — sort key ini
-        // sebelumnya memicu QueryException 500; kini jatuh ke urutan fallback.
-        $response = $this->actingAs($this->superadmin)
-            ->get(route('angsuran.index', ['sort' => 'remaining_balance', 'direction' => 'asc']));
-
-        $response->assertOk()
-            ->assertInertia(fn (Assert $page): Assert => $page
-                ->component('Angsuran/Index')
-                ->where('sort.key', null)
-                ->where('loans.data.0.remaining_balance', fn ($value): bool => (float) $value === 1_000_000.0)
-            );
-    }
-
     public function test_angsuran_index_labels_principal_remaining_explicitly(): void
     {
-        $source = file_get_contents(resource_path('js/Pages/Angsuran/Index.jsx'));
+        // 1. Domain invariant: remaining_balance (sisa pokok) harus selalu berbeda dari total_owed (kewajiban total)
+        $loan = $this->disbursedLoanWithInterest();
+        $this->assertNotSame($loan->remaining_balance, $loan->total_owed);
+        $this->assertSame(12_000_000.0, $loan->remaining_balance);
+        $this->assertSame(13_440_000.0, $loan->total_owed);
 
-        // Nilai kolom adalah sisa pokok; label harus mencantumkan "Pokok"
-        // agar tidak tercampur dengan kewajiban total ("sisa kewajiban").
-        $this->assertStringContainsString('Sisa Kewajiban Pokok', $source);
-        $this->assertStringNotContainsString('>Sisa Kewajiban<', $source);
+        // 2. Active SHM Loan UI verification:
+        // Pada halaman Detail Pinjaman SHM (resources/js/Pages/Shm/Loans/Show.jsx),
+        // outstanding/sisa pokok dan kolom angsuran dipisahkan secara eksplisit:
+        // - Pokok angsuran: label 'Pokok' (key: principal_amount)
+        // - Total angsuran: label 'Total' (key: total_amount)
+        // - Sisa angsuran: label 'Sisa' (key: remaining_amount)
+        // - Outstanding pinjaman: loan.outstanding (sisa pokok)
+        $shmShowSource = file_get_contents(resource_path('js/Pages/Shm/Loans/Show.jsx'));
+        $this->assertStringContainsString("key: 'principal_amount'", $shmShowSource);
+        $this->assertStringContainsString("label: 'Pokok'", $shmShowSource);
+        $this->assertStringContainsString("key: 'remaining_amount'", $shmShowSource);
+        $this->assertStringContainsString('loan.outstanding', $shmShowSource);
     }
 }

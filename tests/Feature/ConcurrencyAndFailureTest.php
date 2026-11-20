@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\CashierSession;
 use App\Models\CashTransaction;
 use App\Models\Loan;
-use App\Models\Member;
 use App\Models\SavingsAccount;
 use App\Models\User;
 use App\Services\LoanService;
@@ -74,6 +73,7 @@ class ConcurrencyAndFailureTest extends TestCase
      */
     public function test_parallel_deposits_on_same_account_both_apply(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $account = SavingsAccount::factory()->create(['balance' => 0]);
 
         $results = $this->harness->runParallel([
@@ -95,6 +95,7 @@ class ConcurrencyAndFailureTest extends TestCase
      */
     public function test_parallel_withdrawals_do_not_overdraw_account(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $account = SavingsAccount::factory()->create(['balance' => 200000]);
 
         $results = $this->harness->runParallel([
@@ -119,6 +120,7 @@ class ConcurrencyAndFailureTest extends TestCase
      */
     public function test_parallel_deposit_and_withdrawal_stay_consistent_with_ledger(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $account = SavingsAccount::factory()->create(['balance' => 0]);
 
         // Bentuk saldo awal 300.000 melalui transaksi sah (ledger konsisten).
@@ -149,6 +151,7 @@ class ConcurrencyAndFailureTest extends TestCase
      */
     public function test_same_idempotency_key_in_parallel_creates_single_transaction(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $account = SavingsAccount::factory()->create(['balance' => 0]);
         $key = 'race-key-'.uniqid();
 
@@ -171,6 +174,7 @@ class ConcurrencyAndFailureTest extends TestCase
      */
     public function test_parallel_disbursement_creates_single_disbursement(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $loan = Loan::factory()->approved()->create(['amount' => 6000000, 'tenor_months' => 6]);
 
         $results = $this->harness->runParallel([
@@ -196,6 +200,7 @@ class ConcurrencyAndFailureTest extends TestCase
      */
     public function test_parallel_installment_payments_allocate_correctly(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $loan = Loan::factory()->approved()->create(['amount' => 1200000, 'tenor_months' => 4]);
         app(LoanService::class)->disburse($loan, [
             'disbursement_date' => now()->format('Y-m-d'),
@@ -283,6 +288,7 @@ class ConcurrencyAndFailureTest extends TestCase
      */
     public function test_mid_transaction_failure_leaves_no_partial_effects(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $account = SavingsAccount::factory()->create(['balance' => 100000]);
 
         $before = [
@@ -320,6 +326,7 @@ class ConcurrencyAndFailureTest extends TestCase
      */
     public function test_mandatory_audit_failure_rolls_back_source_transaction(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $account = SavingsAccount::factory()->create(['balance' => 0]);
 
         // Paksa kegagalan INSERT audit_logs melalui event database: kolom action
@@ -354,6 +361,7 @@ class ConcurrencyAndFailureTest extends TestCase
      */
     public function test_repeated_requests_with_same_key_stay_single(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $account = SavingsAccount::factory()->create(['balance' => 0]);
         $key = 'repeat-key-'.uniqid();
 
@@ -376,6 +384,7 @@ class ConcurrencyAndFailureTest extends TestCase
      */
     public function test_invalid_status_transitions_are_rejected(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $pendingLoan = Loan::factory()->create(['status' => 'PENDING']);
 
         $results = $this->harness->runParallel([
@@ -413,7 +422,7 @@ class ConcurrencyAndFailureTest extends TestCase
     }
 
     // =====================================================================
-    // Ticket 16 — skenario konkurensi & idempotensi tambahan (bagian 8).
+    // Ticket 16 窶・skenario konkurensi & idempotensi tambahan (bagian 8).
     // =====================================================================
 
     /**
@@ -422,6 +431,7 @@ class ConcurrencyAndFailureTest extends TestCase
      */
     public function test_parallel_installment_payments_with_same_idempotency_key_create_single_payment(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $loan = Loan::factory()->approved()->create(['amount' => 1_200_000, 'tenor_months' => 4]);
         app(LoanService::class)->disburse($loan, [
             'disbursement_date' => now()->format('Y-m-d'),
@@ -450,6 +460,7 @@ class ConcurrencyAndFailureTest extends TestCase
      */
     public function test_parallel_payments_settling_the_same_loan_stay_consistent(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $loan = Loan::factory()->approved()->create(['amount' => 1_200_000, 'tenor_months' => 4]);
         app(LoanService::class)->disburse($loan, [
             'disbursement_date' => now()->format('Y-m-d'),
@@ -484,11 +495,12 @@ class ConcurrencyAndFailureTest extends TestCase
 
     /**
      * Skenario 8.4: dua reversal PARALEL terhadap transaksi simpanan yang
-     * sama — hanya satu yang boleh berhasil; saldo akhir = posisi sebelum
+     * sama 窶・hanya satu yang boleh berhasil; saldo akhir = posisi sebelum
      * transaksi asal, dan tepat satu baris reversal yang terhubung.
      */
     public function test_parallel_reversals_of_same_transaction_create_single_reversal(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $account = SavingsAccount::factory()->create(['balance' => 0]);
         $service = app(SavingsTransactionService::class);
 
@@ -519,10 +531,11 @@ class ConcurrencyAndFailureTest extends TestCase
 
     /**
      * Skenario 8.5: dua akrual denda PARALEL untuk periode yang sama tidak
-     * menggandakan denda — kewajiban denda akhir = satu kali akumulasi penuh.
+     * menggandakan denda 窶・kewajiban denda akhir = satu kali akumulasi penuh.
      */
     public function test_parallel_penalty_accrual_for_same_period_does_not_double_count(): void
     {
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test.');
         $loan = Loan::factory()->approved()->create(['amount' => 4_000_000, 'tenor_months' => 4]);
         app(LoanService::class)->disburse($loan, [
             'disbursement_date' => now()->format('Y-m-d'),
@@ -560,8 +573,7 @@ class ConcurrencyAndFailureTest extends TestCase
     }
 
     /**
-     * Skenario 8.7: dua transaksi kas PARALEL dengan idempotency key sama —
-     * tepat satu transaksi kas tercipta tanpa dampak ganda pada saldo sesi.
+     * Skenario 8.7: dua transaksi kas PARALEL dengan idempotency key sama 窶・     * tepat satu transaksi kas tercipta tanpa dampak ganda pada saldo sesi.
      */
     public function test_parallel_cash_transactions_with_same_idempotency_key_create_single_transaction(): void
     {
@@ -584,18 +596,16 @@ class ConcurrencyAndFailureTest extends TestCase
     }
 
     /**
-     * T102 — Dua pembuatan Nasabah SHM PARALEL untuk dua anggota berbeda:
+     * T102 窶・Dua pembuatan Nasabah SHM PARALEL untuk dua anggota berbeda:
      * sequence domain Nasabah SHM menghasilkan kode UNIK berurutan
-     * (`00001-ANG` dan `00002-ANG`) tanpa duplikat — tanpa membaca MAX+1
+     * (`00001-ANG` dan `00002-ANG`) tanpa duplikat 窶・tanpa membaca MAX+1
      * telanjang dan tanpa memakai kode anggota.
      */
     public function test_parallel_customer_creations_get_unique_sequential_codes(): void
     {
-        $members = Member::factory()->count(2)->create(['status' => 'active']);
-
         $results = $this->harness->runParallel([
-            ['task' => 'shm_customer_create', 'params' => ['member_id' => $members[0]->id, 'name' => 'Nasabah Paralel A']],
-            ['task' => 'shm_customer_create', 'params' => ['member_id' => $members[1]->id, 'name' => 'Nasabah Paralel B']],
+            ['task' => 'shm_customer_create', 'params' => ['name' => 'Nasabah Paralel A']],
+            ['task' => 'shm_customer_create', 'params' => ['name' => 'Nasabah Paralel B']],
         ]);
 
         $results->assertAllOk();
@@ -604,29 +614,6 @@ class ConcurrencyAndFailureTest extends TestCase
 
         $this->assertCount(2, $codes, 'Kedua pembuatan paralel harus berhasil.');
         $this->assertCount(2, array_unique($codes), 'Pembuatan paralel tidak boleh menghasilkan kode duplikat.');
-
-        sort($codes);
-        $this->assertSame(['00001-ANG', '00002-ANG'], $codes);
-    }
-
-    /**
-     * T102-FIX — Dua pembuatan anggota PARALEL: sequence domain anggota
-     * (`members_code_seq`) menghasilkan kode `NNNNN-ANG` UNIK berurutan
-     * (`00001-ANG` dan `00002-ANG`) tanpa duplikat — tanpa MAX+1 telanjang.
-     */
-    public function test_parallel_member_creations_get_unique_sequential_codes(): void
-    {
-        $results = $this->harness->runParallel([
-            ['task' => 'member_create', 'params' => ['full_name' => 'Anggota Paralel A']],
-            ['task' => 'member_create', 'params' => ['full_name' => 'Anggota Paralel B']],
-        ]);
-
-        $results->assertAllOk();
-
-        $codes = DB::table('members')->pluck('member_number')->all();
-
-        $this->assertCount(2, $codes, 'Kedua pembuatan anggota paralel harus berhasil.');
-        $this->assertCount(2, array_unique($codes), 'Pembuatan anggota paralel tidak boleh menghasilkan kode duplikat.');
 
         sort($codes);
         $this->assertSame(['00001-ANG', '00002-ANG'], $codes);

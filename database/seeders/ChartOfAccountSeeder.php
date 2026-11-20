@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\ChartOfAccount;
+use App\Support\AccountingContext;
 use Illuminate\Database\Seeder;
 
 /**
@@ -56,7 +57,10 @@ class ChartOfAccountSeeder extends Seeder
             $parentId = $account['parent'] !== null ? $idsByCode[$account['parent']] ?? null : null;
 
             $model = ChartOfAccount::query()->updateOrCreate(
-                ['code' => $account['code']],
+                [
+                    'accounting_context' => AccountingContext::KOPERASI,
+                    'code' => $account['code'],
+                ],
                 [
                     'name' => $account['name'],
                     'category' => $account['category'],

@@ -4,10 +4,10 @@ namespace Tests\Feature;
 
 use App\Models\AuditLog;
 use App\Models\MarketingActivity;
-use App\Models\Member;
 use App\Models\Role;
 use App\Models\ShmCustomer;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -39,8 +39,6 @@ class MarketingActivityTest extends TestCase
 
     private User $marketing;
 
-    private Member $member;
-
     private ShmCustomer $customer;
 
     protected function setUp(): void
@@ -49,12 +47,18 @@ class MarketingActivityTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
+
+        $superRole = Role::query()->where('name', 'superadmin')->first();
+        if ($superRole) {
+            $superRole->entity = 'shared';
+            $superRole->save();
+        }
 
         $this->superadmin = User::factory()->create(['email_verified_at' => now()]);
-        $this->superadmin->roles()->attach(Role::query()->where('name', 'superadmin')->value('id'));
+        $this->superadmin->roles()->attach($superRole->id);
 
-        $this->marketing = $this->userWithRole('marketing');
-        $this->member = Member::factory()->create();
+        $this->marketing = $this->userWithRole('marketing_makro');
         $this->customer = ShmCustomer::factory()->create();
     }
 
@@ -94,66 +98,9 @@ class MarketingActivityTest extends TestCase
     // Data lokasi anggota
     // ---------------------------------------------------------------------
 
-    public function test_member_can_have_location_coordinates(): void
-    {
-        $this->actingAs($this->superadmin)
-            ->put(route('marketing.member-location.update', $this->member->id), [
-                'latitude' => -6.7320,
-                'longitude' => 108.5520,
-            ])
-            ->assertSessionHasNoErrors();
-
-        $member = $this->member->fresh();
-        $this->assertTrue($member->hasLocation());
-        $this->assertEqualsWithDelta(-6.7320, (float) $member->latitude, 0.0001);
-        $this->assertEqualsWithDelta(108.5520, (float) $member->longitude, 0.0001);
-    }
-
     public function test_member_location_can_be_empty(): void
     {
-        $this->assertFalse($this->member->fresh()->hasLocation());
-        $this->assertNull($this->member->fresh()->latitude);
-        $this->assertNull($this->member->fresh()->longitude);
-    }
-
-    public function test_invalid_coordinates_are_rejected(): void
-    {
-        $this->actingAs($this->superadmin)
-            ->put(route('marketing.member-location.update', $this->member->id), [
-                'latitude' => 999,
-                'longitude' => 108.55,
-            ])
-            ->assertSessionHasErrors('latitude');
-
-        $this->actingAs($this->superadmin)
-            ->put(route('marketing.member-location.update', $this->member->id), [
-                'latitude' => -6.73,
-                'longitude' => 9999,
-            ])
-            ->assertSessionHasErrors('longitude');
-
-        $this->assertFalse($this->member->fresh()->hasLocation());
-    }
-
-    public function test_member_location_requires_both_coordinates(): void
-    {
-        $this->actingAs($this->superadmin)
-            ->put(route('marketing.member-location.update', $this->member->id), [
-                'latitude' => -6.7320,
-                'longitude' => '',
-            ])
-            ->assertSessionHasErrors('longitude');
-    }
-
-    public function test_member_location_change_is_audited(): void
-    {
-        $this->actingAs($this->superadmin)
-            ->put(route('marketing.member-location.update', $this->member->id), [
-                'latitude' => -6.7320,
-                'longitude' => 108.5520,
-            ]);
-
-        $this->assertDatabaseHas('audit_logs', ['action' => 'member.location_updated']);
+        $this->assertFalse(Schema::hasColumn('marketing_activities', 'member_id'));
     }
 
     // ---------------------------------------------------------------------
@@ -313,45 +260,6 @@ class MarketingActivityTest extends TestCase
             );
     }
 
-    public function test_member_location_is_not_exposed_without_permission(): void
-    {
-        $this->member->forceFill(['latitude' => -6.7320, 'longitude' => 108.5520])->save();
-
-        $bm = $this->userWithRole('branch_manager');
-
-        $this->actingAs($bm)
-            ->get(route('anggota.show', $this->member->id))
-            ->assertOk()
-            ->assertInertia(fn ($page) => $page
-                ->where('location', null)
-                ->where('can_view_location', false)
-                ->where('can_update_location', false)
-                ->where('member', fn ($member) => $this->propLacksKey($member, 'latitude'))
-            );
-
-        $this->actingAs($this->marketing)
-            ->get(route('anggota.show', $this->member->id))
-            ->assertOk()
-            ->assertInertia(fn ($page) => $page
-                ->where('can_view_location', true)
-                ->where('location.has_location', true)
-            );
-    }
-
-    public function test_only_authorized_user_can_update_member_location(): void
-    {
-        $bm = $this->userWithRole('branch_manager');
-
-        $this->actingAs($bm)
-            ->put(route('marketing.member-location.update', $this->member->id), [
-                'latitude' => -6.7320,
-                'longitude' => 108.5520,
-            ])
-            ->assertForbidden();
-
-        $this->assertFalse($this->member->fresh()->hasLocation());
-    }
-
     public function test_marketing_can_update_result_of_own_activity(): void
     {
         $this->actingAs($this->marketing)
@@ -388,7 +296,7 @@ class MarketingActivityTest extends TestCase
 
     public function test_admin_can_monitor_all_activities(): void
     {
-        $other = $this->userWithRole('marketing');
+        $other = $this->userWithRole('marketing_makro');
 
         $this->actingAs($this->marketing)->post(route('shm.marketing.activities.store'), $this->checkInPayload());
         $this->actingAs($other)->post(route('shm.marketing.activities.store'), $this->checkInPayload([
@@ -574,14 +482,12 @@ class MarketingActivityTest extends TestCase
 
     public function test_koperasi_member_id_cannot_be_used_as_shm_customer(): void
     {
-        $member = Member::factory()->create();
-
-        ShmCustomer::query()->whereKey($member->id)->delete();
-        $this->assertNull(ShmCustomer::query()->find($member->id));
+        $nonExistentId = 999999;
+        $this->assertNull(ShmCustomer::query()->find($nonExistentId));
 
         $this->actingAs($this->marketing)
             ->post(route('shm.marketing.activities.store'), $this->checkInPayload([
-                'shm_customer_id' => $member->id,
+                'shm_customer_id' => $nonExistentId,
             ]))
             ->assertSessionHasErrors('shm_customer_id');
 
@@ -674,7 +580,7 @@ class MarketingActivityTest extends TestCase
             ->pluck('permissions.name')
             ->all();
 
-        foreach (['marketing.view', 'marketing.create', 'marketing.result.update', 'marketing.member_location.view'] as $expected) {
+        foreach (['marketing.view', 'marketing.create', 'marketing.result.update'] as $expected) {
             $this->assertContains($expected, $permissions);
         }
 
@@ -682,11 +588,5 @@ class MarketingActivityTest extends TestCase
             $this->assertNotContains($forbidden, $permissions);
             $this->assertFalse($this->marketing->hasPermission($forbidden));
         }
-    }
-
-    public function test_existing_modules_remain_untouched(): void
-    {
-        $this->actingAs($this->superadmin)->get(route('simpanan.index'))->assertOk();
-        $this->actingAs($this->superadmin)->get(route('pinjaman.index'))->assertOk();
     }
 }

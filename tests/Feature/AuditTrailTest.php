@@ -3,14 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
-use App\Models\Member;
-use App\Models\SavingsAccount;
-use App\Models\SavingsTransaction;
+use App\Models\Role;
+use App\Models\ShmCustomer;
 use App\Models\User;
 use App\Services\CashierService;
-use App\Services\InstallmentPaymentService;
-use App\Services\LoanService;
-use App\Services\SavingsTransactionService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -33,28 +29,25 @@ class AuditTrailTest extends TestCase
         $this->superadmin = User::factory()->superadmin()->create();
     }
 
-    /** 1. Audit tercatat ketika aktivitas penting dilakukan */
+    /** 1. Audit tercatat ketika aktivitas penting dilakukan (SHM Customer creation) */
     public function test_audit_is_recorded_for_important_activities(): void
     {
-        // Setoran simpanan tercatat dengan aktor dari sesi (actingAs).
-        $account = SavingsAccount::factory()->create();
         $operator = User::factory()->create();
+        $operator->roles()->attach(Role::where('name', 'admin')->value('id') ?? Role::first()->id);
 
         $this->actingAs($operator);
 
-        $transaction = (new SavingsTransactionService(app(CashierService::class)))
-            ->deposit($account, [
-                'amount' => 150000,
-                'transaction_date' => now()->format('Y-m-d'),
-                'description' => 'Setoran test',
-                'idempotency_key' => null,
-                'processed_by' => $operator->id,
-            ]);
+        $this->post(route('shm.customers.store'), [
+            'name' => 'Nasabah Audit Penting',
+            'nik' => '3501234567890999',
+            'phone' => '081234567899',
+            'email' => 'nasabah.penting@example.test',
+            'address' => 'Jl. Test No. 99, Cirebon',
+        ]);
 
         $this->assertDatabaseHas('audit_logs', [
-            'action' => 'savings.transaction.deposit',
-            'object_type' => SavingsTransaction::class,
-            'object_id' => $transaction->id,
+            'action' => 'shm.customer.created',
+            'object_type' => ShmCustomer::class,
             'actor_id' => $operator->id,
         ]);
     }
@@ -64,27 +57,26 @@ class AuditTrailTest extends TestCase
     {
         $this->actingAs($this->superadmin);
 
-        // Pembuatan anggota via controller agar AuditLogger mencatat aktor session.
-        $this->post(route('anggota.store'), [
-            'full_name' => 'Anggota Kedua',
-            'identity_number' => '3501234567890123',
+        // Pembuatan nasabah SHM Makro mandiri via controller agar AuditLogger mencatat aktor session.
+        $this->post(route('shm.customers.store'), [
+            'name' => 'Nasabah Audit Kedua',
+            'nik' => '3501234567890123',
             'phone' => '081234567890',
-            'address' => 'Jl. Test No. 1',
-            'joined_at' => now()->format('Y-m-d'),
-            'status' => 'active',
+            'email' => 'nasabah.audit@example.test',
+            'address' => 'Jl. Test No. 1, Cirebon',
         ]);
 
         $log = AuditLog::query()
-            ->where('action', 'member.created')
-            ->where('object_type', Member::class)
+            ->where('action', 'shm.customer.created')
+            ->where('object_type', ShmCustomer::class)
             ->firstOrFail();
 
         $this->assertSame($this->superadmin->id, $log->actor_id);
-        // Label objek memakai nama yang mudah dibaca manusia (full_name untuk Member).
-        $this->assertSame('Anggota Kedua', $log->object_label);
+        // Label objek memakai nama nasabah (name untuk ShmCustomer).
+        $this->assertSame('Nasabah Audit Kedua', $log->object_label);
         $this->assertNotNull($log->object_id);
         $this->assertNotNull($log->created_at);
-        $this->assertArrayHasKey('member_number', $log->changes ?? []);
+        $this->assertArrayHasKey('customer_number', $log->changes ?? []);
     }
 
     /** 3. Pengguna tanpa izin tidak dapat melihat audit trail */
@@ -132,51 +124,18 @@ class AuditTrailTest extends TestCase
     {
         $this->actingAs($this->superadmin);
 
-        (new SavingsTransactionService(app(CashierService::class)))
-            ->deposit(SavingsAccount::factory()->create(), [
-                'amount' => 100000,
-                'transaction_date' => now()->format('Y-m-d'),
-                'description' => 'password=supersecret token=abc123',
-                'idempotency_key' => null,
-                'processed_by' => $this->superadmin->id,
-            ]);
+        $this->post(route('shm.customers.store'), [
+            'name' => 'Nasabah Password Audit',
+            'nik' => '3501234567890888',
+            'phone' => '081234567888',
+            'email' => 'nasabah.pwd@example.test',
+            'address' => 'password=supersecret token=abc123',
+        ]);
 
         foreach (AuditLog::all() as $log) {
             $encoded = json_encode([$log->changes, $log->description]);
             $this->assertStringNotContainsString('supersecret', (string) $encoded);
         }
-    }
-
-    /** 4c. Aktivitas pinjaman tercatat: pengajuan, persetujuan, pencairan, angsuran */
-    public function test_loan_activities_are_recorded(): void
-    {
-        $loanService = app(LoanService::class);
-        $member = Member::factory()->create();
-
-        $loan = $loanService->submit([
-            'member_id' => $member->id,
-            'amount' => 5000000,
-            'tenor_months' => 10,
-            'submission_date' => now()->format('Y-m-d'),
-        ], $this->superadmin->id);
-
-        $this->assertDatabaseHas('audit_logs', ['action' => 'loan.submitted', 'object_id' => $loan->id]);
-
-        $loanService->approve($loan, $this->superadmin->id);
-        $this->assertDatabaseHas('audit_logs', ['action' => 'loan.approved', 'object_id' => $loan->id]);
-
-        $loanService->disburse($loan, ['disbursement_date' => now()->format('Y-m-d'), 'method' => 'TRANSFER'], $this->superadmin->id);
-        $this->assertDatabaseHas('audit_logs', ['action' => 'loan.disbursed']);
-
-        $paymentService = app(InstallmentPaymentService::class);
-        $paymentService->pay($loan->fresh(), [
-            'amount' => 500000,
-            'payment_date' => now()->format('Y-m-d'),
-            'notes' => null,
-            'idempotency_key' => null,
-        ], $this->superadmin->id);
-
-        $this->assertDatabaseHas('audit_logs', ['action' => 'installment.payment.recorded']);
     }
 
     /** 4d. Aktivitas kasir tercatat: buka/tutup sesi, transaksi, koreksi */

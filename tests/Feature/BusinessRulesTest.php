@@ -26,6 +26,7 @@ class BusinessRulesTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test (Mikro business rules decommissioned).');
         $this->user = User::factory()->create();
     }
 

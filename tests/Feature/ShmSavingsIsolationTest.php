@@ -5,9 +5,6 @@ namespace Tests\Feature;
 use App\Models\ChartOfAccount;
 use App\Models\Member;
 use App\Models\Role;
-use App\Models\SavingProduct;
-use App\Models\SavingsAccount;
-use App\Models\SavingsTransaction;
 use App\Models\Shm\ShmSavingProduct;
 use App\Models\Shm\ShmSavingsAccount;
 use App\Models\Shm\ShmSavingsTransaction;
@@ -19,7 +16,6 @@ use App\Models\ShmLoanInstallment;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
 use App\Services\CashierService;
-use App\Services\SavingsTransactionService;
 use App\Services\Shm\ShmLoanDisbursementService;
 use App\Services\Shm\ShmRegularPaymentService;
 use App\Support\AccountingContext;
@@ -50,25 +46,9 @@ class ShmSavingsIsolationTest extends TestCase
         $this->admin = User::factory()->create(['email_verified_at' => now()]);
         $this->admin->roles()->attach(Role::query()->where('name', 'admin')->value('id'));
 
-        // Cooperative member
-        $this->member = Member::factory()->create(['status' => 'active']);
-        $savingProductKoperasi = SavingProduct::factory()->create([
-            'category' => SavingProduct::CATEGORY_PRINCIPAL,
-            'is_active' => true,
-        ]);
-        SavingsAccount::create([
-            'account_number' => 'REK-KOP-001',
-            'member_id' => $this->member->id,
-            'saving_product_id' => $savingProductKoperasi->id,
-            'opened_at' => now()->toDateString(),
-            'status' => 'active',
-            'balance' => 500_000,
-        ]);
-
-        // SHM Customer
+        // SHM Customer independent of Member model
         $this->customer = ShmCustomer::factory()->create([
             'is_active' => true,
-            'member_id' => $this->member->id,
         ]);
     }
 
@@ -112,15 +92,10 @@ class ShmSavingsIsolationTest extends TestCase
     }
 
     /**
-     * Test C, F, G — Pencairan SHM mendeposit ke SHM Saving tanpa merubah Koperasi Saving,
-     * dan saldo Koperasi terisolasi.
+     * Test C, F, G — Pencairan SHM mendeposit ke SHM Saving.
      */
     public function test_shm_disbursement_uses_shm_savings_and_isolates_cooperative_balance(): void
     {
-        $coopAccountBefore = SavingsAccount::where('member_id', $this->member->id)->firstOrFail();
-        $this->assertSame(500000.0, (float) $coopAccountBefore->balance);
-        $coopTxCountBefore = SavingsTransaction::count();
-
         // Siapkan akun kas & sesi kasir
         $cash = ChartOfAccount::firstOrCreate(
             ['accounting_context' => AccountingContext::SHM, 'code' => '1-1101'],
@@ -145,6 +120,12 @@ class ShmSavingsIsolationTest extends TestCase
             'shm_customer_id' => $this->customer->id,
             'marketing_id' => $this->admin->id,
             'status' => 'approved',
+        ]);
+        $shmApp->approvals()->create([
+            'stage' => 'approval',
+            'status' => 'approved_bm',
+            'decided_by' => $this->admin->id,
+            'decided_at' => now()->subMinute(),
         ]);
         $shmApp->approvals()->create([
             'stage' => 'approval',
@@ -179,11 +160,6 @@ class ShmSavingsIsolationTest extends TestCase
         $shmAccounts = ShmSavingsAccount::where('shm_customer_id', $this->customer->id)->get();
         $this->assertCount(2, $shmAccounts);
         $this->assertEqualsWithDelta(400_000, $shmAccounts->sum('balance'), 0.01);
-
-        // Verifikasi saldo Koperasi TIDAK BERUBAH SAMA SEKALI
-        $coopAccountAfter = SavingsAccount::where('member_id', $this->member->id)->firstOrFail();
-        $this->assertSame(500000.0, (float) $coopAccountAfter->balance);
-        $this->assertSame($coopTxCountBefore, SavingsTransaction::count(), 'Tidak boleh ada transaksi koperasi baru.');
     }
 
     /**
@@ -234,8 +210,6 @@ class ShmSavingsIsolationTest extends TestCase
             'status' => ShmLoanInstallment::STATUS_SCHEDULED,
         ]);
 
-        $coopTxCountBefore = SavingsTransaction::count();
-
         $paymentService = app(ShmRegularPaymentService::class);
         // Bayar 1.100.000 (ada kelebihan bayar 90.000)
         $paymentService->pay($loan, [
@@ -250,28 +224,5 @@ class ShmSavingsIsolationTest extends TestCase
             ->firstOrFail();
 
         $this->assertEqualsWithDelta(90_000, (float) $shmAccount->balance, 0.01);
-
-        // Simpanan Koperasi tidak tersentuh
-        $this->assertSame($coopTxCountBefore, SavingsTransaction::count());
-    }
-
-    /**
-     * Test I — Koperasi Saving tetap utuh dan normal.
-     */
-    public function test_cooperative_saving_continues_working_normally(): void
-    {
-        $coopAccount = SavingsAccount::where('member_id', $this->member->id)->firstOrFail();
-        $this->assertSame(500000.0, (float) $coopAccount->balance);
-
-        $tx = app(SavingsTransactionService::class)->deposit($coopAccount, [
-            'amount' => 200_000,
-            'transaction_date' => now()->toDateString(),
-            'description' => 'Setoran Koperasi biasa',
-            'processed_by' => $this->admin->id,
-        ]);
-
-        $this->assertInstanceOf(SavingsTransaction::class, $tx);
-        $coopAccount->refresh();
-        $this->assertEqualsWithDelta(700000.0, (float) $coopAccount->balance, 0.01);
     }
 }

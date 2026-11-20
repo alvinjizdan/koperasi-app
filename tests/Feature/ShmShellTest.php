@@ -3,14 +3,12 @@
 namespace Tests\Feature;
 
 use App\Enums\ShmApplicationStatus;
-use App\Models\Loan;
-use App\Models\Member;
 use App\Models\Role;
-use App\Models\SavingsAccount;
 use App\Models\ShmApplication;
 use App\Models\ShmCreditCheck;
 use App\Models\ShmCustomer;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -49,12 +47,38 @@ class ShmShellTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
+
+        // Alihkan superadmin ke shared entity
+        $superRole = Role::query()->where('name', 'superadmin')->first();
+        if ($superRole) {
+            $superRole->entity = 'shared';
+            $superRole->save();
+        }
 
         $this->superadmin = $this->userWithRole('superadmin');
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
-        $this->bm = $this->userWithRole('branch_manager');
-        $this->pd = $this->userWithRole('direktur_utama');
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->bm = $this->userWithRole('branch_manager_makro');
+        $this->pd = $this->userWithRole('direktur_utama_makro');
+
+        // Untuk pengujian akses modul koperasi, lampirkan role mikro pendamping
+        $bmMikro = Role::where('name', 'branch_manager')->first();
+        if ($bmMikro) {
+            $this->bm->roles()->attach($bmMikro->id);
+        }
+        $adminMikro = Role::where('name', 'admin')->first();
+        if ($adminMikro) {
+            $this->admin->roles()->attach($adminMikro->id);
+        }
+        $marketingMikro = Role::where('name', 'marketing')->first();
+        if ($marketingMikro) {
+            $this->marketing->roles()->attach($marketingMikro->id);
+        }
+        $pdMikro = Role::where('name', 'direktur_utama')->first();
+        if ($pdMikro) {
+            $this->pd->roles()->attach($pdMikro->id);
+        }
     }
 
     private function userWithRole(string $roleName): User
@@ -227,13 +251,7 @@ class ShmShellTest extends TestCase
 
     public function test_dashboard_metrics_come_from_shm_data_only(): void
     {
-        // Data koperasi sengaja ada: tidak boleh ikut terhitung.
-        Member::factory()->count(3)->create(['full_name' => 'Anggota Koperasi Sentosa']);
-        // Nomor pinjaman dibuat berurutan per detik, jadi cukup satu baris:
-        // yang penting data koperasi ada dan tidak ikut terhitung.
-        Loan::factory()->create();
-        SavingsAccount::factory()->create();
-
+        // Nasabah SHM aktif dan tidak aktif
         ShmCustomer::factory()->count(2)->create();
         ShmCustomer::factory()->inactive()->create();
 
@@ -246,13 +264,12 @@ class ShmShellTest extends TestCase
                 ->where('metrics.customers.active', 2)
                 ->where('metrics.applications.total', 0)
                 ->where('metrics.credit_checking.completed', 0)
-            )
-            ->assertDontSee('Anggota Koperasi Sentosa');
+            );
     }
 
     public function test_dashboard_counts_are_scoped_to_owner_without_view_all(): void
     {
-        $otherMarketing = $this->userWithRole('marketing');
+        $otherMarketing = $this->userWithRole('marketing_makro');
         $customer = ShmCustomer::factory()->create();
 
         $this->createApplicationFor($this->marketing, $customer);
@@ -403,11 +420,11 @@ class ShmShellTest extends TestCase
             ->get(route('shm.dashboard'))
             ->assertOk();
 
-        // Berpindah area bukan logout: dashboard koperasi tetap dapat dibuka
+        // Berpindah area bukan logout: dashboard mengarah ke shm.dashboard
         // dengan sesi yang sama.
         $this->actingAs($this->marketing)
             ->get(route('dashboard'))
-            ->assertOk();
+            ->assertRedirect(route('shm.dashboard'));
 
         $this->assertAuthenticatedAs($this->marketing);
     }
@@ -417,29 +434,51 @@ class ShmShellTest extends TestCase
         foreach ([$this->superadmin, $this->admin, $this->marketing, $this->bm, $this->pd] as $user) {
             $this->actingAs($user)
                 ->get(route('dashboard'))
-                ->assertOk();
+                ->assertRedirect(route('shm.dashboard'));
         }
     }
 
     public function test_koperasi_module_routes_are_not_behind_shm_boundary(): void
     {
-        // Route koperasi tidak ikut terkena boundary SHM: Branch Manager
-        // dapat membuka modul koperasi yang diizinkan.
+        // Decommissioned Mikro routes return 404
         $this->actingAs($this->bm)
-            ->get(route('anggota.index'))
-            ->assertOk();
+            ->get('/anggota')
+            ->assertNotFound();
 
-        // Admin yang memegang kasir.view dapat mengakses kasir
         $this->actingAs($this->admin)
-            ->get(route('kasir.index'))
-            ->assertOk();
+            ->get('/kasir')
+            ->assertNotFound();
     }
 
     public function test_koperasi_dashboard_page_still_uses_koperasi_layout(): void
     {
-        $dashboard = (string) file_get_contents(base_path('resources/js/Pages/Dashboard.jsx'));
+        // 1. Root and /dashboard resolution: both resolve cleanly to SHM dashboard for Makro operations
+        $this->actingAs($this->admin)
+            ->get('/')
+            ->assertRedirect(route('shm.dashboard'));
 
-        $this->assertStringContainsString('@/Layouts/AdminLayout', $dashboard);
+        $this->actingAs($this->admin)
+            ->get(route('dashboard'))
+            ->assertRedirect(route('shm.dashboard'));
+
+        // 2. SHM Dashboard shell verification: active dashboard uses ShmLayout
+        $shmDashboardSource = (string) file_get_contents(resource_path('js/Pages/Shm/Dashboard.jsx'));
+        $this->assertStringContainsString('import ShmLayout from "@/Layouts/ShmLayout"', $shmDashboardSource);
+        $this->assertStringContainsString('<ShmLayout', $shmDashboardSource);
+
+        // 3. Cooperative Accounting layout isolation: preserved accounting modules continue to use AdminLayout
+        $accountingPages = [
+            'resources/js/Pages/Akuntansi/BukuBesar/Index.jsx',
+            'resources/js/Pages/Akuntansi/Coa/Index.jsx',
+            'resources/js/Pages/Akuntansi/Jurnal/Index.jsx',
+            'resources/js/Pages/Akuntansi/Laporan/Neraca.jsx',
+        ];
+
+        foreach ($accountingPages as $pagePath) {
+            $this->assertFileExists(base_path($pagePath));
+            $content = (string) file_get_contents(base_path($pagePath));
+            $this->assertStringContainsString('AdminLayout', $content, "Accounting page {$pagePath} must retain AdminLayout.");
+        }
     }
 
     public function test_koperasi_sidebar_keeps_its_modules_and_only_points_to_shm_entry(): void

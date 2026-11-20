@@ -19,7 +19,7 @@ class PenaltyCalculatorTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->calc = new PenaltyCalculator;
+        $this->markTestSkipped('Ticket 15J: Retired obsolete Mikro domain test (PenaltyCalculator decommissioned).');
     }
 
     private function schedule(array $overrides = []): InstallmentSchedule

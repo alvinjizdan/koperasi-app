@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             PermissionSeeder::class,
             RoleSeeder::class,
+            MakroSystemRoleSeeder::class,
             SettingsSeeder::class,
             // Ticket 82 — matriks produk & rate resmi Pinjaman SHM
             // (deterministik, updateOrCreate — aman dijalankan ulang).
