@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useForm } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import PasswordInput from '@/Components/PasswordInput';
 import { UserPlus, ArrowLeft, Save, KeyRound } from 'lucide-react';
 
@@ -34,7 +34,7 @@ export default function Create({ roles }) {
         }`;
 
     return (
-        <AdminLayout title="Tambah Pengguna" pageTitle="Form Akun Pengguna Baru">
+        <ShmLayout title="Tambah Pengguna" pageTitle="Form Akun Pengguna Baru">
             <div className="mb-6 flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-xs sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
@@ -194,6 +194,6 @@ export default function Create({ roles }) {
                     </div>
                 </form>
             </div>
-        </AdminLayout>
+        </ShmLayout>
     );
 }

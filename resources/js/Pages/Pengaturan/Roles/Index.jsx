@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, router, usePage } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
 import {
     ShieldCheck,
@@ -37,7 +37,7 @@ export default function Index({ roles, flash }) {
     };
 
     return (
-        <AdminLayout title="Role & Permission" pageTitle="Manajemen Role">
+        <ShmLayout title="Role & Permission" pageTitle="Manajemen Role">
             {flash?.success && (
                 <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800 shadow-xs sm:text-sm">
                     <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
@@ -159,10 +159,14 @@ export default function Index({ roles, flash }) {
                 onClose={() => setDeleteTarget(null)}
                 onConfirm={confirmDelete}
                 title="Konfirmasi Hapus Role"
-                message={`Role ${deleteTarget?.display_name} beserta hubungannya dengan permission akan dihapus. Role yang masih dipakai pengguna akan ditolak sistem.`}
+                message={`Anda akan menghapus role ${deleteTarget?.display_name} (Entity: ${deleteTarget?.entity || 'makro'}). ${
+                    deleteTarget?.users_count > 0
+                        ? `Saat ini terdapat ${deleteTarget.users_count} pengguna yang terhubung ke role ini. Sistem akan menolak penghapusan bila masih ada pengguna aktif.`
+                        : 'Pengguna yang terhubung dengan role ini dapat kehilangan akses yang berasal dari role tersebut.'
+                } Tindakan ini tidak dapat dibatalkan.`}
                 confirmText="Ya, Hapus Role"
                 isProcessing={isDeleting}
             />
-        </AdminLayout>
+        </ShmLayout>
     );
 }

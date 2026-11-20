@@ -1,11 +1,11 @@
 import React from 'react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import { ShieldCheck, KeyRound, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import { formatDateTime } from '@/utils/format';
 
 export default function Security({ account, flash }) {
     return (
-        <AdminLayout title="Keamanan Akun" pageTitle="Keamanan Akun Saya">
+        <ShmLayout title="Keamanan Akun" pageTitle="Keamanan Akun Saya">
             {flash?.success && (
                 <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800 shadow-xs sm:text-sm">
                     <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
@@ -113,6 +113,6 @@ export default function Security({ account, flash }) {
                     </div>
                 </div>
             </div>
-        </AdminLayout>
+        </ShmLayout>
     );
 }

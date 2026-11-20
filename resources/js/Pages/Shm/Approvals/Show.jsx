@@ -63,6 +63,7 @@ export default function Show({
     documents_summary,
     document_requirement_context,
     can_decide,
+    can_decide_bm,
     history,
     flash,
 }) {
@@ -327,6 +328,7 @@ export default function Show({
                             application={application}
                             approval={approval}
                             canDecide={can_decide}
+                            canDecideBm={can_decide_bm}
                         />
 
                         <section className="rounded-lg bg-white p-5 shadow">
@@ -381,11 +383,15 @@ export default function Show({
  * Field notes/reason adalah field existing pada shm_approvals dan
  * DecideShmApprovalRequest; tidak ada kolom baru.
  */
-function DecisionSection({ application, approval, canDecide }) {
+function DecisionSection({ application, approval, canDecide, canDecideBm }) {
     const [notes, setNotes] = useState('');
     const [showApprove, setShowApprove] = useState(false);
+    const [showApproveBm, setShowApproveBm] = useState(false);
     const [showReject, setShowReject] = useState(false);
     const [errors, setErrors] = useState({});
+
+    const isLevel1Approved = approval?.status === 'approved_bm';
+    const isPending = !approval || approval?.status === 'pending';
 
     const decide = (routeName, close) => {
         setErrors({});
@@ -429,11 +435,44 @@ function DecisionSection({ application, approval, canDecide }) {
                 <p className="mb-3 text-sm text-gray-500">Belum ada keputusan approval.</p>
             )}
 
+            {canDecideBm && isPending && (
+                <div className="space-y-3 border-t border-slate-100 pt-4">
+                    <div>
+                        <label htmlFor="decision_notes_bm" className="block text-xs font-medium text-slate-600">
+                            Catatan Rekomendasi BM (opsional)
+                        </label>
+                        <textarea
+                            id="decision_notes_bm"
+                            rows={3}
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setShowReject(true)}
+                            className="inline-flex items-center rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white transition-all hover:bg-rose-700 active:scale-95"
+                        >
+                            Tolak
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setShowApproveBm(true)}
+                            className="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition-all hover:bg-emerald-700 active:scale-95"
+                        >
+                            Setujui Level 1 (Branch Manager)
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {canDecide && (
                 <div className="space-y-3 border-t border-slate-100 pt-4">
                     <div>
                         <label htmlFor="decision_notes" className="block text-xs font-medium text-slate-600">
-                            Catatan Keputusan (opsional)
+                            Catatan Keputusan Final (opsional)
                         </label>
                         <textarea
                             id="decision_notes"
@@ -444,9 +483,7 @@ function DecisionSection({ application, approval, canDecide }) {
                         />
                     </div>
                     <p className="text-xs text-gray-500">
-                        Keputusan memakai workflow existing. Pengajuan disetujui masuk ke tahap
-                        Kelengkapan Dokumen; yang ditolak dapat dikembalikan ke draft oleh pemegang
-                        kewenangan.
+                        Keputusan final Direktur. Pengajuan disetujui masuk ke tahap Kelengkapan Dokumen.
                     </p>
                     <div className="flex flex-wrap justify-end gap-2">
                         <button
@@ -461,11 +498,20 @@ function DecisionSection({ application, approval, canDecide }) {
                             onClick={() => setShowApprove(true)}
                             className="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition-all hover:bg-emerald-700 active:scale-95"
                         >
-                            Setujui
+                            Setujui Final (Level 2)
                         </button>
                     </div>
                 </div>
             )}
+
+            <ConfirmModal
+                isOpen={showApproveBm}
+                onClose={() => setShowApproveBm(false)}
+                onConfirm={() => decide('shm.applications.approve-bm', () => setShowApproveBm(false))}
+                title="Setujui Level 1 (Branch Manager)?"
+                message={`Pengajuan ${application?.application_number ?? '-'} atas nama ${application?.customer_label ?? '-'} akan disetujui Level 1 dan diteruskan ke Direktur Utama.`}
+                confirmText="Ya, Setujui"
+            />
 
             {!canDecide && !approval && (
                 <p className="text-xs text-gray-400">

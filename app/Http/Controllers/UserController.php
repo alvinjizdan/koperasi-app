@@ -58,19 +58,21 @@ class UserController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'is_active' => $user->is_active,
+                'is_superadmin' => $user->isSuperadmin(),
                 'last_login_at' => $user->last_login_at?->format('Y-m-d H:i:s'),
                 'created_at' => $user->created_at?->format('Y-m-d H:i:s'),
                 'roles' => $user->roles->map(fn (Role $role) => [
                     'id' => $role->id,
                     'name' => $role->name,
                     'display_name' => $role->display_name,
+                    'entity' => $role->entity,
                 ])->all(),
             ]);
 
         return Inertia::render('Pengaturan/Users/Index', [
             'users' => $users,
             'sort' => $sortStatus,
-            'roles' => Role::query()->active()->orderBy('name')->get(['id', 'name', 'display_name']),
+            'roles' => Role::query()->active()->orderBy('entity')->orderBy('name')->get(['id', 'name', 'display_name', 'entity']),
             'filters' => [
                 'search' => $search,
                 'role' => $role,
@@ -88,7 +90,7 @@ class UserController extends Controller
         return Inertia::render('Pengaturan/Users/Create', [
             // T105: role Superadmin tidak ditawarkan kepada actor non-superadmin
             // (UX saja — backend tetap menolak penugasan tersebut).
-            'roles' => $this->assignableRoles($request->user())->get(['id', 'name', 'display_name', 'description']),
+            'roles' => $this->assignableRoles($request->user())->get(['id', 'name', 'display_name', 'entity', 'description']),
         ]);
     }
 
@@ -143,6 +145,7 @@ class UserController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'is_active' => $user->is_active,
+                'is_superadmin' => $user->isSuperadmin(),
                 'last_login_at' => $user->last_login_at?->format('Y-m-d H:i:s'),
                 'created_at' => $user->created_at?->format('Y-m-d H:i:s'),
                 'email_verified' => $user->email_verified_at !== null,
@@ -150,6 +153,7 @@ class UserController extends Controller
                     'id' => $role->id,
                     'name' => $role->name,
                     'display_name' => $role->display_name,
+                    'entity' => $role->entity,
                     'description' => $role->description,
                 ])->all(),
                 'permissions' => $user->effectivePermissions()
@@ -176,7 +180,7 @@ class UserController extends Controller
                 'is_active' => $user->is_active,
                 'roles' => $user->roles()->pluck('roles.id')->all(),
             ],
-            'roles' => $this->assignableRoles($request->user())->get(['id', 'name', 'display_name', 'description']),
+            'roles' => $this->assignableRoles($request->user())->get(['id', 'name', 'display_name', 'entity', 'description']),
         ]);
     }
 
@@ -407,6 +411,136 @@ class UserController extends Controller
         return redirect()
             ->back()
             ->with('success', 'Role pengguna '.$user->name.' berhasil diperbarui.');
+    }
+
+    /**
+     * Hapus pengguna secara aman (Ticket 15J.19).
+     *
+     * Invarian & Proteksi:
+     * - Superadmin tidak dapat dihapus.
+     * - Pengguna tidak dapat menghapus dirinya sendiri.
+     * - Pengguna dengan dependensi operasional/keuangan (pinjaman, persetujuan, jurnal, pembayaran, kasir)
+     *   tidak dapat dihapus untuk melindungi integritas data historis.
+     * - Transaksional: detach relasi role_user, bersihkan sesi, dan hapus akun.
+     */
+    public function destroy(Request $request, User $user): RedirectResponse
+    {
+        $actor = $request->user();
+
+        // 1. Proteksi Superadmin
+        if ($user->isSuperadmin()) {
+            return redirect()
+                ->back()
+                ->with('error', 'Akun Superadmin dilindungi sistem dan tidak dapat dihapus.');
+        }
+
+        // 2. Proteksi Self-Deletion
+        if ($user->id === $actor->id) {
+            return redirect()
+                ->back()
+                ->with('error', 'Anda tidak dapat menghapus akun Anda sendiri.');
+        }
+
+        // 3. Pengecekan Dependensi Operasional & Finansial Historis
+        $blockingDependencies = $this->checkUserDependencies($user);
+        if ($blockingDependencies !== null) {
+            return redirect()
+                ->back()
+                ->with('error', 'Pengguna '.$user->name.' tidak dapat dihapus karena terhubung dengan riwayat operasional/keuangan: '.$blockingDependencies.'. Gunakan fitur Nonaktifkan Akun.');
+        }
+
+        $userName = $user->name;
+        $userEmail = $user->email;
+        $userId = $user->id;
+        $userRoles = $user->roles()->pluck('name')->all();
+
+        DB::transaction(function () use ($user, $userId) {
+            // Detach role assignments
+            $user->roles()->detach();
+
+            // Invalidate/delete active sessions if session table exists
+            if (DB::getSchemaBuilder()->hasTable('sessions')) {
+                DB::table('sessions')->where('user_id', $userId)->delete();
+            }
+
+            // Delete user
+            $user->delete();
+        });
+
+        AuditLogger::log(
+            'user.deleted',
+            'User',
+            $userId,
+            $userEmail,
+            'Pengguna '.$userName.' ('.$userEmail.') dihapus oleh administrator.',
+            [
+                'email' => $userEmail,
+                'name' => $userName,
+                'roles_before_deletion' => $userRoles,
+            ]
+        );
+
+        return redirect()
+            ->route('pengaturan.users.index')
+            ->with('success', 'Pengguna '.$userName.' berhasil dihapus.');
+    }
+
+    /**
+     * Memeriksa apakah user memiliki referensi penting di modul pinjaman, keuangan, atau operasional.
+     */
+    private function checkUserDependencies(User $user): ?string
+    {
+        $userId = $user->id;
+
+        // Cek SHM / Makro operational records
+        if (DB::getSchemaBuilder()->hasTable('shm_loan_applications') && DB::table('shm_loan_applications')->where('marketing_id', $userId)->exists()) {
+            return 'Aplikasi Pengajuan Pinjaman SHM (Marketing)';
+        }
+        if (DB::getSchemaBuilder()->hasTable('shm_approvals') && DB::table('shm_approvals')->where('decided_by', $userId)->exists()) {
+            return 'Riwayat Keputusan Persetujuan Pinjaman SHM';
+        }
+        if (DB::getSchemaBuilder()->hasTable('shm_memorandums') && (
+            DB::table('shm_memorandums')->where('created_by', $userId)->exists() ||
+            DB::table('shm_memorandums')->where('approved_by', $userId)->exists() ||
+            DB::table('shm_memorandums')->where('submitted_by', $userId)->exists() ||
+            DB::table('shm_memorandums')->where('reviewed_by', $userId)->exists()
+        )) {
+            return 'Dokumen Memorandum Analisis SHM';
+        }
+        if (DB::getSchemaBuilder()->hasTable('shm_loan_payments') && DB::table('shm_loan_payments')->where('created_by', $userId)->exists()) {
+            return 'Riwayat Pembayaran Angsuran SHM';
+        }
+        if (DB::getSchemaBuilder()->hasTable('shm_loan_settlements') && (
+            DB::table('shm_loan_settlements')->where('created_by', $userId)->exists() ||
+            DB::table('shm_loan_settlements')->where('payment_verified_by', $userId)->exists()
+        )) {
+            return 'Pelunasan Pinjaman SHM';
+        }
+        if (DB::getSchemaBuilder()->hasTable('shm_cash_transactions') && (
+            DB::table('shm_cash_transactions')->where('created_by', $userId)->exists() ||
+            DB::table('shm_cash_transactions')->where('posted_by', $userId)->exists()
+        )) {
+            return 'Transaksi Kas SHM';
+        }
+        if (DB::getSchemaBuilder()->hasTable('shm_settlement_refunds') && (
+            DB::table('shm_settlement_refunds')->where('requested_by', $userId)->exists() ||
+            DB::table('shm_settlement_refunds')->where('approved_by', $userId)->exists()
+        )) {
+            return 'Permohonan Refund Pelunasan SHM';
+        }
+
+        // Cek Akuntansi / Jurnal umum
+        if (DB::getSchemaBuilder()->hasTable('journal_entries') && (
+            DB::table('journal_entries')->where('created_by', $userId)->exists() ||
+            DB::table('journal_entries')->where('posted_by', $userId)->exists()
+        )) {
+            return 'Entri Jurnal Akuntansi';
+        }
+        if (DB::getSchemaBuilder()->hasTable('accounting_import_batches') && DB::table('accounting_import_batches')->where('imported_by', $userId)->exists()) {
+            return 'Batch Import Akuntansi';
+        }
+
+        return null;
     }
 
     private function superadminRoleId(): ?int

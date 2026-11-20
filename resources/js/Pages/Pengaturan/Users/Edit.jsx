@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useForm } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import PasswordInput from '@/Components/PasswordInput';
 import { Edit3, ArrowLeft, Save, KeyRound } from 'lucide-react';
 
@@ -34,7 +34,7 @@ export default function Edit({ user, roles }) {
         }`;
 
     return (
-        <AdminLayout title={`Edit ${user.name}`} pageTitle="Edit Akun Pengguna">
+        <ShmLayout title={`Edit ${user.name}`} pageTitle="Edit Akun Pengguna">
             <div className="mb-6 flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-xs sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
@@ -192,6 +192,6 @@ export default function Edit({ user, roles }) {
                     </div>
                 </form>
             </div>
-        </AdminLayout>
+        </ShmLayout>
     );
 }

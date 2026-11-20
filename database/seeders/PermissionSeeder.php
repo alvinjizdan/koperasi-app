@@ -17,14 +17,18 @@ class PermissionSeeder extends Seeder
 
     public function run(): void
     {
-        foreach (app(PermissionRegistry::class)->modules() as $module => $definition) {
+        $registry = app(PermissionRegistry::class);
+
+        foreach ($registry->modules() as $module => $definition) {
             foreach ($definition['actions'] ?? [] as $action => $description) {
+                $name = $module.'.'.$action;
                 Permission::query()->updateOrCreate(
-                    ['name' => $module.'.'.$action],
+                    ['name' => $name],
                     [
                         'module' => $module,
                         'action' => $action,
                         'display_name' => $description,
+                        'entity' => $registry->entityFor($name),
                     ]
                 );
             }

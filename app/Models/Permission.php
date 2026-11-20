@@ -22,6 +22,7 @@ class Permission extends Model
         'module',
         'action',
         'display_name',
+        'entity',
     ];
 
     /** @return BelongsToMany<Role, $this> */

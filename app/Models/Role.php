@@ -32,6 +32,7 @@ class Role extends Model
         'name',
         'display_name',
         'description',
+        'entity',
         'is_system',
         'is_active',
     ];
@@ -70,6 +71,10 @@ class Role extends Model
 
     public function isSuperadmin(): bool
     {
-        return $this->name === self::SYSTEM_SUPERADMIN;
+        return (int) $this->id === 1
+            && $this->name === self::SYSTEM_SUPERADMIN
+            && $this->entity === 'shared'
+            && (bool) $this->is_system
+            && (bool) $this->is_active;
     }
 }

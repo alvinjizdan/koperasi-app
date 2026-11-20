@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import EmptyState from '@/Components/Admin/EmptyState';
 import TablePagination from '@/Components/Admin/TablePagination';
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@/Components/ui/combobox';
@@ -108,7 +108,7 @@ export default function AuditLog({ logs, actions, actors, filters }) {
         'rounded-lg border border-slate-300 bg-slate-50/50 px-3 py-2 text-xs font-medium text-slate-700 focus:border-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-900 sm:text-sm';
 
     return (
-        <AdminLayout title="Audit Trail" pageTitle="Audit Trail Sistem">
+        <ShmLayout title="Audit Trail" pageTitle="Audit Trail Sistem">
             <div className="mb-6 flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-xs sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
@@ -241,6 +241,6 @@ export default function AuditLog({ logs, actions, actors, filters }) {
 
                 <TablePagination paginator={logs} itemLabel="catatan" routeName="pengaturan.audit.index" />
             </div>
-        </AdminLayout>
+        </ShmLayout>
     );
 }

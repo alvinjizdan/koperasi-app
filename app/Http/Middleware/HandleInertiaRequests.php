@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\EntityContext;
 use App\Models\ShmApproval;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -33,14 +34,18 @@ class HandleInertiaRequests extends Middleware
     {
         $user = $request->user();
 
+        $context = app()->bound(EntityContext::class) ? app(EntityContext::class) : null;
+
         return [
             ...parent::share($request),
             'auth' => [
                 'user' => $user,
+                'entity_context' => $context?->value,
                 // Daftar nama permission efektif untuk penyesuaian tampilan (sidebar).
+                // Hanya memuat permission yang valid untuk entity context saat ini.
                 // Otorisasi tetap diverifikasi ulang di backend pada setiap request.
                 'permissions' => $user !== null
-                    ? $user->effectivePermissions()->pluck('name')->all()
+                    ? $user->effectivePermissions($context)->pluck('name')->all()
                     : [],
                 // T105: penanda khusus tampilan agar kontrol yang pasti ditolak
                 // backend (edit role sistem, dsb.) dapat disembunyikan. Bukan

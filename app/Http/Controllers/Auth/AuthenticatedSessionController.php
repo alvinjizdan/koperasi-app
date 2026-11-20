@@ -41,7 +41,12 @@ class AuthenticatedSessionController extends Controller
         // Catat waktu login terakhir untuk halaman keamanan akun.
         $request->user()?->forceFill(['last_login_at' => now()])->save();
 
-        $fallback = $request->input('context') === 'shm'
+        $user = $request->user();
+        $isExclusivelyMakro = $user !== null
+            && $user->roles()->where('roles.entity', 'makro')->exists()
+            && ! $user->roles()->whereIn('roles.entity', ['mikro', 'shared'])->exists();
+
+        $fallback = ($request->input('context') === 'shm' || $isExclusivelyMakro)
             ? route('shm.dashboard', absolute: false)
             : route('dashboard', absolute: false);
 

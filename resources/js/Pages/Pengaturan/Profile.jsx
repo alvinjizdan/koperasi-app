@@ -1,5 +1,5 @@
 import React from 'react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import SettingsForm from '@/Pages/Pengaturan/SettingsForm';
 import { Building2, CheckCircle2 } from 'lucide-react';
 
@@ -10,7 +10,7 @@ export default function Profile({ settings, definitions, flash }) {
     );
 
     return (
-        <AdminLayout title="Profil Koperasi" pageTitle="Pengaturan Profil Koperasi">
+        <ShmLayout title="Profil Koperasi" pageTitle="Pengaturan Profil Koperasi">
             {flash?.success && (
                 <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800 shadow-xs sm:text-sm">
                     <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
@@ -37,6 +37,6 @@ export default function Profile({ settings, definitions, flash }) {
                 updateRoute={route('pengaturan.profile.update')}
                 groups={[{ key: 'profil', label: 'Data Profil Koperasi' }]}
             />
-        </AdminLayout>
+        </ShmLayout>
     );
 }

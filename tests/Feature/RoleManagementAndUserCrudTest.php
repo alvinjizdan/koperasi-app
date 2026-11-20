@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\EntityContext;
 use App\Models\AuditLog;
 use App\Models\Permission;
 use App\Models\Role;
@@ -10,6 +11,7 @@ use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 /**
@@ -44,6 +46,14 @@ class RoleManagementAndUserCrudTest extends TestCase
 
         $this->admin = User::factory()->create(['name' => 'Admin Koperasi', 'is_active' => true]);
         $this->admin->roles()->attach(Role::where('name', 'admin')->value('id'));
+        // Di bawah arsitektur context-aware Ticket 23, akses rute Shared (/pengaturan/*) membutuhkan role Shared (platform_admin)
+        $platformAdminRole = Role::firstOrCreate(
+            ['name' => 'platform_admin', 'entity' => 'shared'],
+            ['display_name' => 'Platform Admin', 'is_system' => true, 'is_active' => true]
+        );
+        $sharedPerms = Permission::where('entity', 'shared')->pluck('id');
+        $platformAdminRole->permissions()->sync($sharedPerms);
+        $this->admin->roles()->attach($platformAdminRole->id);
     }
 
     // =========================================================================
@@ -85,46 +95,76 @@ class RoleManagementAndUserCrudTest extends TestCase
 
     public function test_president_director_role_is_active_and_has_approval_permissions(): void
     {
-        $pd = Role::where('name', 'direktur_utama')->firstOrFail();
-        $this->assertTrue($pd->is_active);
-        $this->assertSame('President Director (Direktur Utama)', $pd->display_name);
+        // Di bawah Ticket 23 arsitektur terpisah, wewenang approval SHM dipegang oleh direktur_utama_makro (entity: makro)
+        $pdMakro = Role::firstOrCreate(
+            ['name' => 'direktur_utama_makro', 'entity' => 'makro'],
+            ['display_name' => 'Direktur Utama Makro', 'is_system' => true, 'is_active' => true]
+        );
+        $pdMakro->permissions()->sync(
+            Permission::whereIn('name', ['shm.view', 'shm.view_all', 'shm.approval.decide'])->pluck('id')
+        );
+
+        $this->assertTrue($pdMakro->is_active);
+        $this->assertSame('makro', $pdMakro->entity);
 
         $pdUser = User::factory()->create(['is_active' => true]);
-        $pdUser->roles()->attach($pd->id);
+        $pdUser->roles()->attach($pdMakro->id);
 
-        $this->assertTrue($pdUser->hasPermission('shm.approval.decide'));
-        $this->assertTrue($pdUser->hasPermission('shm.view'));
-        $this->assertTrue($pdUser->hasPermission('shm.view_all'));
+        $this->assertTrue($pdUser->hasPermission('shm.approval.decide', EntityContext::Makro));
+        $this->assertTrue($pdUser->hasPermission('shm.view', EntityContext::Makro));
+        $this->assertTrue($pdUser->hasPermission('shm.view_all', EntityContext::Makro));
     }
 
     public function test_branch_manager_role_is_active_and_has_proper_permissions(): void
     {
-        $bm = Role::where('name', 'branch_manager')->firstOrFail();
-        $this->assertTrue($bm->is_active);
-        $this->assertSame('Branch Manager', $bm->display_name);
+        // Di bawah Ticket 23 arsitektur terpisah, BM memegang branch_manager_mikro dan branch_manager_makro
+        $bmMikro = Role::firstOrCreate(
+            ['name' => 'branch_manager_mikro', 'entity' => 'mikro'],
+            ['display_name' => 'Pimpinan Cabang Mikro', 'is_system' => true, 'is_active' => true]
+        );
+        $bmMikro->permissions()->sync(
+            Permission::whereIn('name', [
+                'dashboard.view', 'anggota.view', 'simpanan.view', 'pinjaman.view',
+                'angsuran.view', 'kasir.view', 'laporan.view', 'laporan.export',
+            ])->pluck('id')
+        );
+
+        $bmMakro = Role::firstOrCreate(
+            ['name' => 'branch_manager_makro', 'entity' => 'makro'],
+            ['display_name' => 'Pimpinan Cabang Makro', 'is_system' => true, 'is_active' => true]
+        );
+        $bmMakro->permissions()->sync(
+            Permission::whereIn('name', ['dashboard.view', 'shm.view', 'shm.view_all', 'shm.collection.view'])->pluck('id')
+        );
+
+        $this->assertTrue($bmMikro->is_active);
+        $this->assertTrue($bmMakro->is_active);
 
         $bmUser = User::factory()->create(['is_active' => true]);
-        $bmUser->roles()->attach($bm->id);
+        $bmUser->roles()->attach([$bmMikro->id, $bmMakro->id]);
 
-        // Permissions audit matrix for BM:
-        $this->assertTrue($bmUser->hasPermission('dashboard.view'));
-        $this->assertTrue($bmUser->hasPermission('anggota.view'));
-        $this->assertTrue($bmUser->hasPermission('simpanan.view'));
-        $this->assertTrue($bmUser->hasPermission('pinjaman.view'));
-        $this->assertTrue($bmUser->hasPermission('angsuran.view'));
-        $this->assertTrue($bmUser->hasPermission('kasir.view'));
-        $this->assertTrue($bmUser->hasPermission('laporan.view'));
-        $this->assertTrue($bmUser->hasPermission('laporan.export'));
-        $this->assertTrue($bmUser->hasPermission('shm.view'));
-        $this->assertTrue($bmUser->hasPermission('shm.view_all'));
-        $this->assertTrue($bmUser->hasPermission('shm.collection.view'));
+        // Permissions audit matrix for BM di Mikro context:
+        $this->assertTrue($bmUser->hasPermission('dashboard.view', EntityContext::Mikro));
+        $this->assertTrue($bmUser->hasPermission('anggota.view', EntityContext::Mikro));
+        $this->assertTrue($bmUser->hasPermission('simpanan.view', EntityContext::Mikro));
+        $this->assertTrue($bmUser->hasPermission('pinjaman.view', EntityContext::Mikro));
+        $this->assertTrue($bmUser->hasPermission('angsuran.view', EntityContext::Mikro));
+        $this->assertTrue($bmUser->hasPermission('kasir.view', EntityContext::Mikro));
+        $this->assertTrue($bmUser->hasPermission('laporan.view', EntityContext::Mikro));
+        $this->assertTrue($bmUser->hasPermission('laporan.export', EntityContext::Mikro));
+
+        // Permissions audit matrix for BM di Makro context:
+        $this->assertTrue($bmUser->hasPermission('dashboard.view', EntityContext::Makro));
+        $this->assertTrue($bmUser->hasPermission('shm.view', EntityContext::Makro));
+        $this->assertTrue($bmUser->hasPermission('shm.view_all', EntityContext::Makro));
+        $this->assertTrue($bmUser->hasPermission('shm.collection.view', EntityContext::Makro));
 
         // BM tidak boleh punya hak approval pinjaman tanpa konfirmasi
-        $this->assertFalse($bmUser->hasPermission('pinjaman.approve'));
-        $this->assertFalse($bmUser->hasPermission('shm.approval.decide'));
+        $this->assertFalse($bmUser->hasPermission('pinjaman.approve', EntityContext::Mikro));
+        $this->assertFalse($bmUser->hasPermission('shm.approval.decide', EntityContext::Makro));
         // BM tidak boleh mengelola role & user
-        $this->assertFalse($bmUser->hasPermission('role.create'));
-        $this->assertFalse($bmUser->hasPermission('pengguna.create'));
+        $this->assertFalse($bmUser->hasPermission('role.create', EntityContext::Shared));
+        $this->assertFalse($bmUser->hasPermission('pengguna.create', EntityContext::Shared));
     }
 
     public function test_superadmin_protection_cannot_be_deleted_or_reduced_to_zero(): void
@@ -321,14 +361,15 @@ class RoleManagementAndUserCrudTest extends TestCase
 
     public function test_cashier_module_and_routes_still_work_with_permissions(): void
     {
-        // Admin memegang permission kasir.* dan dapat membuka modul kasir
-        $this->actingAs($this->admin)
-            ->get(route('kasir.index'))
-            ->assertOk();
+        // Modul Kasir merupakan bagian dari BSM Mikro yang telah didecommission
+        // Memastikan rute kasir.index dan kasir.sesi.index tidak lagi terdaftar
+        $this->assertFalse(Route::has('kasir.index'));
+        $this->assertFalse(Route::has('kasir.sesi.index'));
 
+        // Memastikan akses langsung via HTTP menghasilkan 404 Not Found
         $this->actingAs($this->admin)
-            ->get(route('kasir.sesi.index'))
-            ->assertOk();
+            ->get('/kasir')
+            ->assertNotFound();
     }
 
     public function test_audit_trail_still_works_without_pengawas_role(): void

@@ -28,6 +28,7 @@ class RoleController extends Controller
                 'id' => $role->id,
                 'name' => $role->name,
                 'display_name' => $role->display_name,
+                'entity' => $role->entity,
                 'description' => $role->description,
                 'is_system' => $role->is_system,
                 'is_active' => $role->is_active,
@@ -70,6 +71,7 @@ class RoleController extends Controller
                 'name' => $validated['name'],
                 'display_name' => $validated['display_name'],
                 'description' => $validated['description'] ?? null,
+                'entity' => 'makro',
                 'is_system' => false,
                 'is_active' => true,
             ]);
@@ -100,6 +102,7 @@ class RoleController extends Controller
                 'id' => $role->id,
                 'name' => $role->name,
                 'display_name' => $role->display_name,
+                'entity' => $role->entity,
                 'description' => $role->description,
                 'is_system' => $role->is_system,
                 'is_superadmin' => $role->isSuperadmin(),
@@ -185,15 +188,24 @@ class RoleController extends Controller
     }
 
     /**
-     * Hapus role. Role sistem, role Superadmin, dan role yang masih dipakai
+     * Hapus role. Role sistem, role Superadmin, role non-makro/shared, dan role yang masih dipakai
      * pengguna tidak boleh dihapus.
      */
     public function destroy(Request $request, Role $role): RedirectResponse
     {
+        $actor = $request->user();
+
         if ($role->is_system || $role->isSuperadmin()) {
             return redirect()
                 ->back()
                 ->with('error', 'Role sistem tidak dapat dihapus.');
+        }
+
+        // Entity boundary: Role non-makro tidak dapat dihapus melalui workflow pengaturan ini
+        if ($role->entity !== 'makro' && ! $actor->isSuperadmin()) {
+            return redirect()
+                ->back()
+                ->with('error', 'Hanya role milik domain Makro yang dapat dihapus.');
         }
 
         if ($role->users()->exists()) {
@@ -203,6 +215,8 @@ class RoleController extends Controller
         }
 
         $label = $role->display_name;
+        $name = $role->name;
+        $entity = $role->entity;
 
         DB::transaction(function () use ($role) {
             $role->permissions()->detach();
@@ -213,8 +227,9 @@ class RoleController extends Controller
             'role.deleted',
             'Role',
             $role->id,
-            $role->name,
-            'Role '.$label.' dihapus.'
+            $name,
+            'Role '.$label.' dihapus.',
+            ['name' => $name, 'entity' => $entity]
         );
 
         return redirect()
@@ -268,6 +283,7 @@ class RoleController extends Controller
                 'id' => $role->id,
                 'name' => $role->name,
                 'display_name' => $role->display_name,
+                'entity' => $role->entity,
                 'description' => $role->description,
             ],
             'users' => $users,

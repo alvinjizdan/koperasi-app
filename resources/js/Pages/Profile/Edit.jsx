@@ -1,4 +1,4 @@
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import { Head } from '@inertiajs/react';
 import DeleteUserForm from './Partials/DeleteUserForm';
 import UpdatePasswordForm from './Partials/UpdatePasswordForm';
@@ -6,7 +6,7 @@ import UpdateProfileInformationForm from './Partials/UpdateProfileInformationFor
 
 export default function Edit({ mustVerifyEmail, status }) {
     return (
-        <AdminLayout title="Profil Saya" pageTitle="Profil Saya">
+        <ShmLayout title="Profil Saya" pageTitle="Profil Saya">
             <Head title="Profil Saya" />
 
             <div className="mx-auto max-w-7xl space-y-6">
@@ -26,6 +26,6 @@ export default function Edit({ mustVerifyEmail, status }) {
                     <DeleteUserForm className="max-w-xl" />
                 </div>
             </div>
-        </AdminLayout>
+        </ShmLayout>
     );
 }

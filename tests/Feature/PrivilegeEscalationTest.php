@@ -47,7 +47,13 @@ class PrivilegeEscalationTest extends TestCase
 
     private function superadminRoleId(): int
     {
-        return (int) Role::query()->where('name', Role::SYSTEM_SUPERADMIN)->value('id');
+        $role = Role::query()->where('name', Role::SYSTEM_SUPERADMIN)->firstOrFail();
+        if ($role->entity !== 'shared') {
+            $role->entity = 'shared';
+            $role->save();
+        }
+
+        return (int) $role->id;
     }
 
     /**
@@ -69,7 +75,7 @@ class PrivilegeEscalationTest extends TestCase
      *
      * @param  array<int, string>  $permissions
      */
-    private function customRole(array $permissions): Role
+    private function customRole(array $permissions, string $entity = 'shared'): Role
     {
         $role = Role::query()->create([
             'name' => 'custom_'.uniqid(),
@@ -77,6 +83,7 @@ class PrivilegeEscalationTest extends TestCase
             'description' => null,
             'is_system' => false,
             'is_active' => true,
+            'entity' => $entity,
         ]);
 
         $role->permissions()->sync(
@@ -198,18 +205,18 @@ class PrivilegeEscalationTest extends TestCase
     /** R6. Delegasi legitimate tetap berfungsi: permission yang dipegang actor boleh diberikan. */
     public function test_non_superadmin_can_grant_permissions_they_hold(): void
     {
-        $actor = $this->userWithPermissions(['role.update', 'dashboard.view', 'angsuran.view']);
+        $actor = $this->userWithPermissions(['role.update', 'dashboard.view', 'pengguna.view']);
         $target = $this->customRole(['dashboard.view']);
 
         $this->actingAs($actor)
             ->put(route('pengaturan.roles.update', $target->id), [
                 'display_name' => 'Target',
-                'permissions' => ['dashboard.view', 'angsuran.view'],
+                'permissions' => ['dashboard.view', 'pengguna.view'],
             ])
             ->assertSessionHas('success');
 
         $this->assertSame(
-            ['angsuran.view', 'dashboard.view'],
+            ['dashboard.view', 'pengguna.view'],
             $target->fresh()->permissions()->pluck('permissions.name')->sort()->values()->all()
         );
     }
@@ -437,7 +444,7 @@ class PrivilegeEscalationTest extends TestCase
             'permission_role' => DB::table('permission_role')->count(),
             'users' => User::query()->count(),
             'bm_permissions' => $systemRole->permissions()->pluck('permissions.name')->sort()->values()->all(),
-            'actor_permissions' => $actor->fresh()->effectivePermissions()->pluck('name')->sort()->values()->all(),
+            'actor_permissions' => $actor->fresh()->effectivePermissions('shared')->pluck('name')->sort()->values()->all(),
         ];
         $before = $snapshot();
 

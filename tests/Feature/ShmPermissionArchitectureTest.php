@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Enums\EntityContext;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\PermissionRegistry;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -53,6 +55,7 @@ class ShmPermissionArchitectureTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
     }
 
     // ------------------------------------------------------------------
@@ -88,12 +91,13 @@ class ShmPermissionArchitectureTest extends TestCase
 
     public function test_collection_permission_can_be_granted_and_revoked_through_role_ui(): void
     {
-        $admin = $this->userWithRole('admin');
-        $tester = $this->userWithPermissions([]);
+        $superadmin = $this->userWithRole('superadmin');
+        $superadmin->roles()->update(['entity' => 'shared']);
+        $tester = $this->userWithPermissions([], 'makro');
         $role = $tester->roles()->firstOrFail();
 
         // Grant melalui endpoint UI Role & Permission yang sama.
-        $this->actingAs($admin)
+        $this->actingAs($superadmin)
             ->put(route('pengaturan.roles.update', $role->id), [
                 'display_name' => $role->display_name,
                 'description' => $role->description,
@@ -101,11 +105,13 @@ class ShmPermissionArchitectureTest extends TestCase
             ])
             ->assertSessionHas('success');
 
+        // Pastikan container context direset dari request sebelumnya agar direct model check memakai konteks makro
+        app()->forgetInstance(EntityContext::class);
         $this->assertTrue($tester->fresh()->hasPermission('shm.collection.view'));
         $this->actingAs($tester)->get(route('shm.collection.index'))->assertOk();
 
         // Revoke melalui endpoint yang sama.
-        $this->actingAs($admin)
+        $this->actingAs($superadmin)
             ->put(route('pengaturan.roles.update', $role->id), [
                 'display_name' => $role->display_name,
                 'description' => $role->description,
@@ -113,6 +119,7 @@ class ShmPermissionArchitectureTest extends TestCase
             ])
             ->assertSessionHas('success');
 
+        app()->forgetInstance(EntityContext::class);
         $this->assertFalse($tester->fresh()->hasPermission('shm.collection.view'));
         $this->actingAs($tester)->get(route('shm.collection.index'))->assertForbidden();
     }
@@ -172,9 +179,10 @@ class ShmPermissionArchitectureTest extends TestCase
 
     public function test_role_and_permission_ui_lists_shm_module_and_collection_permissions(): void
     {
-        $admin = $this->userWithRole('admin');
+        $superadmin = $this->userWithRole('superadmin');
+        $superadmin->roles()->update(['entity' => 'shared']);
 
-        $this->actingAs($admin)
+        $this->actingAs($superadmin)
             ->get(route('pengaturan.roles.permissions'))
             ->assertOk()
             // Slash module label di-escape sebagai `\/` dalam payload JSON.
@@ -197,10 +205,10 @@ class ShmPermissionArchitectureTest extends TestCase
 
     public function test_marketing_default_role_keeps_collection_access(): void
     {
-        $marketing = $this->userWithRole('marketing');
+        $marketing = $this->userWithRole('marketing_makro');
 
         foreach (self::COLLECTION_PERMISSIONS as $name) {
-            $this->assertTrue($marketing->hasPermission($name), "Role marketing harus tetap memegang {$name} (kompatibilitas T90-T99).");
+            $this->assertTrue($marketing->hasPermission($name), "Role marketing_makro harus tetap memegang {$name} (kompatibilitas T90-T99).");
         }
 
         $this->actingAs($marketing)->get(route('shm.collection.index'))->assertOk();
@@ -223,14 +231,16 @@ class ShmPermissionArchitectureTest extends TestCase
     /**
      * @param  array<int, string>  $permissionNames
      */
-    private function userWithPermissions(array $permissionNames): User
+    private function userWithPermissions(array $permissionNames, string $entity = 'makro'): User
     {
         $user = User::factory()->create(['email_verified_at' => now()]);
 
         $role = Role::query()->create([
             'name' => 't101-'.uniqid(),
             'display_name' => 'T101 Permission Tester',
+            'entity' => $entity,
             'is_system' => false,
+            'is_active' => true,
         ]);
 
         $role->permissions()->attach(

@@ -31,7 +31,11 @@ class ShmApproval extends Model
 
     public const STATUS_PENDING = 'pending';
 
+    public const STATUS_APPROVED_BM = 'approved_bm';
+
     public const STATUS_APPROVED = 'approved';
+
+    public const STATUS_REJECTED_BM = 'rejected_bm';
 
     public const STATUS_REJECTED = 'rejected';
 
@@ -66,9 +70,14 @@ class ShmApproval extends Model
         return $this->status === self::STATUS_APPROVED;
     }
 
+    public function isApprovedBm(): bool
+    {
+        return $this->status === self::STATUS_APPROVED_BM;
+    }
+
     public function isRejected(): bool
     {
-        return $this->status === self::STATUS_REJECTED;
+        return $this->status === self::STATUS_REJECTED || $this->status === self::STATUS_REJECTED_BM;
     }
 
     public function isDecided(): bool
@@ -176,6 +185,12 @@ class ShmApproval extends Model
      */
     public static function statuses(): array
     {
-        return [self::STATUS_PENDING, self::STATUS_APPROVED, self::STATUS_REJECTED];
+        return [
+            self::STATUS_PENDING,
+            self::STATUS_APPROVED_BM,
+            self::STATUS_APPROVED,
+            self::STATUS_REJECTED_BM,
+            self::STATUS_REJECTED,
+        ];
     }
 }

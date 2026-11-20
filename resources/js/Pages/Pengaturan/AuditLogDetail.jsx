@@ -1,5 +1,5 @@
 import { Link } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import { ChevronLeft, FileSearch, ShieldCheck } from 'lucide-react';
 import { formatDateTime } from '@/utils/format';
@@ -48,7 +48,7 @@ export default function AuditLogDetail({ log }) {
     const changes = log.changes ? Object.entries(log.changes) : [];
 
     return (
-        <AdminLayout title="Detail Audit" pageTitle={`Detail Audit #${log.id}`}>
+        <ShmLayout title="Detail Audit" pageTitle={`Detail Audit #${log.id}`}>
             <Link
                 href={route('pengaturan.audit.index')}
                 className="mb-4 inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-900"
@@ -139,6 +139,6 @@ export default function AuditLogDetail({ log }) {
                 Catatan audit tidak dapat diubah atau dihapus melalui aplikasi. Field sensitif (password, token,
                 kredensial) tidak pernah dicatat.
             </div>
-        </AdminLayout>
+        </ShmLayout>
     );
 }

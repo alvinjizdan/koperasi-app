@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import { ScrollArea, ScrollBar } from '@/Components/ui/scroll-area';
 import EmptyState from '@/Components/Admin/EmptyState';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
@@ -16,6 +16,7 @@ import {
     Edit3,
     KeyRound,
     Ban,
+    Trash2,
     CheckCircle2,
     AlertCircle,
 } from 'lucide-react';
@@ -34,6 +35,8 @@ export default function Index({ users, sort, roles, filters, flash }) {
     const [status, setStatus] = useState(filters.status || 'all');
     const [toggleTarget, setToggleTarget] = useState(null);
     const [isToggling, setIsToggling] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
     const handleSort = useTableSort('pengaturan.users.index');
 
     const applyFilters = (overrides = {}) => {
@@ -61,8 +64,21 @@ export default function Index({ users, sort, roles, filters, flash }) {
         );
     };
 
+    const confirmDelete = () => {
+        if (!deleteTarget) return;
+        setIsDeleting(true);
+        router.delete(route('pengaturan.users.destroy', deleteTarget.id), {
+            onSuccess: () => {
+                setDeleteTarget(null);
+                setIsDeleting(false);
+            },
+            onError: () => setIsDeleting(false),
+            onFinish: () => setIsDeleting(false),
+        });
+    };
+
     return (
-        <AdminLayout title="Pengguna" pageTitle="Manajemen Pengguna">
+        <ShmLayout title="Pengguna" pageTitle="Manajemen Pengguna">
             {flash?.success && (
                 <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs sm:text-sm text-emerald-800 shadow-xs">
                     <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
@@ -267,6 +283,16 @@ export default function Index({ users, sort, roles, filters, flash }) {
                                                 >
                                                     {user.is_active ? <Ban className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
                                                 </button>
+                                                {!user.is_superadmin && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setDeleteTarget(user)}
+                                                        className="rounded-lg p-1.5 text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                                                        title="Hapus Pengguna"
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </button>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
@@ -300,6 +326,16 @@ export default function Index({ users, sort, roles, filters, flash }) {
                 confirmText={toggleTarget?.is_active ? 'Ya, Nonaktifkan' : 'Ya, Aktifkan'}
                 isProcessing={isToggling}
             />
-        </AdminLayout>
+
+            <ConfirmModal
+                isOpen={!!deleteTarget}
+                onClose={() => setDeleteTarget(null)}
+                onConfirm={confirmDelete}
+                title="Konfirmasi Hapus Pengguna"
+                message={`Anda akan menghapus pengguna ${deleteTarget?.name} (${deleteTarget?.email}). Status: ${deleteTarget?.is_active ? 'Aktif' : 'Nonaktif'}, Role: ${deleteTarget?.roles?.map(r => r.display_name).join(', ') || 'Tanpa Role'}. Jika pengguna ini memiliki riwayat transaksi operasional atau keuangan, penghapusan akan ditolak sistem untuk menjaga integritas data. Tindakan ini tidak dapat dibatalkan.`}
+                confirmText="Ya, Hapus Pengguna"
+                isProcessing={isDeleting}
+            />
+        </ShmLayout>
     );
 }

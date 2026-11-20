@@ -248,6 +248,8 @@ class ShmApprovalController extends Controller
             // permission existing; UI lain hanya membaca.
             'can_decide' => $application->status === ShmApplicationStatus::Approval
                 && Gate::allows('shm.approval.decide'),
+            'can_decide_bm' => $application->status === ShmApplicationStatus::Approval
+                && Gate::allows('shm.approval.bm'),
             'history' => $this->auditHistory(ShmApplication::class, $application->id),
             'flash' => [
                 'success' => session('success'),
@@ -348,7 +350,7 @@ class ShmApprovalController extends Controller
     private function authorizeAction(): void
     {
         abort_unless(
-            Gate::allows('shm.approval.decide'),
+            Gate::allows('shm.approval.decide') || Gate::allows('shm.approval.bm'),
             403,
             'Anda tidak memiliki hak akses untuk modul approval.'
         );

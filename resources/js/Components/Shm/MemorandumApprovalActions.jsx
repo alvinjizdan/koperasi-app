@@ -17,17 +17,25 @@ import {
 
 export default function MemorandumApprovalActions({
     memorandum,
+    credit_check = null,
+    active_exception = null,
     can_submit,
     can_start_review,
     can_approve,
     can_reject,
 }) {
+    const isCcCompleted = credit_check?.status === 'completed';
+    const hasActiveException = Boolean(
+        active_exception && (active_exception.status === 'authorized' || active_exception.exception_number)
+    );
+
     const [confirmModal, setConfirmModal] = useState({
         open: false,
         action: null, // 'submit' | 'start-review' | 'approve'
         title: '',
         message: '',
         notes: '',
+        error: '',
     });
 
     const [rejectModal, setRejectModal] = useState({
@@ -45,6 +53,7 @@ export default function MemorandumApprovalActions({
             title,
             message,
             notes: '',
+            error: '',
         });
     };
 
@@ -55,11 +64,13 @@ export default function MemorandumApprovalActions({
             title: '',
             message: '',
             notes: '',
+            error: '',
         });
     };
 
     const handleExecuteConfirm = (e) => {
         e.preventDefault();
+
         setProcessing(true);
 
         const routeName = `shm.memorandums.${confirmModal.action}`;
@@ -67,8 +78,20 @@ export default function MemorandumApprovalActions({
             route(routeName, memorandum.id),
             { notes: confirmModal.notes },
             {
+                onError: (errors) => {
+                    const errorMsg =
+                        errors.notes ||
+                        errors.credit_checking ||
+                        errors.general ||
+                        'Terjadi kesalahan saat memproses permohonan.';
+                    setConfirmModal((prev) => ({
+                        ...prev,
+                        error: errorMsg,
+                    }));
+                },
                 onFinish: () => {
                     setProcessing(false);
+                    // Jika tidak ada error di page flash/errors, tutup modal
                     handleCloseConfirm();
                 },
             }
@@ -218,17 +241,24 @@ export default function MemorandumApprovalActions({
                     </p>
 
                     <div className="mt-4">
-                        <InputLabel htmlFor="confirm_notes" value="Catatan Tambahan (Opsional)" className="text-xs" />
+                        <InputLabel
+                            htmlFor="confirm_notes"
+                            value="Catatan Tambahan (Opsional)"
+                            className="text-xs"
+                        />
                         <textarea
                             id="confirm_notes"
                             value={confirmModal.notes}
                             onChange={(e) =>
-                                setConfirmModal((prev) => ({ ...prev, notes: e.target.value }))
+                                setConfirmModal((prev) => ({ ...prev, notes: e.target.value, error: '' }))
                             }
                             rows={3}
-                            className="mt-1 block w-full rounded-md border-slate-300 text-xs shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            className="mt-1 block w-full rounded-md text-xs shadow-sm border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
                             placeholder="Tulis catatan jika diperlukan..."
                         />
+                        {confirmModal.error && (
+                            <InputError message={confirmModal.error} className="mt-1 text-xs" />
+                        )}
                     </div>
 
                     <div className="mt-6 flex justify-end gap-3">

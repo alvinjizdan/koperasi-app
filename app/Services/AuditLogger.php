@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\EntityContext;
 use App\Models\AuditLog;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
@@ -41,15 +42,24 @@ class AuditLogger
         ?string $objectLabel = null,
         ?string $description = null,
         ?array $changes = null,
+        ?int $actorId = null,
     ): AuditLog {
+        $sanitizedChanges = $changes !== null ? self::sanitize($changes) : [];
+
+        // Rekam metadata entity_context aktif jika terikat pada container
+        if (app()->bound(EntityContext::class)) {
+            $context = app(EntityContext::class);
+            $sanitizedChanges['_entity_context'] = $context->value;
+        }
+
         return AuditLog::query()->create([
-            'actor_id' => Auth::id(),
+            'actor_id' => $actorId ?? Auth::id(),
             'action' => $action,
             'object_type' => $objectType,
             'object_id' => $objectId,
             'object_label' => $objectLabel !== null ? mb_substr($objectLabel, 0, 150) : null,
             'description' => $description,
-            'changes' => $changes !== null ? self::sanitize($changes) : null,
+            'changes' => $sanitizedChanges === [] ? null : $sanitizedChanges,
             'ip_address' => Request::ip(),
         ]);
     }

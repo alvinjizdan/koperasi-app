@@ -1,5 +1,5 @@
 import React from 'react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import SettingsForm from '@/Pages/Pengaturan/SettingsForm';
 import { CalendarClock, AlertCircle, CheckCircle2 } from 'lucide-react';
 
@@ -10,7 +10,7 @@ export default function Operational({ settings, definitions, flash }) {
     );
 
     return (
-        <AdminLayout title="Pengaturan Operasional" pageTitle="Pengaturan Operasional Dasar">
+        <ShmLayout title="Pengaturan Operasional" pageTitle="Pengaturan Operasional Dasar">
             {flash?.success && (
                 <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800 shadow-xs sm:text-sm">
                     <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
@@ -45,6 +45,6 @@ export default function Operational({ settings, definitions, flash }) {
                 updateRoute={route('pengaturan.operational.update')}
                 groups={[{ key: 'operasional', label: 'Preferensi Operasional' }]}
             />
-        </AdminLayout>
+        </ShmLayout>
     );
 }

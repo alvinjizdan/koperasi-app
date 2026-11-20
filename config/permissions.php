@@ -112,6 +112,8 @@ return [
                 // karena KSP belum memutuskan pemisahan kewenangan tersebut.
                 'credit_checking.view' => 'Melihat proses & hasil credit checking pengajuan',
                 'credit_checking.update' => 'Mengerjakan & menyelesaikan credit checking pengajuan',
+                'credit_checking.override_fail' => 'Memberikan dispensasi khusus eksekutif untuk hasil credit checking FAIL',
+                'credit_checking.bypass_completion' => 'Memberikan dispensasi khusus eksekutif untuk bypass tahap credit checking',
                 'memorandum.update' => 'Mencatat memorandum pengajuan',
                 'memorandum.submit' => 'Mengajukan memorandum untuk approval',
                 'memorandum.review' => 'Memeriksa & mereview memorandum pengajuan',
@@ -200,6 +202,7 @@ return [
                 'savings.product.manage' => 'Mengelola master produk simpanan SHM',
                 'savings.account.create' => 'Membuka rekening simpanan SHM',
                 'savings.transaction.create' => 'Mencatat transaksi setoran/penarikan simpanan SHM',
+                'role.update' => 'Mengelola role dan hak akses operasional BSM Makro',
             ],
         ],
 
@@ -311,6 +314,8 @@ return [
                 'shm.view',
                 'shm.view_all',
                 'shm.approval.decide',
+                'shm.credit_checking.override_fail',
+                'shm.credit_checking.bypass_completion',
             ],
         ],
         'branch_manager' => [

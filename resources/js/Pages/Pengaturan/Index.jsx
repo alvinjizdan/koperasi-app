@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import {
     Building2,
     CalendarClock,
@@ -66,7 +66,7 @@ export default function Index({ can }) {
     const available = sections.filter((section) => !section.permission || can?.[section.permission]);
 
     return (
-        <AdminLayout title="Pengaturan" pageTitle="Pengaturan Sistem">
+        <ShmLayout title="Pengaturan" pageTitle="Pengaturan Sistem">
             <div className="mb-6 rounded-xl border border-slate-200 bg-white p-6 shadow-xs">
                 <h2 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
                     Pusat Pengaturan
@@ -110,6 +110,6 @@ export default function Index({ can }) {
                     })}
                 </div>
             )}
-        </AdminLayout>
+        </ShmLayout>
     );
 }

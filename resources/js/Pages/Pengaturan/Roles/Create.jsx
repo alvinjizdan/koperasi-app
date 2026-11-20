@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useForm, usePage } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import { Plus, ArrowLeft, Save, ShieldCheck } from 'lucide-react';
 
 export default function Create({ modules }) {
@@ -41,7 +41,7 @@ export default function Create({ modules }) {
     };
 
     return (
-        <AdminLayout title="Tambah Role" pageTitle="Form Role Baru">
+        <ShmLayout title="Tambah Role" pageTitle="Form Role Baru">
             <div className="mb-6 flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-xs sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
@@ -199,6 +199,6 @@ export default function Create({ modules }) {
                     </button>
                 </div>
             </form>
-        </AdminLayout>
+        </ShmLayout>
     );
 }

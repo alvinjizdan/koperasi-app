@@ -10,6 +10,7 @@ use App\Models\ShmLoan;
 use App\Models\ShmLoanApplication;
 use App\Models\ShmLoanProduct;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -44,18 +45,36 @@ class ShmPermissionRoleMatrixVerificationTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         // 1. Superadmin User
         $this->superadmin = User::factory()->create();
         $this->superadmin->roles()->attach(Role::where('name', 'superadmin')->value('id'));
 
-        // 2. Admin User
+        // 2. Admin User (diberi platform_admin shared untuk mengelola modul shared /pengaturan/* serta admin_makro untuk shm)
         $this->admin = User::factory()->create();
-        $this->admin->roles()->attach(Role::where('name', 'admin')->value('id'));
+        $adminRole = Role::where('name', 'admin')->first();
+        if ($adminRole) {
+            $this->admin->roles()->attach($adminRole->id);
+        }
+        $platformAdminRole = Role::firstOrCreate(
+            ['name' => 'platform_admin', 'entity' => 'shared'],
+            ['display_name' => 'Platform Admin', 'is_system' => true, 'is_active' => true]
+        );
+        $platformAdminRole->permissions()->sync(Permission::where('entity', 'shared')->pluck('id'));
+        $this->admin->roles()->attach($platformAdminRole->id);
+
+        $adminMakroRole = Role::where('name', 'admin_makro')->first();
+        if ($adminMakroRole) {
+            $this->admin->roles()->attach($adminMakroRole->id);
+        }
 
         // 3. Marketing User
         $this->marketing = User::factory()->create();
-        $this->marketing->roles()->attach(Role::where('name', 'marketing')->value('id'));
+        $marketingMakroRole = Role::where('name', 'marketing_makro')->first() ?? Role::where('name', 'marketing')->first();
+        if ($marketingMakroRole) {
+            $this->marketing->roles()->attach($marketingMakroRole->id);
+        }
 
         // 4. Kasir User
         $this->kasir = User::factory()->create();

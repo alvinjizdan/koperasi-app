@@ -63,6 +63,15 @@ class User extends Authenticatable
      */
     public function hasPermission(string $name): bool
     {
+        // Invariant CC-03A / CC-05: Superadmin adalah administrator teknis,
+        // BUKAN otoritas bisnis untuk dispensasi kelayakan kredit/pengecualian pembiayaan.
+        if (in_array($name, ['shm.credit_checking.override_fail', 'shm.credit_checking.bypass_completion'], true)) {
+            return Permission::query()
+                ->where('permissions.name', $name)
+                ->whereHas('roles.users', fn ($q) => $q->where('users.id', $this->id))
+                ->exists();
+        }
+
         if ($this->isSuperadmin()) {
             return true;
         }
@@ -83,11 +92,20 @@ class User extends Authenticatable
 
     /**
      * Apakah pengguna memegang role Superadmin?
+     * Canonical 5-Factor Invariant: roles.id = 1, name = superadmin, entity = shared, is_system = true, is_active = true.
      */
     public function isSuperadmin(): bool
     {
+        if (! $this->is_active) {
+            return false;
+        }
+
         return $this->roles()
+            ->where('roles.id', 1)
             ->where('roles.name', Role::SYSTEM_SUPERADMIN)
+            ->where('roles.entity', 'shared')
+            ->where('roles.is_system', true)
+            ->where('roles.is_active', true)
             ->exists();
     }
 
@@ -104,7 +122,13 @@ class User extends Authenticatable
         return static::query()
             ->where('is_active', true)
             ->where('id', '!=', $this->id)
-            ->whereHas('roles', fn ($q) => $q->where('roles.name', Role::SYSTEM_SUPERADMIN))
+            ->whereHas('roles', function ($q) {
+                $q->where('roles.id', 1)
+                    ->where('roles.name', Role::SYSTEM_SUPERADMIN)
+                    ->where('roles.entity', 'shared')
+                    ->where('roles.is_system', true)
+                    ->where('roles.is_active', true);
+            })
             ->doesntExist();
     }
 }

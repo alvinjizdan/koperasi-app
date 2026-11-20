@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, router, useForm } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
 import PasswordInput from '@/Components/PasswordInput';
 import {
@@ -76,7 +76,7 @@ export default function Show({ user, allRoles, flash }) {
         }`;
 
     return (
-        <AdminLayout title={`Pengguna: ${user.name}`} pageTitle="Detail Akun Pengguna">
+        <ShmLayout title={`Pengguna: ${user.name}`} pageTitle="Detail Akun Pengguna">
             {flash?.success && (
                 <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800 shadow-xs sm:text-sm">
                     <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
@@ -343,6 +343,6 @@ export default function Show({ user, allRoles, flash }) {
                 confirmText={user.is_active ? 'Ya, Nonaktifkan' : 'Ya, Aktifkan'}
                 isProcessing={isToggling}
             />
-        </AdminLayout>
+        </ShmLayout>
     );
 }

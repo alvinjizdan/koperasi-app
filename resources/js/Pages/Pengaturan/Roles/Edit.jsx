@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useForm, usePage } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import ShmLayout from '@/Layouts/ShmLayout';
 import { Edit3, ArrowLeft, Save, ShieldCheck, Lock } from 'lucide-react';
 
 export default function Edit({ role, modules }) {
@@ -44,7 +44,7 @@ export default function Edit({ role, modules }) {
     };
 
     return (
-        <AdminLayout title={`Edit Role: ${role.display_name}`} pageTitle="Edit Role & Permission">
+        <ShmLayout title={`Edit Role: ${role.display_name}`} pageTitle="Edit Role & Permission">
             <div className="mb-6 flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-xs sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
@@ -215,6 +215,6 @@ export default function Edit({ role, modules }) {
                     </button>
                 </div>
             </form>
-        </AdminLayout>
+        </ShmLayout>
     );
 }
