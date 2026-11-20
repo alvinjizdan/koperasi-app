@@ -24,8 +24,14 @@ namespace App\Enums;
  */
 enum ShmCreditCheckStatus: string
 {
+    // Legacy cases (mapped for backward compatibility)
     case Pending = 'pending';
     case InProgress = 'in_progress';
+
+    // Simplified CC-09 cases
+    case Drafted = 'drafted';
+    case Approve = 'approve';
+    case Rejected = 'rejected';
     case Completed = 'completed';
 
     /**
@@ -34,14 +40,21 @@ enum ShmCreditCheckStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::Pending => 'Belum Dimulai',
+            self::Drafted, self::Pending => 'Drafted',
+            self::Approve => 'Approve',
+            self::Rejected => 'Rejected',
             self::InProgress => 'Sedang Berjalan',
-            self::Completed => 'Selesai',
+            self::Completed => 'Completed',
         };
     }
 
     /**
-     * Transisi yang diizinkan dari status ini.
+     * Transisi yang diizinkan dari status ini (CC-09 state matrix).
+     *
+     * drafted -> approve | rejected
+     * rejected -> drafted
+     * approve -> completed
+     * completed -> []
      *
      * @return array<int, self>
      */
@@ -49,7 +62,10 @@ enum ShmCreditCheckStatus: string
     {
         return match ($this) {
             self::Pending => [self::InProgress],
+            self::Drafted => [self::Approve, self::Rejected],
             self::InProgress => [self::Completed],
+            self::Approve => [self::Completed],
+            self::Rejected => [self::Drafted],
             self::Completed => [],
         };
     }
@@ -70,9 +86,24 @@ enum ShmCreditCheckStatus: string
         return $this === self::Completed;
     }
 
+    public function isDrafted(): bool
+    {
+        return $this === self::Drafted || $this === self::Pending;
+    }
+
+    public function isApprove(): bool
+    {
+        return $this === self::Approve;
+    }
+
+    public function isRejected(): bool
+    {
+        return $this === self::Rejected;
+    }
+
     public function isPending(): bool
     {
-        return $this === self::Pending;
+        return $this === self::Pending || $this === self::Drafted;
     }
 
     public function isInProgress(): bool
@@ -87,16 +118,35 @@ enum ShmCreditCheckStatus: string
 
     /**
      * Kunci warna badge pada komponen StatusBadge frontend.
-     *
-     * Dipetakan di server supaya warna badge tidak ditentukan ulang di
-     * setiap halaman.
      */
     public function badgeKey(): string
     {
         return match ($this) {
-            self::Pending => 'PENDING',
+            self::Drafted, self::Pending => 'DRAFTED',
+            self::Approve => 'APPROVED',
+            self::Rejected => 'REJECTED',
             self::InProgress => 'IN_PROGRESS',
             self::Completed => 'COMPLETED',
+        };
+    }
+
+    /**
+     * Normalisasi string status (termasuk legacy).
+     */
+    public static function normalize(string|self $status): self
+    {
+        if ($status instanceof self) {
+            return $status;
+        }
+
+        return match ($status) {
+            'pending' => self::Drafted,
+            'in_progress' => self::InProgress,
+            'drafted' => self::Drafted,
+            'approve' => self::Approve,
+            'rejected' => self::Rejected,
+            'completed' => self::Completed,
+            default => self::from($status),
         };
     }
 

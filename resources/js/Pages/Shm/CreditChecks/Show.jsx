@@ -1,74 +1,66 @@
 import React, { useState } from 'react';
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import ShmLayout from '@/Layouts/ShmLayout';
 import StatusBadge from '@/Components/Admin/StatusBadge';
-import ConfirmModal from '@/Components/Admin/ConfirmModal';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
-import InputLabel from '@/Components/InputLabel';
-import InputError from '@/Components/InputError';
+import DangerButton from '@/Components/DangerButton';
 import { formatDateTime } from '@/utils/format';
 import {
     ArrowLeft,
     ClipboardCheck,
     FileText,
-    Play,
     UserRound,
     ScrollText,
     CheckCircle2,
+    XCircle,
+    RotateCcw,
+    Loader2,
 } from 'lucide-react';
 
 /**
- * Detail Credit Checking — pusat operasional.
+ * Detail Credit Checking — pusat operasional CC-09 / CC-11.
  *
- * Bagian: pengajuan, nasabah, data checking, aksi, dan riwayat audit. Riwayat
- * memakai event audit yang sama dengan halaman pengajuan; tidak ada timeline
- * kedua.
- *
- * Ini workflow manual, BUKAN integrasi BI Checking/SLIK dan BUKAN keputusan
- * kelayakan kredit.
+ * Menampilkan: pengajuan, nasabah, status alur kerja 4-status, hasil penilaian,
+ * aksi transisi status sesuai kewenangan peran, dan riwayat audit.
  */
 export default function Show({
     credit_check,
     application,
     customer,
     timeline,
-    outcomes,
-    permissions,
     flash,
 }) {
-    const canManage = permissions?.can_manage === true;
     const isCompleted = credit_check.status === 'completed';
-    const isInProgress = credit_check.status === 'in_progress';
-    const isPending = credit_check.status === 'pending';
+    const availableTransitions = credit_check.available_transitions || [];
 
-    const [confirmComplete, setConfirmComplete] = useState(false);
+    const [transitioning, setTransitioning] = useState(false);
+    const [transitionNotes, setTransitionNotes] = useState('');
+    const [selectedTransition, setSelectedTransition] = useState(null);
 
-    const form = useForm({
-        outcome: credit_check.outcome ?? '',
-        result: credit_check.result ?? '',
-        notes: credit_check.notes ?? '',
-    });
+    const handleExecuteTransition = (targetStatus) => {
+        if (!targetStatus || transitioning) return;
 
-    const saveDraft = (event) => {
-        event.preventDefault();
-        form.put(route('shm.credit-checks.update', credit_check.id), { preserveScroll: true });
+        setTransitioning(true);
+        router.post(
+            route('shm.credit-checks.transition', credit_check.id),
+            {
+                status: targetStatus,
+                notes: transitionNotes || undefined,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setTransitioning(false);
+                    setSelectedTransition(null);
+                    setTransitionNotes('');
+                },
+                onError: () => {
+                    setTransitioning(false);
+                },
+            }
+        );
     };
-
-    const submitComplete = () => {
-        form.post(route('shm.credit-checks.complete', credit_check.id), {
-            preserveScroll: true,
-            onFinish: () => setConfirmComplete(false),
-        });
-    };
-
-    const startChecking = () => {
-        form.transform(() => ({}));
-        form.post(route('shm.applications.credit-checking.start', application.id));
-    };
-
-    const fieldClass =
-        'mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500';
 
     return (
         <ShmLayout title={`Credit Checking ${application.application_number}`}>
@@ -197,7 +189,7 @@ export default function Show({
                             </p>
                         </section>
 
-                        {/* SECTION 4 — Action */}
+                        {/* SECTION 4 — Action (CC-09 & CC-11 Workflow Reconciliation) */}
                         <section className="rounded-lg bg-white p-5 shadow">
                             <h2 className="mb-3 text-sm font-semibold uppercase text-slate-600">
                                 Tindakan
@@ -205,100 +197,100 @@ export default function Show({
 
                             {isCompleted && (
                                 <p className="text-sm text-gray-600">
-                                    Credit checking sudah selesai dan bersifat final. Riwayat
+                                    Credit checking sudah selesai (Completed) dan bersifat final. Riwayat
                                     perubahan tetap tercatat pada bagian Riwayat di samping.
                                 </p>
                             )}
 
-                            {isPending && (
-                                <div className="space-y-3">
-                                    <p className="text-sm text-gray-600">
-                                        Pengerjaan credit checking belum dimulai.
-                                    </p>
-                                    {canManage && (
-                                        <PrimaryButton onClick={startChecking}>
-                                            <Play className="mr-2 h-4 w-4" />
-                                            Mulai Checking
-                                        </PrimaryButton>
-                                    )}
-                                </div>
-                            )}
-
-                            {isInProgress && canManage && (
-                                <form onSubmit={saveDraft} className="space-y-4">
-                                    <div>
-                                        <InputLabel htmlFor="cc_outcome" value="Hasil" />
-                                        <select
-                                            id="cc_outcome"
-                                            value={form.data.outcome}
-                                            onChange={(event) =>
-                                                form.setData('outcome', event.target.value)
-                                            }
-                                            className={fieldClass}
-                                        >
-                                            <option value="">Belum ditentukan</option>
-                                            {outcomes.map((item) => (
-                                                <option key={item.value} value={item.value}>
-                                                    {item.label} — {item.description}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        <InputError message={form.errors.outcome} className="mt-1" />
-                                    </div>
-
-                                    <div>
-                                        <InputLabel htmlFor="cc_result" value="Ringkasan Hasil" />
-                                        <textarea
-                                            id="cc_result"
-                                            rows={4}
-                                            value={form.data.result}
-                                            onChange={(event) =>
-                                                form.setData('result', event.target.value)
-                                            }
-                                            className={fieldClass}
-                                        />
-                                        <InputError message={form.errors.result} className="mt-1" />
-                                    </div>
-
-                                    <div>
-                                        <InputLabel htmlFor="cc_notes" value="Catatan" />
-                                        <textarea
-                                            id="cc_notes"
-                                            rows={3}
-                                            value={form.data.notes}
-                                            onChange={(event) =>
-                                                form.setData('notes', event.target.value)
-                                            }
-                                            className={fieldClass}
-                                        />
-                                        <InputError message={form.errors.notes} className="mt-1" />
-                                    </div>
-
-                                    <div className="flex flex-wrap justify-end gap-2">
-                                        <SecondaryButton type="submit" disabled={form.processing}>
-                                            Simpan Sementara
-                                        </SecondaryButton>
-                                        <PrimaryButton
-                                            type="button"
-                                            onClick={() => setConfirmComplete(true)}
-                                            disabled={form.processing}
-                                        >
-                                            <CheckCircle2 className="mr-2 h-4 w-4" />
-                                            Selesaikan Checking
-                                        </PrimaryButton>
-                                    </div>
-
-                                    <p className="text-xs text-gray-500">
-                                        Menyelesaikan checking memerlukan hasil dan ringkasan.
-                                        Setelah selesai, checking tidak dapat dibuka kembali.
-                                    </p>
-                                </form>
-                            )}
-
-                            {isInProgress && !canManage && (
-                                <p className="text-sm text-gray-600">
-                                    Anda tidak memiliki kewenangan untuk mengubah credit checking.
+                            {!isCompleted && availableTransitions.length === 0 && (
+                                <p className="text-sm text-gray-500">
+                                    Tidak ada aksi transisi status alur kerja yang tersedia untuk akun Anda saat ini.
                                 </p>
+                            )}
+
+                            {!isCompleted && availableTransitions.length > 0 && (
+                                <div className="space-y-4">
+                                    <p className="text-sm text-gray-700">
+                                        Pilih aksi untuk mengubah status Credit Checking pengajuan ini:
+                                    </p>
+
+                                    <div className="space-y-2">
+                                        <label htmlFor="transition_notes" className="block text-xs font-medium text-slate-600">
+                                            Catatan Transisi (Opsional):
+                                        </label>
+                                        <textarea
+                                            id="transition_notes"
+                                            rows={2}
+                                            value={transitionNotes}
+                                            onChange={(e) => setTransitionNotes(e.target.value)}
+                                            placeholder="Tulis catatan jika diperlukan..."
+                                            disabled={transitioning}
+                                            className="block w-full rounded-md border border-slate-300 p-2 text-xs shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        {availableTransitions.map((t) => {
+                                            if (t.value === 'approve') {
+                                                return (
+                                                    <PrimaryButton
+                                                        key={t.value}
+                                                        type="button"
+                                                        onClick={() => handleExecuteTransition('approve')}
+                                                        disabled={transitioning}
+                                                        className="inline-flex items-center gap-1.5 bg-emerald-600 text-xs hover:bg-emerald-700"
+                                                    >
+                                                        {transitioning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                                                        Setujui (Approve)
+                                                    </PrimaryButton>
+                                                );
+                                            }
+                                            if (t.value === 'rejected') {
+                                                return (
+                                                    <DangerButton
+                                                        key={t.value}
+                                                        type="button"
+                                                        onClick={() => handleExecuteTransition('rejected')}
+                                                        disabled={transitioning}
+                                                        className="inline-flex items-center gap-1.5 text-xs"
+                                                    >
+                                                        {transitioning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+                                                        Tolak (Rejected)
+                                                    </DangerButton>
+                                                );
+                                            }
+                                            if (t.value === 'completed') {
+                                                return (
+                                                    <PrimaryButton
+                                                        key={t.value}
+                                                        type="button"
+                                                        onClick={() => handleExecuteTransition('completed')}
+                                                        disabled={transitioning}
+                                                        className="inline-flex items-center gap-1.5 bg-indigo-600 text-xs hover:bg-indigo-700"
+                                                    >
+                                                        {transitioning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                                                        Selesaikan (Completed)
+                                                    </PrimaryButton>
+                                                );
+                                            }
+                                            if (t.value === 'drafted') {
+                                                return (
+                                                    <SecondaryButton
+                                                        key={t.value}
+                                                        type="button"
+                                                        onClick={() => handleExecuteTransition('drafted')}
+                                                        disabled={transitioning}
+                                                        className="inline-flex items-center gap-1.5 text-xs"
+                                                    >
+                                                        {transitioning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                                                        Kembalikan ke Drafted
+                                                    </SecondaryButton>
+                                                );
+                                            }
+                                            return null;
+                                        })}
+                                    </div>
+                                </div>
                             )}
                         </section>
 
@@ -411,16 +403,6 @@ export default function Show({
                     </div>
                 </div>
             </div>
-
-            <ConfirmModal
-                isOpen={confirmComplete}
-                onClose={() => setConfirmComplete(false)}
-                onConfirm={submitComplete}
-                isProcessing={form.processing}
-                title="Selesaikan Credit Checking"
-                message="Setelah diselesaikan, credit checking bersifat final dan tidak dapat dibuka kembali. Status pengajuan tidak ikut berubah."
-                confirmText="Ya, Selesaikan"
-            />
         </ShmLayout>
     );
 }

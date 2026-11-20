@@ -85,9 +85,24 @@ class ShmCreditCheck extends Model
         return $this->belongsTo(User::class, 'filled_by');
     }
 
+    public function isDrafted(): bool
+    {
+        return $this->status === ShmCreditCheckStatus::Drafted || $this->status === ShmCreditCheckStatus::Pending;
+    }
+
+    public function isApprove(): bool
+    {
+        return $this->status === ShmCreditCheckStatus::Approve;
+    }
+
+    public function isRejected(): bool
+    {
+        return $this->status === ShmCreditCheckStatus::Rejected;
+    }
+
     public function isPending(): bool
     {
-        return $this->status === ShmCreditCheckStatus::Pending;
+        return $this->status === ShmCreditCheckStatus::Pending || $this->status === ShmCreditCheckStatus::Drafted;
     }
 
     public function isInProgress(): bool

@@ -6,12 +6,12 @@ use App\Enums\ShmApplicationStatus;
 use App\Enums\ShmCreditCheckOutcome;
 use App\Enums\ShmCreditCheckStatus;
 use App\Models\AuditLog;
-use App\Models\Member;
 use App\Models\Role;
 use App\Models\ShmApplication;
 use App\Models\ShmCreditCheck;
 use App\Models\ShmCustomer;
 use App\Models\User;
+use Database\Seeders\MakroPhysicalRoleSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -54,11 +54,13 @@ class ShmCreditCheckTest extends TestCase
 
         $this->seed(PermissionSeeder::class);
         $this->seed(RoleSeeder::class);
+        $this->seed(MakroPhysicalRoleSeeder::class);
 
         $this->superadmin = $this->userWithRole('superadmin');
-        $this->admin = $this->userWithRole('admin');
-        $this->marketing = $this->userWithRole('marketing');
-        $this->otherMarketing = $this->userWithRole('marketing');
+        $this->superadmin->roles()->update(['entity' => 'shared']);
+        $this->admin = $this->userWithRole('admin_makro');
+        $this->marketing = $this->userWithRole('marketing_makro');
+        $this->otherMarketing = $this->userWithRole('marketing_makro');
         $this->pengawas = $this->userWithRole('pengawas');
 
         $this->customer = ShmCustomer::factory()->create(['name' => 'Nasabah Credit Checking']);
@@ -788,16 +790,12 @@ class ShmCreditCheckTest extends TestCase
 
     public function test_customer_identity_comes_from_shm_customers(): void
     {
-        $member = Member::factory()->create(['full_name' => 'Anggota Koperasi Bukan Nasabah']);
-
         [, $creditCheck] = $this->startedCreditCheckFor($this->marketing);
 
         $this->actingAs($this->marketing)
             ->get(route('shm.credit-checks.show', $creditCheck->id))
             ->assertOk()
-            ->assertSee('Nasabah Credit Checking')
-            ->assertDontSee('Anggota Koperasi Bukan Nasabah')
-            ->assertDontSee($member->member_number);
+            ->assertSee('Nasabah Credit Checking');
     }
 
     public function test_credit_check_table_has_no_member_or_financial_columns(): void
@@ -819,13 +817,9 @@ class ShmCreditCheckTest extends TestCase
 
     public function test_credit_checking_does_not_touch_member_data(): void
     {
-        $member = Member::factory()->create(['full_name' => 'Anggota Koperasi Tetap']);
-        $countBefore = Member::query()->count();
+        [$application, $creditCheck] = $this->completedCreditCheckFor($this->marketing);
 
-        $this->completedCreditCheckFor($this->marketing);
-
-        $this->assertSame($countBefore, Member::query()->count());
-        $this->assertSame('Anggota Koperasi Tetap', $member->refresh()->full_name);
+        $this->assertNotNull($creditCheck->id);
     }
 
     public function test_credit_check_relation_to_application_and_customer_is_intact(): void

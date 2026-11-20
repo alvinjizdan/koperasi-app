@@ -17,6 +17,7 @@ use App\Models\ShmCreditCheck;
 use App\Models\User;
 use App\Services\ShmWorkflowService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -90,8 +91,23 @@ class ShmCreditCheckController extends Controller
                 $filters['status'] === 'not_started',
                 fn (Builder $q) => $q->where(function (Builder $inner): void {
                     $inner->whereNull('shm_credit_checks.id')
-                        ->orWhere('shm_credit_checks.status', ShmCreditCheckStatus::Pending->value);
+                        ->orWhereIn('shm_credit_checks.status', ['pending', 'drafted']);
                 })
+            )
+            ->when(
+                $filters['status'] === ShmCreditCheckStatus::Drafted->value,
+                fn (Builder $q) => $q->where(function (Builder $inner): void {
+                    $inner->whereNull('shm_credit_checks.id')
+                        ->orWhereIn('shm_credit_checks.status', ['drafted', 'pending']);
+                })
+            )
+            ->when(
+                $filters['status'] === ShmCreditCheckStatus::Approve->value,
+                fn (Builder $q) => $q->where('shm_credit_checks.status', ShmCreditCheckStatus::Approve->value)
+            )
+            ->when(
+                $filters['status'] === ShmCreditCheckStatus::Rejected->value,
+                fn (Builder $q) => $q->where('shm_credit_checks.status', ShmCreditCheckStatus::Rejected->value)
             )
             ->when(
                 $filters['status'] === ShmCreditCheckStatus::InProgress->value,
@@ -136,7 +152,7 @@ class ShmCreditCheckController extends Controller
 
         $creditChecks = $query->paginate($this->resolvePerPage($request))
             ->withQueryString()
-            ->through(fn (ShmApplication $row): array => $this->processRow($row));
+            ->through(fn (ShmApplication $row): array => $this->processRow($row, $request->user()));
 
         return Inertia::render('Shm/CreditChecks/Index', [
             'credit_checks' => $creditChecks,
@@ -237,12 +253,52 @@ class ShmCreditCheckController extends Controller
 
         $this->authorizeShmOwnership($request, $application);
 
+        $user = $request->user();
+        $isBranchManager = (! $user->isSuperadmin()) && (
+            $user->hasRole('branch_manager_makro')
+            || $user->hasRole('branch_manager')
+            || $user->hasPermission('shm.approval.bm')
+        );
+
+        $isMarketing = (! $user->isSuperadmin()) && (
+            $user->hasRole('marketing_makro')
+            || $user->hasRole('marketing')
+            || $user->hasPermission('shm.credit_checking.update')
+        );
+
+        $ownsApplication = (int) $application->marketing_id === (int) $user->id;
+        $status = ShmCreditCheckStatus::normalize($creditCheck->status);
+
+        $availableTransitions = [];
+        if (! $user->isSuperadmin()) {
+            if ($status === ShmCreditCheckStatus::Drafted) {
+                if ($isBranchManager) {
+                    $availableTransitions = [
+                        ['value' => 'approve', 'label' => 'Approve'],
+                        ['value' => 'rejected', 'label' => 'Rejected'],
+                    ];
+                }
+            } elseif ($status === ShmCreditCheckStatus::Rejected) {
+                if ($isMarketing && $ownsApplication) {
+                    $availableTransitions = [
+                        ['value' => 'drafted', 'label' => 'Drafted'],
+                    ];
+                }
+            } elseif ($status === ShmCreditCheckStatus::Approve) {
+                if ($isBranchManager) {
+                    $availableTransitions = [
+                        ['value' => 'completed', 'label' => 'Completed'],
+                    ];
+                }
+            }
+        }
+
         return Inertia::render('Shm/CreditChecks/Show', [
             'credit_check' => [
                 'id' => $creditCheck->id,
-                'status' => $creditCheck->status->value,
-                'status_label' => $creditCheck->statusLabel(),
-                'status_badge' => $creditCheck->status->badgeKey(),
+                'status' => $status->value,
+                'status_label' => $status->label(),
+                'status_badge' => $status->badgeKey(),
                 'outcome' => $creditCheck->outcome?->value,
                 'outcome_label' => $creditCheck->outcome?->label(),
                 'outcome_badge' => $creditCheck->outcome?->badgeKey(),
@@ -253,6 +309,7 @@ class ShmCreditCheckController extends Controller
                 'notes' => $creditCheck->notes,
                 'created_at' => $creditCheck->created_at,
                 'updated_at' => $creditCheck->updated_at,
+                'available_transitions' => $availableTransitions,
             ],
             'application' => [
                 'id' => $application->id,
@@ -358,6 +415,41 @@ class ShmCreditCheckController extends Controller
     }
 
     /**
+     * Transisi status inline Credit Checking (Ticket CC-09).
+     */
+    public function transition(Request $request, ShmCreditCheck $creditCheck): RedirectResponse|JsonResponse
+    {
+        $request->validate([
+            'status' => ['required', 'string'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $creditCheck->loadMissing('application');
+        $this->authorizeShmOwnership($request, $creditCheck->application);
+
+        $targetStatus = ShmCreditCheckStatus::normalize($request->input('status'));
+
+        $this->workflow->transitionCreditCheck(
+            $creditCheck,
+            $targetStatus,
+            $request->user(),
+            $request->input('notes'),
+        );
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Status Credit Checking berhasil diubah menjadi {$targetStatus->label()}.",
+                'status' => $targetStatus->value,
+                'status_label' => $targetStatus->label(),
+                'status_badge' => $targetStatus->badgeKey(),
+            ]);
+        }
+
+        return back()->with('success', "Status Credit Checking berhasil diubah menjadi {$targetStatus->label()}.");
+    }
+
+    /**
      * Query dasar Proses Marketing: pengajuan pada tahap pengerjaan, dengan
      * data nasabah dan credit checking-nya di-join sekali jalan.
      *
@@ -376,6 +468,7 @@ class ShmCreditCheckController extends Controller
             ->select([
                 'shm_applications.id',
                 'shm_applications.application_number',
+                'shm_applications.marketing_id',
                 'shm_applications.shm_customer_id',
                 'shm_applications.status as application_status',
                 'shm_applications.created_at',
@@ -439,24 +532,61 @@ class ShmCreditCheckController extends Controller
      *
      * @return array<string, mixed>
      */
-    private function processRow(ShmApplication $row): array
+    private function processRow(ShmApplication $row, ?User $user = null): array
     {
         $status = $row->credit_check_status === null
             ? null
-            : ShmCreditCheckStatus::from((string) $row->credit_check_status);
+            : ShmCreditCheckStatus::normalize((string) $row->credit_check_status);
 
         $outcome = $row->credit_check_outcome === null
             ? null
-            : ShmCreditCheckOutcome::from((string) $row->credit_check_outcome);
+            : ShmCreditCheckOutcome::tryFrom((string) $row->credit_check_outcome);
 
         $action = match (true) {
             $row->credit_check_id === null => 'start',
-            $status === ShmCreditCheckStatus::Pending => 'start',
+            $status === ShmCreditCheckStatus::Pending || $status === ShmCreditCheckStatus::Drafted => 'continue',
             $status === ShmCreditCheckStatus::InProgress => 'continue',
             default => 'view',
         };
 
         $applicationStatus = ShmApplicationStatus::from((string) $row->application_status);
+
+        // Hitung available_transitions untuk inline select (Ticket CC-09 / CC-09A Strict Alignment)
+        $availableTransitions = [];
+        if ($row->credit_check_id !== null && $status !== null && $user !== null && ! $user->isSuperadmin()) {
+            // Hanya Branch Manager yang dapat melakukan transisi operasional normal
+            $isBranchManager = $user->hasRole('branch_manager_makro')
+                || $user->hasRole('branch_manager')
+                || $user->hasPermission('shm.approval.bm');
+
+            $isMarketing = $user->hasRole('marketing_makro')
+                || $user->hasRole('marketing')
+                || $user->hasPermission('shm.credit_checking.update');
+
+            $ownsApplication = (int) $row->marketing_id === (int) $user->id;
+
+            if ($status === ShmCreditCheckStatus::Drafted) {
+                if ($isBranchManager) {
+                    $availableTransitions = [
+                        ['value' => 'approve', 'label' => 'Approve'],
+                        ['value' => 'rejected', 'label' => 'Rejected'],
+                    ];
+                }
+            } elseif ($status === ShmCreditCheckStatus::Rejected) {
+                // CC-11 D-03: Marketing/AO hanya berhak transisi jika pemilik aplikasi (shm.view_all tidak memberi hak transisi)
+                if ($isMarketing && $ownsApplication) {
+                    $availableTransitions = [
+                        ['value' => 'drafted', 'label' => 'Drafted'],
+                    ];
+                }
+            } elseif ($status === ShmCreditCheckStatus::Approve) {
+                if ($isBranchManager) {
+                    $availableTransitions = [
+                        ['value' => 'completed', 'label' => 'Completed'],
+                    ];
+                }
+            }
+        }
 
         return [
             'application_id' => $row->id,
@@ -468,9 +598,10 @@ class ShmCreditCheckController extends Controller
             'customer_name' => $row->customer_name,
             'customer_nik' => $row->customer_nik,
             'credit_check_id' => $row->credit_check_id,
-            'status' => $status?->value,
-            'status_label' => $status?->label() ?? ShmCreditCheckStatus::Pending->label(),
-            'status_badge' => $status?->badgeKey() ?? ShmCreditCheckStatus::Pending->badgeKey(),
+            'status' => $status?->value ?? ShmCreditCheckStatus::Drafted->value,
+            'status_label' => $status?->label() ?? ShmCreditCheckStatus::Drafted->label(),
+            'status_badge' => $status?->badgeKey() ?? ShmCreditCheckStatus::Drafted->badgeKey(),
+            'available_transitions' => $availableTransitions,
             'outcome' => $outcome?->value,
             'outcome_label' => $outcome?->label(),
             'outcome_badge' => $outcome?->badgeKey(),
@@ -536,8 +667,9 @@ class ShmCreditCheckController extends Controller
     {
         return [
             ['value' => 'all', 'label' => 'Semua Status'],
-            ['value' => 'not_started', 'label' => 'Belum Dimulai'],
-            ['value' => ShmCreditCheckStatus::InProgress->value, 'label' => ShmCreditCheckStatus::InProgress->label()],
+            ['value' => ShmCreditCheckStatus::Drafted->value, 'label' => ShmCreditCheckStatus::Drafted->label()],
+            ['value' => ShmCreditCheckStatus::Approve->value, 'label' => ShmCreditCheckStatus::Approve->label()],
+            ['value' => ShmCreditCheckStatus::Rejected->value, 'label' => ShmCreditCheckStatus::Rejected->label()],
             ['value' => ShmCreditCheckStatus::Completed->value, 'label' => ShmCreditCheckStatus::Completed->label()],
         ];
     }

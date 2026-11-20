@@ -6,7 +6,7 @@ import StatusBadge from '@/Components/Admin/StatusBadge';
 import ConfirmModal from '@/Components/Admin/ConfirmModal';
 import useTableSort from '@/hooks/useTableSort';
 import { formatDateTime } from '@/utils/format';
-import { Filter, Play, RotateCcw, Eye, ClipboardCheck } from 'lucide-react';
+import { Filter, Play, RotateCcw, Eye, ClipboardCheck, Loader2 } from 'lucide-react';
 
 /**
  * Credit Checking → Proses Marketing.
@@ -15,8 +15,7 @@ import { Filter, Play, RotateCcw, Eye, ClipboardCheck } from 'lucide-react';
  * checking tetap muncul dengan aksi "Mulai Checking". Tidak ada baris credit
  * checking dummy yang dibuat otomatis.
  *
- * Ini workflow pencatatan manual, BUKAN integrasi BI Checking/SLIK dan bukan
- * penilaian kredit.
+ * Mendukung manajemen status inline langsung di kolom tabel (Ticket CC-09).
  */
 export default function Index({
     credit_checks,
@@ -37,6 +36,32 @@ export default function Index({
     const [dateFrom, setDateFrom] = useState(filters.date_from || '');
     const [dateTo, setDateTo] = useState(filters.date_to || '');
     const [pendingStart, setPendingStart] = useState(null);
+    const [transitioningId, setTransitioningId] = useState(null);
+    const [rowStatuses, setRowStatuses] = useState({});
+
+    const handleInlineTransition = (row, targetStatus) => {
+        if (!targetStatus || !row.credit_check_id || transitioningId) return;
+
+        const previousStatus = rowStatuses[row.id] || row.status;
+        setTransitioningId(row.id);
+        setRowStatuses((prev) => ({ ...prev, [row.id]: targetStatus }));
+
+        router.post(
+            route('shm.credit-checks.transition', row.credit_check_id),
+            { status: targetStatus },
+            {
+                preserveScroll: true,
+                preserveState: true,
+                onSuccess: () => {
+                    setTransitioningId(null);
+                },
+                onError: () => {
+                    setTransitioningId(null);
+                    setRowStatuses((prev) => ({ ...prev, [row.id]: previousStatus }));
+                },
+            }
+        );
+    };
 
     const buildParams = () => ({
         search: search || undefined,
@@ -119,9 +144,40 @@ export default function Index({
             key: 'status',
             label: 'Status Checking',
             sortable: true,
-            render: (row) => (
-                <StatusBadge status={row.status_badge} label={row.status_label} />
-            ),
+            render: (row) => {
+                const isTransitioning = transitioningId === row.id;
+                const currentStatus = rowStatuses[row.id] || row.status;
+                const hasOptions = row.available_transitions && row.available_transitions.length > 0;
+
+                if (hasOptions && row.credit_check_id) {
+                    return (
+                        <div className="flex items-center gap-1.5">
+                            <select
+                                value={currentStatus}
+                                disabled={isTransitioning}
+                                onChange={(e) => handleInlineTransition(row, e.target.value)}
+                                className="block w-32 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                            >
+                                <option value={currentStatus} disabled>
+                                    {row.status_label}
+                                </option>
+                                {row.available_transitions.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>
+                                        {opt.label}
+                                    </option>
+                                ))}
+                            </select>
+                            {isTransitioning && (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-600" />
+                            )}
+                        </div>
+                    );
+                }
+
+                return (
+                    <StatusBadge status={row.status_badge} label={row.status_label} />
+                );
+            },
         },
         {
             key: 'outcome',
